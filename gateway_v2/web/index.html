@@ -1,0 +1,719 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DernDee v2.0 - Dual Foot Dashboard</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-dark: #0f172a;
+            --panel-bg: #1e293b;
+            --text-main: #f8fafc;
+            --text-muted: #94a3b8;
+            --accent-blue: #3b82f6;
+            --accent-green: #22c55e;
+            --accent-red: #ef4444;
+            --accent-yellow: #eab308;
+            --border-color: #334155;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            background-color: var(--bg-dark);
+            color: var(--text-main);
+            font-family: 'Inter', sans-serif;
+            min-height: 100vh;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+
+        /* Header */
+        header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 20px;
+            background-color: var(--panel-bg);
+            border-radius: 12px;
+            margin-bottom: 20px;
+        }
+
+        .logo {
+            font-size: 1.5rem;
+            font-weight: 700;
+            color: var(--accent-blue);
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .version-badge {
+            font-size: 0.75rem;
+            background: linear-gradient(135deg, #3b82f6, #8b5cf6);
+            padding: 4px 10px;
+            border-radius: 999px;
+            color: white;
+        }
+
+        .status-badge {
+            padding: 8px 16px;
+            border-radius: 999px;
+            font-weight: 600;
+            font-size: 0.9rem;
+        }
+
+        .status-badge.connected {
+            background: rgba(34, 197, 94, 0.2);
+            color: var(--accent-green);
+        }
+
+        .status-badge.disconnected {
+            background: rgba(239, 68, 68, 0.2);
+            color: var(--accent-red);
+        }
+
+        /* Main Grid */
+        .main-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+        }
+
+        /* Foot Cards */
+        .foot-card {
+            background: var(--panel-bg);
+            border-radius: 16px;
+            padding: 24px;
+            border: 1px solid var(--border-color);
+        }
+
+        .foot-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+
+        .foot-title {
+            font-size: 1.25rem;
+            font-weight: 700;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .foot-icon {
+            font-size: 2rem;
+        }
+
+        .walking-indicator {
+            padding: 6px 14px;
+            border-radius: 999px;
+            font-size: 0.85rem;
+            font-weight: 600;
+        }
+
+        .walking-indicator.walking {
+            background: rgba(34, 197, 94, 0.2);
+            color: var(--accent-green);
+            animation: pulse 1s infinite;
+        }
+
+        .walking-indicator.idle {
+            background: rgba(148, 163, 184, 0.2);
+            color: var(--text-muted);
+        }
+
+        @keyframes pulse {
+
+            0%,
+            100% {
+                opacity: 1;
+            }
+
+            50% {
+                opacity: 0.5;
+            }
+        }
+
+        /* Metrics Grid */
+        .metrics-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 16px;
+        }
+
+        .metric-box {
+            background: rgba(255, 255, 255, 0.03);
+            border-radius: 12px;
+            padding: 16px;
+            text-align: center;
+        }
+
+        .metric-value {
+            font-size: 2rem;
+            font-weight: 700;
+            color: var(--accent-blue);
+            font-variant-numeric: tabular-nums;
+        }
+
+        .metric-value.warning {
+            color: var(--accent-yellow);
+        }
+
+        .metric-value.danger {
+            color: var(--accent-red);
+        }
+
+        .metric-label {
+            font-size: 0.8rem;
+            color: var(--text-muted);
+            margin-top: 4px;
+        }
+
+        .metric-unit {
+            font-size: 0.9rem;
+            color: var(--text-muted);
+        }
+
+        /* Clearance Gauge */
+        .clearance-gauge {
+            grid-column: 1 / -1;
+            padding: 20px;
+            background: linear-gradient(135deg, rgba(59, 130, 246, 0.1), rgba(139, 92, 246, 0.1));
+            border-radius: 12px;
+        }
+
+        .gauge-bar {
+            height: 20px;
+            background: #334155;
+            border-radius: 10px;
+            overflow: hidden;
+            margin-top: 10px;
+        }
+
+        .gauge-fill {
+            height: 100%;
+            background: linear-gradient(90deg, var(--accent-red), var(--accent-yellow), var(--accent-green));
+            transition: width 0.3s ease;
+        }
+
+        /* Summary Panel */
+        .summary-panel {
+            grid-column: 1 / -1;
+            background: var(--panel-bg);
+            border-radius: 16px;
+            padding: 24px;
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 20px;
+        }
+
+        .summary-item {
+            text-align: center;
+        }
+
+        .summary-value {
+            font-size: 2.5rem;
+            font-weight: 700;
+            background: linear-gradient(135deg, #3b82f6, #8b5cf6);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .summary-label {
+            color: var(--text-muted);
+            font-size: 0.9rem;
+            margin-top: 4px;
+        }
+
+        /* Feedback Toast */
+        .feedback-toast {
+            position: fixed;
+            bottom: 30px;
+            left: 50%;
+            transform: translateX(-50%);
+            padding: 16px 24px;
+            border-radius: 12px;
+            font-weight: 600;
+            font-size: 1.1rem;
+            display: none;
+            z-index: 1000;
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
+        }
+
+        .feedback-toast.warning {
+            background: linear-gradient(135deg, #f59e0b, #d97706);
+            color: white;
+        }
+
+        .feedback-toast.danger {
+            background: linear-gradient(135deg, #ef4444, #dc2626);
+            color: white;
+        }
+
+        .feedback-toast.show {
+            display: block;
+            animation: slideUp 0.3s ease;
+        }
+
+        @keyframes slideUp {
+            from {
+                transform: translateX(-50%) translateY(20px);
+                opacity: 0;
+            }
+
+            to {
+                transform: translateX(-50%) translateY(0);
+                opacity: 1;
+            }
+        }
+
+        /* Control Buttons */
+        .controls {
+            display: flex;
+            gap: 10px;
+            margin-top: 20px;
+        }
+
+        .btn {
+            padding: 12px 24px;
+            border-radius: 8px;
+            font-weight: 600;
+            border: none;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .btn-primary {
+            background: var(--accent-blue);
+            color: white;
+        }
+
+        .btn-primary:hover {
+            background: #2563eb;
+        }
+
+        .btn-secondary {
+            background: var(--panel-bg);
+            color: var(--text-main);
+            border: 1px solid var(--border-color);
+        }
+
+        .btn-secondary:hover {
+            background: #334155;
+        }
+
+        /* Debug Panel */
+        .debug-panel {
+            grid-column: 1 / -1;
+            background: rgba(0, 0, 0, 0.3);
+            border-radius: 8px;
+            padding: 16px;
+            font-family: monospace;
+            font-size: 0.8rem;
+            color: var(--text-muted);
+            max-height: 150px;
+            overflow-y: auto;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <header>
+            <div class="logo">
+                <span>🦶</span>
+                DernDee Medical
+                <span class="version-badge">v2.0</span>
+            </div>
+            <div id="connection-status" class="status-badge disconnected">Disconnected</div>
+        </header>
+
+        <div class="main-grid">
+            <!-- Left Foot Card -->
+            <div class="foot-card">
+                <div class="foot-header">
+                    <div class="foot-title">
+                        <span class="foot-icon">🦶</span>
+                        Left Foot
+                    </div>
+                    <div id="walking-l" class="walking-indicator idle">Idle</div>
+                </div>
+                <div class="metrics-grid">
+                    <div class="metric-box">
+                        <div id="stride-l" class="metric-value">--</div>
+                        <div class="metric-label">Stride Length <span class="metric-unit">cm</span></div>
+                    </div>
+                    <div class="metric-box">
+                        <div id="speed-l" class="metric-value">--</div>
+                        <div class="metric-label">Speed <span class="metric-unit">m/s</span></div>
+                    </div>
+                    <div class="clearance-gauge">
+                        <div style="display: flex; justify-content: space-between;">
+                            <span>Foot Clearance</span>
+                            <span id="clearance-l-val">-- cm</span>
+                        </div>
+                        <div class="gauge-bar">
+                            <div id="clearance-l-bar" class="gauge-fill" style="width: 50%;"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Right Foot Card -->
+            <div class="foot-card">
+                <div class="foot-header">
+                    <div class="foot-title">
+                        <span class="foot-icon" style="transform: scaleX(-1);">🦶</span>
+                        Right Foot
+                    </div>
+                    <div id="walking-r" class="walking-indicator idle">Idle</div>
+                </div>
+                <div class="metrics-grid">
+                    <div class="metric-box">
+                        <div id="stride-r" class="metric-value">--</div>
+                        <div class="metric-label">Stride Length <span class="metric-unit">cm</span></div>
+                    </div>
+                    <div class="metric-box">
+                        <div id="speed-r" class="metric-value">--</div>
+                        <div class="metric-label">Speed <span class="metric-unit">m/s</span></div>
+                    </div>
+                    <div class="clearance-gauge">
+                        <div style="display: flex; justify-content: space-between;">
+                            <span>Foot Clearance</span>
+                            <span id="clearance-r-val">-- cm</span>
+                        </div>
+                        <div class="gauge-bar">
+                            <div id="clearance-r-bar" class="gauge-fill" style="width: 50%;"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Summary Panel -->
+            <div class="summary-panel">
+                <div class="summary-item">
+                    <div id="total-steps" class="summary-value">0</div>
+                    <div class="summary-label">Total Steps</div>
+                </div>
+                <div class="summary-item">
+                    <div id="avg-stride" class="summary-value">--</div>
+                    <div class="summary-label">Avg Stride (cm)</div>
+                </div>
+                <div class="summary-item">
+                    <div id="symmetry" class="summary-value">--%</div>
+                    <div class="summary-label">Symmetry</div>
+                </div>
+                <div class="summary-item">
+                    <div id="avg-speed" class="summary-value">--</div>
+                    <div class="summary-label">Avg Speed (m/s)</div>
+                </div>
+            </div>
+
+            <!-- Controls -->
+            <div style="grid-column: 1 / -1;">
+                <div class="controls">
+                    <button id="btn-calibrate" class="btn btn-primary">Calibrate</button>
+                    <button id="btn-reset" class="btn btn-secondary">Reset</button>
+                </div>
+            </div>
+
+            <!-- Debug Panel -->
+            <div class="debug-panel" id="debug-log">
+                Waiting for connection...
+            </div>
+        </div>
+    </div>
+
+    <!-- Feedback Toast -->
+    <div id="feedback-toast" class="feedback-toast"></div>
+
+    <script>
+        const WS_URL = 'ws://localhost:8765';
+
+        // State
+        let socket;
+        let leftStrides = [];
+        let rightStrides = [];
+        let totalStepsL = 0;
+        let totalStepsR = 0;
+
+        // DOM Elements
+        const logBox = document.getElementById('debug-log');
+        const statusBadge = document.getElementById('connection-status');
+        const btnCalibrate = document.getElementById('btn-calibrate');
+        const btnReset = document.getElementById('btn-reset');
+        const feedbackToast = document.getElementById('feedback-toast');
+
+        function log(msg) {
+            const line = document.createElement('div');
+            line.textContent = `> ${msg}`;
+            logBox.appendChild(line);
+            logBox.scrollTop = logBox.scrollHeight;
+            if (logBox.children.length > 50) logBox.removeChild(logBox.firstChild);
+        }
+
+        function showFeedback(text, severity) {
+            feedbackToast.textContent = text;
+            feedbackToast.className = `feedback-toast ${severity} show`;
+            setTimeout(() => {
+                feedbackToast.classList.remove('show');
+            }, 3000);
+        }
+
+        function connectWS() {
+            socket = new WebSocket(WS_URL);
+
+            socket.onopen = () => {
+                log("Connected to DernDee v2.0");
+                statusBadge.textContent = "Connected";
+                statusBadge.classList.remove('disconnected');
+                statusBadge.classList.add('connected');
+            };
+
+            socket.onclose = () => {
+                log("Disconnected. Reconnecting...");
+                statusBadge.textContent = "Reconnecting...";
+                statusBadge.classList.remove('connected');
+                statusBadge.classList.add('disconnected');
+                setTimeout(connectWS, 2000);
+            };
+
+            socket.onmessage = (event) => {
+                try {
+                    const msg = JSON.parse(event.data);
+                    handleMessage(msg);
+                } catch (e) {
+                    console.error("Parse Error", e);
+                }
+            };
+        }
+
+        // ==== Virtual Gait Coach TTS System ====
+        let isSpeaking = false;
+        let lastSpokenTime = 0;
+        const TTS_COOLDOWN_MS = 4000;  // 4 seconds between voice
+
+        function speak(text) {
+            // Check if speech synthesis is available
+            if (!('speechSynthesis' in window)) {
+                console.warn('TTS not supported');
+                return;
+            }
+
+            // Check cooldown
+            const now = Date.now();
+            if ((now - lastSpokenTime) < TTS_COOLDOWN_MS) {
+                return;
+            }
+
+            // Cancel any ongoing speech to prevent overlap
+            if (isSpeaking) {
+                window.speechSynthesis.cancel();
+            }
+
+            const utterance = new SpeechSynthesisUtterance(text);
+            utterance.lang = 'th-TH';  // Thai language
+            utterance.rate = 0.9;       // Slightly slower for clarity
+            utterance.volume = 1.0;     // Full volume
+
+            utterance.onstart = () => {
+                isSpeaking = true;
+            };
+
+            utterance.onend = () => {
+                isSpeaking = false;
+                lastSpokenTime = Date.now();
+            };
+
+            utterance.onerror = () => {
+                isSpeaking = false;
+            };
+
+            window.speechSynthesis.speak(utterance);
+            lastSpokenTime = now;
+        }
+
+        function handleMessage(msg) {
+            if (msg.type === "DATA") {
+                const data = msg.payload;
+
+                // Support both new format (side field) and old format (name parsing)
+                let side = data.side;
+                if (!side && data.name) {
+                    side = data.name.includes('_L_') ? 'L' : 'R';
+                }
+                const prefix = side === 'L' ? 'l' : 'r';
+
+                // Walking indicator - support both is_walking (new) and is_stance (old)
+                const walkingEl = document.getElementById(`walking-${prefix}`);
+                const isWalking = data.is_walking !== undefined ? data.is_walking : !data.is_stance;
+                if (isWalking) {
+                    walkingEl.textContent = "Walking";
+                    walkingEl.classList.add('walking');
+                    walkingEl.classList.remove('idle');
+                } else {
+                    walkingEl.textContent = "Idle";
+                    walkingEl.classList.remove('walking');
+                    walkingEl.classList.add('idle');
+                }
+
+                // Update metrics if step completed
+                if (data.gait_metrics) {
+                    const m = data.gait_metrics;
+
+                    // Support both formats for stride/step length
+                    let strideLengthM = 0;
+                    if (m.stride_length_m !== undefined) {
+                        strideLengthM = m.stride_length_m;  // New format
+                    } else if (m.spatial && m.spatial.step_length_m !== undefined) {
+                        strideLengthM = m.spatial.step_length_m;  // Old format
+                    }
+
+                    // Support both formats for speed
+                    let speedMps = 0;
+                    if (m.speed_mps !== undefined) {
+                        speedMps = m.speed_mps;  // New format
+                    } else if (m.temporal && m.temporal.speed_mps !== undefined) {
+                        speedMps = m.temporal.speed_mps;  // Old format
+                    }
+
+                    // Support both formats for clearance
+                    let clearanceM = 0;
+                    if (m.clearance_m !== undefined) {
+                        clearanceM = m.clearance_m;  // New format
+                    } else if (m.spatial && m.spatial.clearance_m !== undefined) {
+                        clearanceM = m.spatial.clearance_m;  // Old format
+                    }
+
+                    // Support both formats for step count
+                    let stepCount = 0;
+                    if (m.step_count !== undefined) {
+                        stepCount = m.step_count;  // New format
+                    } else if (m.temporal && m.temporal.step_count !== undefined) {
+                        stepCount = m.temporal.step_count;  // Old format
+                    }
+
+                    // Update UI
+                    const strideCm = (strideLengthM * 100).toFixed(0);
+                    document.getElementById(`stride-${prefix}`).textContent = strideCm;
+                    document.getElementById(`speed-${prefix}`).textContent = speedMps.toFixed(2);
+
+                    // Clearance
+                    const clearanceCm = (clearanceM * 100).toFixed(1);
+                    document.getElementById(`clearance-${prefix}-val`).textContent = `${clearanceCm} cm`;
+
+                    // Clearance bar (0-10cm range)
+                    const clearancePercent = Math.min(100, (clearanceM * 100) / 10 * 100);
+                    document.getElementById(`clearance-${prefix}-bar`).style.width = `${clearancePercent}%`;
+
+                    // Clearance warning
+                    const clearanceEl = document.getElementById(`clearance-${prefix}-val`);
+                    if (clearanceM < 0.02) {
+                        clearanceEl.style.color = 'var(--accent-red)';
+                    } else if (clearanceM < 0.03) {
+                        clearanceEl.style.color = 'var(--accent-yellow)';
+                    } else {
+                        clearanceEl.style.color = 'var(--accent-green)';
+                    }
+
+                    // Track for averages
+                    if (strideLengthM > 0) {
+                        if (side === 'L') {
+                            leftStrides.push(strideLengthM);
+                            totalStepsL = stepCount || totalStepsL + 1;
+                        } else {
+                            rightStrides.push(strideLengthM);
+                            totalStepsR = stepCount || totalStepsR + 1;
+                        }
+                    }
+
+                    // Update summary
+                    document.getElementById('total-steps').textContent = totalStepsL + totalStepsR;
+
+                    const allStrides = [...leftStrides, ...rightStrides];
+                    if (allStrides.length > 0) {
+                        const avgStride = allStrides.reduce((a, b) => a + b, 0) / allStrides.length;
+                        document.getElementById('avg-stride').textContent = (avgStride * 100).toFixed(0);
+                    }
+
+                    // Symmetry - support both formats
+                    let symmetry = null;
+                    if (m.symmetry_percent !== undefined) {
+                        symmetry = m.symmetry_percent;  // New format
+                    } else if (m.quality && m.quality.symmetry_index !== undefined) {
+                        symmetry = 100 - m.quality.symmetry_index;  // Old format (index to percent)
+                    }
+                    if (symmetry !== null) {
+                        document.getElementById('symmetry').textContent = symmetry.toFixed(0) + '%';
+                    }
+
+                    log(`${side}: Stride ${strideCm}cm, Speed ${speedMps.toFixed(2)}m/s`);
+                }
+
+                // Feedback - support visual and voice
+                if (data.feedback) {
+                    const severity = data.feedback.severity ? data.feedback.severity.toLowerCase() : 'info';
+                    showFeedback(data.feedback.text, severity);
+
+                    // Virtual Gait Coach: Speak if voice_text is provided
+                    if (data.feedback.voice_text && data.feedback.should_speak !== false) {
+                        speak(data.feedback.voice_text);
+                    }
+                }
+
+            } else if (msg.type === "CALIBRATION_START") {
+                log("Calibration started...");
+                btnCalibrate.textContent = "Calibrating...";
+                btnCalibrate.disabled = true;
+            } else if (msg.type === "CALIBRATION_DONE") {
+                log("Calibration completed ✅");
+                btnCalibrate.textContent = "Calibrate";
+                btnCalibrate.disabled = false;
+            } else if (msg.type === "CALIBRATION_FAILED") {
+                log("Calibration failed ❌");
+                btnCalibrate.textContent = "Calibrate";
+                btnCalibrate.disabled = false;
+            } else if (msg.type === "SYSTEM_RESET") {
+                log("System reset");
+                leftStrides = [];
+                rightStrides = [];
+                totalStepsL = 0;
+                totalStepsR = 0;
+                document.getElementById('total-steps').textContent = '0';
+                document.getElementById('avg-stride').textContent = '--';
+                document.getElementById('symmetry').textContent = '--%';
+            }
+        }
+
+        // Button handlers
+        btnCalibrate.onclick = () => {
+            if (socket && socket.readyState === WebSocket.OPEN) {
+                socket.send("CALIBRATE");
+            }
+        };
+
+        btnReset.onclick = () => {
+            if (socket && socket.readyState === WebSocket.OPEN) {
+                socket.send("RESET");
+            }
+        };
+
+        // Boot
+        connectWS();
+    </script>
+</body>
+
+</html>

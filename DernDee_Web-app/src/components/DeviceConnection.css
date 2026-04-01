@@ -1,0 +1,1310 @@
+/* Device Connection Modal */
+.device-connection-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.5);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 2000;
+    padding: 20px;
+}
+
+.device-connection-modal {
+    background: white;
+    border-radius: 20px;
+    width: 100%;
+    max-width: 600px;
+    max-height: 90vh;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+}
+
+/* Header */
+.modal-header {
+    background: white;
+    padding: 20px 24px;
+    border-bottom: 1px solid #e0e0e0;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+.header-content {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.logo {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.logo-icon {
+    position: relative;
+    width: 40px;
+    height: 40px;
+}
+
+/* Custom Logo Image */
+.custom-logo {
+    width: 350%;
+    height: 100%;
+    object-fit: contain;
+    border-radius: 8px;
+}
+
+.person-icon {
+    position: relative;
+    width: 100%;
+    height: 100%;
+}
+
+.left-leg {
+    position: absolute;
+    bottom: 0;
+    left: 10px;
+    width: 6px;
+    height: 14px;
+    background: #4CAF50;
+    border-radius: 3px;
+}
+
+.right-leg {
+    position: absolute;
+    bottom: 0;
+    right: 10px;
+    width: 6px;
+    height: 14px;
+    background: #4CAF50;
+    border-radius: 3px;
+}
+
+.body {
+    position: absolute;
+    bottom: 14px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 14px;
+    height: 18px;
+    background: #4CAF50;
+    border-radius: 7px;
+}
+
+.wifi-signal {
+    position: absolute;
+    bottom: 24px;
+    right: 6px;
+    width: 8px;
+    height: 8px;
+    background: #2196F3;
+    border-radius: 50%;
+}
+
+.logo-text {
+    display: flex;
+    flex-direction: column;
+    font-weight: 700;
+    font-size: 18px;
+    line-height: 1;
+}
+
+.dern {
+    color: #4CAF50;
+}
+
+.dee {
+    color: #2196F3;
+}
+
+.modal-title {
+    font-size: 20px;
+    font-weight: 600;
+    color: #333;
+    margin: 0;
+}
+
+.close-button {
+    background: #f5f5f5;
+    border: none;
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    color: #666;
+}
+
+.close-button:hover {
+    background: #e0e0e0;
+    transform: scale(1.05);
+}
+
+/* Error Banner */
+.error-banner {
+    background: #ffebee;
+    border: 1px solid #ffcdd2;
+    border-radius: 8px;
+    margin: 16px 24px 0;
+    padding: 12px 16px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    color: #c62828;
+}
+
+.error-icon {
+    font-size: 18px;
+    flex-shrink: 0;
+}
+
+.error-text {
+    flex: 1;
+    font-size: 14px;
+    font-weight: 500;
+}
+
+.error-close {
+    background: none;
+    border: none;
+    color: #c62828;
+    font-size: 18px;
+    cursor: pointer;
+    padding: 4px;
+    border-radius: 4px;
+    transition: background-color 0.2s ease;
+}
+
+.error-close:hover {
+    background: rgba(198, 40, 40, 0.1);
+}
+
+/* Scan Controls */
+.scan-controls {
+    padding: 24px;
+    background: #f8f9fa;
+    border-bottom: 1px solid #e0e0e0;
+}
+
+.scan-info {
+    margin-bottom: 16px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 12px;
+}
+
+.ble-status {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.status-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    flex-shrink: 0;
+}
+
+.status-dot.supported {
+    background: #4CAF50;
+    box-shadow: 0 0 8px rgba(76, 175, 80, 0.5);
+}
+
+.status-dot.not-supported {
+    background: #F44336;
+    box-shadow: 0 0 8px rgba(244, 67, 54, 0.5);
+}
+
+.status-text {
+    font-size: 14px;
+    color: #666;
+    font-weight: 500;
+}
+
+.connected-device {
+    background: #e8f5e8;
+    padding: 6px 12px;
+    border-radius: 16px;
+    border: 1px solid #c8e6c9;
+}
+
+.connected-device .device-name {
+    font-size: 12px;
+    color: #2e7d32;
+    font-weight: 500;
+}
+
+.scan-button {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 14px 24px;
+    background: #2196F3;
+    color: white;
+    border: none;
+    border-radius: 12px;
+    font-size: 16px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    min-width: 180px;
+    justify-content: center;
+}
+
+.scan-button:hover:not(:disabled) {
+    background: #1976d2;
+    transform: translateY(-1px);
+}
+
+.scan-button:disabled {
+    opacity: 0.7;
+    cursor: not-allowed;
+    background: #ccc;
+}
+
+.scan-button.scanning {
+    background: #FF9800;
+}
+
+.scan-progress {
+    margin-top: 16px;
+    display: flex;
+    align-items: center;
+    gap: 16px;
+}
+
+.progress-bar {
+    flex: 1;
+    height: 8px;
+    background: #e0e0e0;
+    border-radius: 4px;
+    overflow: hidden;
+}
+
+.progress-fill {
+    height: 100%;
+    background: linear-gradient(90deg, #4CAF50, #2196F3);
+    border-radius: 4px;
+    transition: width 0.2s ease;
+}
+
+.progress-text {
+    font-size: 14px;
+    font-weight: 500;
+    color: #666;
+    min-width: 40px;
+}
+
+/* Device List */
+.device-list {
+    padding: 24px;
+    flex: 1;
+    overflow-y: auto;
+}
+
+.section-title {
+    font-size: 18px;
+    font-weight: 600;
+    color: #333;
+    margin: 0 0 20px 0;
+}
+
+.devices-grid {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+}
+
+.device-card {
+    background: white;
+    border: 2px solid #e0e0e0;
+    border-radius: 16px;
+    padding: 20px;
+    transition: all 0.2s ease;
+    width: 100%;
+    box-sizing: border-box;
+    position: relative;
+    overflow: hidden;
+}
+
+.device-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 8px 25px rgba(0, 0, 0, 0.1);
+}
+
+.device-card.connected {
+    border-color: #4CAF50;
+    background: #f8fff8;
+}
+
+.device-card.connecting {
+    border-color: #FF9800;
+    background: #fffbf0;
+}
+
+.device-card.available {
+    border-color: #2196F3;
+    background: #f0f8ff;
+}
+
+.device-card.error {
+    border-color: #F44336;
+    background: #fff5f5;
+}
+
+.device-header {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    margin-bottom: 16px;
+}
+
+.device-icon {
+    width: 48px;
+    height: 48px;
+    background: #e3f2fd;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #1976d2;
+    flex-shrink: 0;
+}
+
+.device-info {
+    flex: 1;
+    min-width: 0;
+}
+
+.device-name {
+    font-size: 16px;
+    font-weight: 600;
+    color: #333;
+    margin: 0;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.device-status {
+    flex-shrink: 0;
+}
+
+.status-indicator {
+    padding: 6px 12px;
+    border-radius: 20px;
+    font-size: 11px;
+    font-weight: 500;
+    text-transform: uppercase;
+    display: inline-block;
+    white-space: nowrap;
+}
+
+.status-indicator.connected {
+    background: #e8f5e8;
+    color: #4caf50;
+}
+
+.status-indicator.connecting {
+    background: #fff3e0;
+    color: #ff9800;
+}
+
+.status-indicator.available {
+    background: #e3f2fd;
+    color: #1976d2;
+}
+
+.status-indicator.error {
+    background: #ffebee;
+    color: #f44336;
+}
+
+.status-indicator.disconnected {
+    background: #f5f5f5;
+    color: #9e9e9e;
+}
+
+.device-metrics {
+    display: flex;
+    gap: 16px;
+    margin-bottom: 20px;
+    justify-content: center;
+}
+
+.metric {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-shrink: 0;
+}
+
+.metric-icon {
+    font-size: 16px;
+}
+
+.metric-value {
+    font-size: 14px;
+    font-weight: 500;
+    color: #333;
+}
+
+.device-actions {
+    text-align: right;
+    width: 100%;
+    display: flex;
+    justify-content: flex-end;
+}
+
+.connect-button {
+    width: 140px;
+    height: 44px;
+    padding: 0 20px;
+    border: none;
+    border-radius: 12px;
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    box-sizing: border-box;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.connect-button.disconnected {
+    background: #2196F3;
+    color: white;
+    box-shadow: 0 2px 8px rgba(33, 150, 243, 0.3);
+}
+
+.connect-button.disconnected:hover {
+    background: #1976d2;
+    box-shadow: 0 4px 12px rgba(33, 150, 243, 0.4);
+    transform: translateY(-1px);
+}
+
+.connect-button.available {
+    background: #4CAF50;
+    color: white;
+    box-shadow: 0 2px 8px rgba(76, 175, 80, 0.3);
+}
+
+.connect-button.available:hover {
+    background: #45a049;
+    box-shadow: 0 4px 12px rgba(76, 175, 80, 0.4);
+    transform: translateY(-1px);
+}
+
+.connect-button.connecting {
+    background: #FF9800;
+    color: white;
+    cursor: not-allowed;
+    box-shadow: 0 2px 8px rgba(255, 152, 0, 0.3);
+}
+
+.connect-button.connected {
+    background: #f44336;
+    color: white;
+    box-shadow: 0 2px 8px rgba(244, 67, 54, 0.3);
+}
+
+.connect-button.connected:hover {
+    background: #d32f2f;
+    box-shadow: 0 4px 12px rgba(244, 67, 54, 0.4);
+    transform: translateY(-1px);
+}
+
+.connect-button:disabled {
+    opacity: 0.7;
+    cursor: not-allowed;
+}
+
+/* Connection Summary */
+.connection-summary {
+    background: #f8f9fa;
+    padding: 20px 24px;
+    border-top: 1px solid #e0e0e0;
+    display: flex;
+    justify-content: space-around;
+}
+
+.summary-item {
+    text-align: center;
+}
+
+.summary-label {
+    display: block;
+    font-size: 12px;
+    color: #666;
+    margin-bottom: 4px;
+}
+
+.summary-value {
+    font-size: 18px;
+    font-weight: 600;
+    color: #333;
+}
+
+/* Footer */
+.modal-footer {
+    padding: 20px 24px;
+    background: white;
+    border-top: 1px solid #e0e0e0;
+    display: flex;
+    gap: 12px;
+    justify-content: flex-end;
+}
+
+.secondary-button {
+    padding: 12px 24px;
+    background: #f5f5f5;
+    color: #666;
+    border: none;
+    border-radius: 12px;
+    font-size: 14px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.secondary-button:hover {
+    background: #e0e0e0;
+}
+
+.primary-button {
+    padding: 12px 24px;
+    background: #4CAF50;
+    color: white;
+    border: none;
+    border-radius: 12px;
+    font-size: 14px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.primary-button:hover {
+    background: #45a049;
+}
+
+/* Responsive Design */
+@media (max-width: 768px) {
+    .device-connection-modal {
+        max-width: 500px;
+        margin: 10px;
+    }
+    
+    .modal-header,
+    .scan-controls,
+    .device-list,
+    .connection-summary,
+    .modal-footer {
+        padding: 16px 20px;
+    }
+    
+    .error-banner {
+        margin: 16px 20px 0;
+    }
+    
+    .scan-info {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 8px;
+    }
+    
+    .device-card {
+        padding: 16px;
+    }
+    
+    .device-header {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 12px;
+        text-align: center;
+    }
+    
+    .device-info {
+        text-align: center;
+        width: 100%;
+    }
+    
+    .device-status {
+        align-self: center;
+        width: 100%;
+    }
+    
+    .status-indicator {
+        width: 100%;
+        text-align: center;
+        padding: 8px 16px;
+    }
+    
+    .device-metrics {
+        justify-content: center;
+        margin-bottom: 20px;
+    }
+    
+    .device-actions {
+        justify-content: center;
+        text-align: center;
+    }
+    
+    .connect-button {
+        width: 120px;
+        height: 40px;
+        font-size: 13px;
+    }
+}
+
+@media (max-width: 480px) {
+    .device-connection-overlay {
+        padding: 10px;
+    }
+    
+    .device-connection-modal {
+        border-radius: 16px;
+        max-height: 95vh;
+        margin: 5px;
+    }
+    
+    .modal-header,
+    .scan-controls,
+    .device-list,
+    .connection-summary,
+    .modal-footer {
+        padding: 16px;
+    }
+    
+    .error-banner {
+        margin: 16px 16px 0;
+        padding: 10px 12px;
+    }
+    
+    .header-content {
+        flex-direction: column;
+        gap: 16px;
+        align-items: flex-start;
+    }
+    
+    .logo {
+        align-self: center;
+    }
+    
+    .close-button {
+        position: absolute;
+        top: 16px;
+        right: 16px;
+    }
+    
+    .scan-info {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 8px;
+    }
+    
+    .scan-button {
+        width: 100%;
+        justify-content: center;
+        padding: 16px 24px;
+        font-size: 16px;
+    }
+    
+    .device-card {
+        padding: 16px;
+        margin-bottom: 12px;
+    }
+    
+    .device-header {
+        flex-direction: column;
+        text-align: center;
+        gap: 12px;
+    }
+    
+    .device-info {
+        text-align: center;
+        width: 100%;
+    }
+    
+    .device-status {
+        align-self: center;
+        width: 100%;
+    }
+    
+    .status-indicator {
+        width: 100%;
+        text-align: center;
+        padding: 10px 16px;
+        font-size: 12px;
+    }
+    
+    .device-metrics {
+        justify-content: center;
+        margin-bottom: 20px;
+    }
+    
+    .metric {
+        flex-direction: column;
+        gap: 4px;
+        text-align: center;
+    }
+    
+    .device-actions {
+        justify-content: center;
+        text-align: center;
+    }
+    
+    .connection-summary {
+        flex-direction: column;
+        gap: 16px;
+    }
+    
+    .modal-footer {
+        flex-direction: column;
+    }
+    
+    .secondary-button,
+    .primary-button {
+        width: 100%;
+        padding: 16px 24px;
+        font-size: 16px;
+    }
+    
+    .connect-button {
+        width: 100px;
+        height: 38px;
+        font-size: 12px;
+    }
+}
+
+@media (max-width: 360px) {
+    .device-connection-modal {
+        margin: 2px;
+        border-radius: 12px;
+    }
+    
+    .modal-header,
+    .scan-controls,
+    .device-list,
+    .connection-summary,
+    .modal-footer {
+        padding: 12px;
+    }
+    
+    .device-card {
+        padding: 12px;
+    }
+    
+    .device-name {
+        font-size: 14px;
+    }
+    
+    .status-indicator {
+        font-size: 10px;
+        padding: 8px 12px;
+    }
+    
+    .connect-button {
+        width: 90px;
+        height: 36px;
+        font-size: 11px;
+        padding: 0 16px;
+    }
+}
+
+/* New Step-by-Step Flow Styles */
+
+/* Initial Screen */
+.initial-screen {
+    padding: 60px 24px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    min-height: 400px;
+}
+
+.initial-content {
+    text-align: center;
+    max-width: 400px;
+}
+
+.initial-icon {
+    font-size: 64px;
+    margin-bottom: 24px;
+}
+
+.initial-title {
+    font-size: 24px;
+    font-weight: 600;
+    color: #333;
+    margin-bottom: 12px;
+}
+
+.initial-description {
+    font-size: 16px;
+    color: #666;
+    margin-bottom: 32px;
+    line-height: 1.5;
+}
+
+.start-button {
+    padding: 16px 48px;
+    background: #2196F3;
+    color: white;
+    border: none;
+    border-radius: 12px;
+    font-size: 18px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    box-shadow: 0 4px 12px rgba(33, 150, 243, 0.3);
+}
+
+.start-button:hover {
+    background: #1976d2;
+    transform: translateY(-2px);
+    box-shadow: 0 6px 16px rgba(33, 150, 243, 0.4);
+}
+
+/* Progress Indicator */
+.progress-indicator {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    gap: 12px;
+    padding: 20px 24px;
+    background: #f8f9fa;
+    border-bottom: 1px solid #e0e0e0;
+}
+
+.progress-dot {
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    background: #e0e0e0;
+    transition: all 0.3s ease;
+}
+
+.progress-dot.completed {
+    background: #4CAF50;
+    box-shadow: 0 0 8px rgba(76, 175, 80, 0.5);
+}
+
+.progress-dot.current {
+    background: #2196F3;
+    width: 16px;
+    height: 16px;
+    box-shadow: 0 0 12px rgba(33, 150, 243, 0.6);
+}
+
+/* Body Diagram */
+.body-diagram-section {
+    padding: 24px;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    background: #f8f9fa;
+    min-height: 300px;
+}
+
+.body-diagram-container {
+    width: 100%;
+    max-width: 300px;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+}
+
+.body-diagram {
+    width: 100%;
+    height: auto;
+}
+
+.body-diagram .highlighted {
+    fill: #FF5722;
+    filter: drop-shadow(0 0 8px rgba(255, 87, 34, 0.6));
+    animation: pulse 2s infinite;
+}
+
+.pulse-indicator {
+    animation: pulse 1.5s infinite;
+}
+
+@keyframes pulse {
+    0%, 100% {
+        opacity: 1;
+        transform: scale(1);
+    }
+    50% {
+        opacity: 0.7;
+        transform: scale(1.2);
+    }
+}
+
+/* Position Info */
+.position-info {
+    padding: 20px 24px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    background: white;
+    border-bottom: 1px solid #e0e0e0;
+}
+
+.position-icon {
+    font-size: 24px;
+}
+
+.position-text {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+}
+
+.position-label {
+    font-size: 14px;
+    color: #666;
+}
+
+.position-name {
+    font-size: 18px;
+    font-weight: 600;
+    color: #333;
+}
+
+/* Scanning State */
+.scanning-state {
+    padding: 32px 24px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 16px;
+}
+
+.scanning-spinner {
+    width: 40px;
+    height: 40px;
+    border: 4px solid #e0e0e0;
+    border-top-color: #2196F3;
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+.scanning-text {
+    font-size: 16px;
+    color: #666;
+    font-weight: 500;
+}
+
+/* Device List Section */
+.device-list-section {
+    padding: 20px 24px;
+    background: white;
+}
+
+.device-list-title {
+    font-size: 16px;
+    font-weight: 600;
+    color: #333;
+    margin-bottom: 16px;
+}
+
+.device-list-items {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.device-item {
+    background: white;
+    border: 2px solid #e0e0e0;
+    border-radius: 12px;
+    padding: 16px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.device-item:hover {
+    border-color: #2196F3;
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(33, 150, 243, 0.2);
+}
+
+.device-item.connecting {
+    border-color: #FF9800;
+    background: #fffbf0;
+}
+
+.device-item-content {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+}
+
+.device-item-icon {
+    font-size: 24px;
+    flex-shrink: 0;
+}
+
+.device-item-info {
+    flex: 1;
+}
+
+.device-item-name {
+    font-size: 16px;
+    font-weight: 600;
+    color: #333;
+    margin-bottom: 4px;
+}
+
+.device-item-meta {
+    font-size: 14px;
+    color: #666;
+}
+
+.device-connecting {
+    margin-top: 12px;
+    padding-top: 12px;
+    border-top: 1px solid #e0e0e0;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    color: #FF9800;
+    font-weight: 500;
+}
+
+.connecting-spinner {
+    width: 16px;
+    height: 16px;
+    border: 2px solid #e0e0e0;
+    border-top-color: #FF9800;
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+}
+
+/* Connection Success */
+.connection-success {
+    padding: 20px 24px;
+    background: #e8f5e8;
+    border: 2px solid #4CAF50;
+    border-radius: 12px;
+    margin: 16px 24px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+}
+
+.success-icon-large {
+    font-size: 24px;
+}
+
+.success-text {
+    font-size: 16px;
+    font-weight: 600;
+    color: #2e7d32;
+}
+
+/* Action Buttons */
+.action-buttons {
+    padding: 20px 24px;
+    display: flex;
+    gap: 12px;
+    justify-content: center;
+    background: #f8f9fa;
+    border-top: 1px solid #e0e0e0;
+}
+
+.action-buttons .secondary-button {
+    flex: 1;
+    padding: 12px 16px;
+    background: white;
+    color: #666;
+    border: 2px solid #e0e0e0;
+    border-radius: 12px;
+    font-size: 14px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.action-buttons .secondary-button:hover:not(:disabled) {
+    background: #f5f5f5;
+    border-color: #2196F3;
+    color: #2196F3;
+}
+
+.action-buttons .secondary-button:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+/* Success Screen */
+.success-screen {
+    padding: 40px 24px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    min-height: 400px;
+}
+
+.success-icon {
+    font-size: 64px;
+    margin-bottom: 24px;
+}
+
+.success-title {
+    font-size: 24px;
+    font-weight: 600;
+    color: #333;
+    margin-bottom: 32px;
+}
+
+.success-summary {
+    width: 100%;
+    max-width: 500px;
+    background: #f8f9fa;
+    border-radius: 12px;
+    padding: 24px;
+    margin-bottom: 32px;
+}
+
+.summary-item {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 12px 0;
+    border-bottom: 1px solid #e0e0e0;
+}
+
+.summary-item:last-child {
+    border-bottom: none;
+}
+
+.summary-check {
+    font-size: 20px;
+    flex-shrink: 0;
+}
+
+.summary-position {
+    font-size: 16px;
+    font-weight: 600;
+    color: #333;
+    min-width: 120px;
+}
+
+.summary-device {
+    font-size: 16px;
+    color: #666;
+    flex: 1;
+}
+
+.success-actions {
+    display: flex;
+    gap: 12px;
+    width: 100%;
+    max-width: 500px;
+}
+
+.success-actions .secondary-button,
+.success-actions .primary-button {
+    flex: 1;
+    padding: 14px 24px;
+    border-radius: 12px;
+    font-size: 16px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.success-actions .secondary-button {
+    background: #f5f5f5;
+    color: #666;
+    border: 2px solid #e0e0e0;
+}
+
+.success-actions .secondary-button:hover {
+    background: #e0e0e0;
+}
+
+.success-actions .primary-button {
+    background: #4CAF50;
+    color: white;
+    border: none;
+    box-shadow: 0 4px 12px rgba(76, 175, 80, 0.3);
+}
+
+.success-actions .primary-button:hover {
+    background: #45a049;
+    transform: translateY(-2px);
+    box-shadow: 0 6px 16px rgba(76, 175, 80, 0.4);
+}
+
+/* Responsive adjustments for new UI */
+@media (max-width: 768px) {
+    .body-diagram-section {
+        min-height: 250px;
+        padding: 16px;
+    }
+
+    .body-diagram-container {
+        max-width: 200px;
+    }
+
+    .position-info {
+        padding: 16px;
+    }
+
+    .device-list-section {
+        padding: 16px;
+    }
+
+    .action-buttons {
+        flex-direction: column;
+        padding: 16px;
+    }
+
+    .action-buttons .secondary-button {
+        width: 100%;
+    }
+
+    .success-summary {
+        padding: 16px;
+    }
+
+    .summary-item {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 8px;
+    }
+
+    .summary-position {
+        min-width: auto;
+    }
+} 
