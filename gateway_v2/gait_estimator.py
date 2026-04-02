@@ -174,7 +174,7 @@ class ZUPTGaitEstimator:
     Calculates stride length, speed, clearance using ZUPT + Linear Dedrifting.
     """
     
-    def __init__(self, sample_rate=100.0):
+    def __init__(self, sample_rate=100.0, sensor_mount="foot"):
         """
         Initialize ZUPT Gait Estimator.
         
@@ -182,18 +182,41 @@ class ZUPTGaitEstimator:
             sample_rate: IMU sampling rate in Hz
         """
         self.sample_rate = sample_rate
+        self.sensor_mount = sensor_mount.lower()
         self.dt = 1.0 / sample_rate
         
         # ==== Madgwick Filter ====
         self.ahrs = MadgwickAHRS(sample_rate=sample_rate, beta=0.1)
         
         # ==== Stance Detection Parameters ====
-        self.gyro_threshold = 0.2  # rad/s - increased for faster ZUPT (was 0.2)
+        self.gyro_threshold = 0.2  # rad/s - heel-strike low-gyro threshold
         self.tilt_rate_threshold = 5.24  # rad/s^2 (~300 deg/s^2) - toe-off detection
+        self.min_toe_off_gyro_norm = 0.25
+        self.min_swing_peak_gyro_norm = 0.5
+        self.min_stance_duration_s = 0.08
+        self.min_swing_duration_s = 0.18
+        self.toe_off_confirm_samples = 2
+        self.heel_strike_confirm_samples = 3
+
+        # Shank-mounted IMUs have broader motion arcs and often cross low-gyro
+        # regions during mid-swing, so heel-strike needs stronger confirmation.
+        if self.sensor_mount == "shank":
+            self.gyro_threshold = 0.18
+            self.min_toe_off_gyro_norm = 0.30
+            self.min_swing_peak_gyro_norm = 0.75
+            self.min_stance_duration_s = 0.10
+            self.min_swing_duration_s = 0.24
+            self.toe_off_confirm_samples = 2
+            self.heel_strike_confirm_samples = 4
         
         # ==== State ====
         self.is_stance = True
         self.was_stance = True
+        self.stance_start_time_ms = None
+        self.swing_start_time_ms = None
+        self.toe_off_candidate_count = 0
+        self.heel_strike_candidate_count = 0
+        self.swing_peak_gyro_norm = 0.0
         
         # ==== Trajectory State ====
         self.position = np.zeros(3)  # [x, y, z] in meters
@@ -214,6 +237,8 @@ class ZUPTGaitEstimator:
         self.last_clearance = 0.0
         self.last_speed = 0.0
         self.total_steps = 0
+        self.recent_valid_strides = deque(maxlen=6)
+        self.last_reject_reason = None
         
         # ==== Gyro Norm History (for tilt-rate) ====
         self.gyro_norm_history = deque(maxlen=5)
@@ -324,23 +349,92 @@ class ZUPTGaitEstimator:
         self.gyro_time_history.append(current_time_ms)
         self.last_gyro_norm = gyro_norm
         
+        if self.is_stance and self.stance_start_time_ms is None:
+            self.stance_start_time_ms = current_time_ms
+        if (not self.is_stance) and self.swing_start_time_ms is None:
+            self.swing_start_time_ms = current_time_ms
+
         # Stance detection logic
         is_toe_off = False
         
         if self.is_stance:
             # Currently in stance - check for toe-off
-            if tilt_rate > self.tilt_rate_threshold:
-                # High tilt-rate = toe-off detected
+            stance_duration_s = self._duration_s(self.stance_start_time_ms, current_time_ms) or 0.0
+            toe_off_candidate = (
+                stance_duration_s >= self.min_stance_duration_s and
+                tilt_rate > self.tilt_rate_threshold and
+                gyro_norm >= self.min_toe_off_gyro_norm
+            )
+
+            if toe_off_candidate:
+                self.toe_off_candidate_count += 1
+            else:
+                self.toe_off_candidate_count = 0
+
+            self.heel_strike_candidate_count = 0
+
+            if self.toe_off_candidate_count >= self.toe_off_confirm_samples:
+                # High tilt-rate + sustained motion = toe-off detected
                 is_toe_off = True
                 self.is_stance = False
+                self.swing_start_time_ms = current_time_ms
+                self.swing_peak_gyro_norm = gyro_norm
+                self.toe_off_candidate_count = 0
                 print(f"👟 [ESTIMATOR] Toe-Off detected (tilt_rate={tilt_rate:.1f} rad/s²)")
         else:
             # Currently in swing - check for heel-strike (return to stance)
-            if gyro_norm < self.gyro_threshold:
+            self.swing_peak_gyro_norm = max(self.swing_peak_gyro_norm, gyro_norm)
+            swing_duration_s = self._duration_s(self.swing_start_time_ms, current_time_ms) or 0.0
+            heel_strike_candidate = (
+                swing_duration_s >= self.min_swing_duration_s and
+                self.swing_peak_gyro_norm >= self.min_swing_peak_gyro_norm and
+                gyro_norm < self.gyro_threshold
+            )
+
+            if heel_strike_candidate:
+                self.heel_strike_candidate_count += 1
+            else:
+                self.heel_strike_candidate_count = 0
+
+            self.toe_off_candidate_count = 0
+
+            if self.heel_strike_candidate_count >= self.heel_strike_confirm_samples:
                 self.is_stance = True
+                self.stance_start_time_ms = current_time_ms
+                self.heel_strike_candidate_count = 0
                 print(f"🦶 [ESTIMATOR] Heel-Strike detected (gyro_norm={gyro_norm:.2f} rad/s)")
         
         return self.is_stance, is_toe_off
+
+    def reset_bout_state(self):
+        """Reset phase-tracking and transient integration state for a fresh walking bout."""
+        self.is_stance = True
+        self.was_stance = True
+        self.position = np.zeros(3)
+        self.velocity = np.zeros(3)
+        self.step_start_pos = np.zeros(3)
+        self.stance_start_time_ms = None
+        self.swing_start_time_ms = None
+        self.stride_start_time_ms = None
+        self.toe_off_time_ms = None
+        self.heel_strike_time_ms = None
+        self.toe_off_candidate_count = 0
+        self.heel_strike_candidate_count = 0
+        self.swing_peak_gyro_norm = 0.0
+        self.swing_accel_history = []
+        self.swing_velocity_history = []
+        self.swing_time_history = []
+        self.swing_dt_history = []
+        self.swing_gyro_history = []
+        self.swing_q_history = []
+        self.gyro_norm_history.clear()
+        self.gyro_time_history.clear()
+        self.last_gyro_norm = 0.0
+        self.max_z_in_swing = 0.0
+        self.ground_z = 0.0
+        self.max_forward_velocity = 0.0
+        self.touchdown_pitch = 0.0
+        self.max_yaw_rate = 0.0
     
     def linear_dedrift(self, velocity_history, time_history):
         """
@@ -387,6 +481,120 @@ class ZUPTGaitEstimator:
             return None
 
         return duration_ms / 1000.0
+
+    def _get_validation_profile(self):
+        """Return mount-specific plausibility thresholds for completed steps."""
+        is_shank = self.sensor_mount == "shank"
+        return {
+            "stride_min": 0.08 if is_shank else 0.10,
+            "stride_max": 1.80 if is_shank else 1.50,
+            "clearance_max": 1.20 if is_shank else 0.40,
+            "swing_min": 0.10 if is_shank else 0.15,
+            "swing_max": 2.00 if is_shank else 1.50,
+            "stride_duration_min": 0.25 if is_shank else 0.30,
+            "stride_duration_max": 3.50 if is_shank else 3.00,
+            "speed_min": 0.03 if is_shank else 0.05,
+            "speed_max": 3.20 if is_shank else 2.50,
+            "history_required": 5 if is_shank else 3,
+            "lower_scale": 0.35 if is_shank else 0.50,
+            "upper_scale": 2.50 if is_shank else 1.80,
+            "absolute_lower": 0.08 if is_shank else 0.12,
+        }
+
+    def _should_rollback_heel_strike(self, reason, stride_length, speed, swing_duration_s):
+        """
+        Decide whether an invalid completed-step candidate should be treated as a
+        false heel-strike so the swing can continue instead of being truncated.
+        """
+        profile = self._get_validation_profile()
+
+        if reason == "swing_duration_out_of_range" and swing_duration_s is not None:
+            return swing_duration_s < profile["swing_min"]
+        if reason == "stride_out_of_range":
+            return stride_length < profile["stride_min"]
+        if reason == "speed_out_of_range" and speed is not None:
+            return speed < profile["speed_min"]
+
+        return False
+
+    def _rollback_false_heel_strike(self, reason, velocity_before_zupt):
+        """Undo a spurious heel-strike so integration can continue in swing."""
+        self.is_stance = False
+        self.was_stance = False
+        self.stance_start_time_ms = None
+        self.heel_strike_candidate_count = 0
+        self.velocity = velocity_before_zupt
+        self.last_reject_reason = reason
+        print(f"↩️ [ESTIMATOR] False heel-strike ignored - continue swing ({reason})")
+
+    def _can_accept_spatial_step_with_unreliable_timing(self, reason, stride_length, clearance):
+        """
+        Shank-mounted IMUs can produce usable spatial metrics even when temporal
+        phase timing is noisy. Accept these steps but drop timing-derived outputs.
+        """
+        if self.sensor_mount != "shank":
+            return False
+        if reason not in {"swing_duration_out_of_range", "stride_duration_out_of_range", "speed_out_of_range"}:
+            return False
+        if not np.isfinite(stride_length) or not (0.12 <= stride_length <= 1.20):
+            return False
+        if not np.isfinite(clearance) or not (0.0 <= clearance <= 0.25):
+            return False
+        return True
+
+    def _validate_step_metrics(self, stride_length, clearance, speed, swing_duration_s, stride_duration_s):
+        """
+        Reject obviously implausible gait metrics before they pollute session averages.
+
+        Returns:
+            tuple[bool, str]: (is_valid, reason)
+        """
+        profile = self._get_validation_profile()
+        stride_min = profile["stride_min"]
+        stride_max = profile["stride_max"]
+        clearance_max = profile["clearance_max"]
+        swing_min = profile["swing_min"]
+        swing_max = profile["swing_max"]
+        stride_duration_min = profile["stride_duration_min"]
+        stride_duration_max = profile["stride_duration_max"]
+        speed_min = profile["speed_min"]
+        speed_max = profile["speed_max"]
+        history_required = profile["history_required"]
+        lower_scale = profile["lower_scale"]
+        upper_scale = profile["upper_scale"]
+        absolute_lower = profile["absolute_lower"]
+        absolute_upper = stride_max
+
+        if not np.isfinite(stride_length) or stride_length <= 0:
+            return False, "invalid_stride"
+        if not (stride_min <= stride_length <= stride_max):
+            return False, "stride_out_of_range"
+
+        if not np.isfinite(clearance) or clearance < 0:
+            return False, "invalid_clearance"
+        if clearance > clearance_max:
+            return False, "clearance_out_of_range"
+
+        if swing_duration_s is not None:
+            if not np.isfinite(swing_duration_s) or not (swing_min <= swing_duration_s <= swing_max):
+                return False, "swing_duration_out_of_range"
+
+        if stride_duration_s is not None:
+            if not np.isfinite(stride_duration_s) or not (stride_duration_min <= stride_duration_s <= stride_duration_max):
+                return False, "stride_duration_out_of_range"
+
+        if speed is not None:
+            if not np.isfinite(speed) or not (speed_min <= speed <= speed_max):
+                return False, "speed_out_of_range"
+
+        if len(self.recent_valid_strides) >= history_required:
+            median_stride = float(np.median(self.recent_valid_strides))
+            lower_bound = max(absolute_lower, median_stride * lower_scale)
+            upper_bound = min(absolute_upper, max(0.35, median_stride * upper_scale))
+            if not (lower_bound <= stride_length <= upper_bound):
+                return False, "stride_outlier_vs_recent_history"
+
+        return True, ""
 
     def update(self, accel, gyro, timestamp_ms, dt=None, is_walking=True):
         """
@@ -444,11 +652,14 @@ class ZUPTGaitEstimator:
             self.max_yaw_rate = 0.0
 
         if is_stance:
-            # Zero Velocity Update
-            self.velocity = np.zeros(3)
-            
+            if just_heel_strike and len(self.swing_velocity_history) <= 5:
+                self._rollback_false_heel_strike("swing_too_short_for_step", self.velocity.copy())
+                return None
+
             # If just transitioned to stance (heel-strike) - calculate step
             if just_heel_strike and len(self.swing_velocity_history) > 5:
+                velocity_before_zupt = self.velocity.copy()
+
                 # Apply Linear Dedrifting
                 corrected_velocities = self.linear_dedrift(
                     self.swing_velocity_history,
@@ -498,13 +709,39 @@ class ZUPTGaitEstimator:
                 # Speed over the full stride is more biomechanically meaningful here.
                 speed = stride_length / stride_duration_s if stride_duration_s else None
                 
+                is_valid_step, invalid_reason = self._validate_step_metrics(
+                    stride_length,
+                    clearance,
+                    speed,
+                    swing_duration_s,
+                    stride_duration_s,
+                )
+
+                if (not is_valid_step) and self._can_accept_spatial_step_with_unreliable_timing(
+                    invalid_reason,
+                    stride_length,
+                    clearance,
+                ):
+                    print(
+                        "⚠️ [ESTIMATOR] Accepting shank step with unreliable timing "
+                        f"(reason={invalid_reason})"
+                    )
+                    speed = None
+                    stride_duration_s = None
+                    swing_duration_s = None
+                    stance_duration_s = None
+                    is_valid_step = True
+                    invalid_reason = None
+
                 # Validate and store
-                if 0.1 < stride_length < 2.0:  # Reasonable stride (10cm - 2m)
+                if is_valid_step:
+                    self.last_reject_reason = None
                     self.last_stride_length = stride_length
                     self.last_clearance = max(0, clearance)
                     if speed is not None:
                         self.last_speed = speed
                     self.total_steps += 1
+                    self.recent_valid_strides.append(stride_length)
                     
                     # === NEW: Compute Virtual Coach Metrics ===
                     # 1. Touch-down Pitch Angle (RELATIVE to standing position)
@@ -538,12 +775,33 @@ class ZUPTGaitEstimator:
                     }
                     
                     print(f"✨ [STEP #{self.total_steps}] Stride: {stride_length*100:.1f}cm | Pitch: {self.touchdown_pitch:.1f}° | Yaw: {yaw_rate:.2f}r/s")
+                else:
+                    self.last_reject_reason = invalid_reason
+                    print(
+                        f"⚠️ [ESTIMATOR] Rejected step: stride={stride_length*100:.1f}cm "
+                        f"clearance={max(0, clearance)*100:.1f}cm "
+                        f"speed={'--' if speed is None else f'{speed:.2f}m/s'} "
+                        f"reason={invalid_reason}"
+                    )
+
+                    if self._should_rollback_heel_strike(
+                        invalid_reason,
+                        stride_length,
+                        speed,
+                        swing_duration_s,
+                    ):
+                        self._rollback_false_heel_strike(invalid_reason, velocity_before_zupt)
+                        return None
                 
                 # Reset for next step
+                self.velocity = np.zeros(3)
                 self.position = np.zeros(3)
                 self.ground_z = 0.0
                 self.heel_strike_time_ms = heel_strike_time_ms
                 self.stride_start_time_ms = heel_strike_time_ms
+            else:
+                # Stable stance sample outside a just-completed step
+                self.velocity = np.zeros(3)
             
         else:
             # Swing Phase - Integrate
@@ -597,7 +855,8 @@ class ZUPTGaitEstimator:
             'velocity': self.velocity.tolist(),
             'quaternion': self.ahrs.get_quaternion().tolist(),
             'gyro_norm': self.last_gyro_norm,
-            'total_steps': self.total_steps
+            'total_steps': self.total_steps,
+            'last_reject_reason': self.last_reject_reason,
         }
     
     def initialize_orientation(self, ax, ay, az):
@@ -621,25 +880,7 @@ class ZUPTGaitEstimator:
         self.ground_z = 0.0
         
         # 3. Reset step tracking
-        self.is_stance = True
-        self.was_stance = True
-        self.step_start_pos = np.zeros(3)
-        self.stride_start_time_ms = None
-        self.toe_off_time_ms = None
-        self.heel_strike_time_ms = None
-        self.swing_accel_history = []
-        self.swing_velocity_history = []
-        self.swing_time_history = []
-        self.swing_dt_history = []
-        self.swing_gyro_history = []
-        self.swing_q_history = []
-        self.gyro_norm_history.clear()
-        self.gyro_time_history.clear()
-        self.last_gyro_norm = 0.0
-        self.max_z_in_swing = 0.0
-        self.max_forward_velocity = 0.0
-        self.touchdown_pitch = 0.0
-        self.max_yaw_rate = 0.0
+        self.reset_bout_state()
         
         # 4. [NEW] Record shoe inclination as Pitch offset
         # This is the pitch angle when standing flat - used for relative pitch calculation
@@ -654,32 +895,13 @@ class ZUPTGaitEstimator:
     def reset(self):
         """Reset estimator state."""
         self.ahrs.reset()
-        self.is_stance = True
-        self.was_stance = True
-        self.position = np.zeros(3)
-        self.velocity = np.zeros(3)
-        self.step_start_pos = np.zeros(3)
-        self.stride_start_time_ms = None
-        self.toe_off_time_ms = None
-        self.heel_strike_time_ms = None
-        self.swing_accel_history = []
-        self.swing_velocity_history = []
-        self.swing_time_history = []
-        self.swing_dt_history = []
-        self.swing_gyro_history = []
-        self.swing_q_history = []
-        self.gyro_norm_history.clear()
-        self.gyro_time_history.clear()
-        self.last_gyro_norm = 0.0
+        self.reset_bout_state()
         self.last_stride_length = 0.0
         self.last_clearance = 0.0
         self.last_speed = 0.0
         self.total_steps = 0
-        self.max_z_in_swing = 0.0
-        self.ground_z = 0.0
-        self.max_forward_velocity = 0.0
-        self.touchdown_pitch = 0.0
-        self.max_yaw_rate = 0.0
+        self.recent_valid_strides.clear()
+        self.last_reject_reason = None
         self.standing_pitch = 0.0
         print("🔄 ZUPTGaitEstimator Reset")
 

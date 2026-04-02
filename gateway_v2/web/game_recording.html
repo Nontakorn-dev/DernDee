@@ -791,16 +791,28 @@
 
         function processGameData(payload) {
             const config = levelConfigs[currentLevel] || levelConfigs[1];
+            const metrics = payload.gait_metrics;
+            const session = payload.session_metrics || {};
 
             // Only update when gait_metrics exists (not every frame)
-            if (payload.gait_metrics) {
+            if (metrics) {
                 // Extract value based on parameter
                 switch (config.parameter) {
                     case 'clearance':
-                        lastValue = payload.gait_metrics.spatial?.clearance_m || lastValue;
+                        if (Number.isFinite(metrics.clearance_m)) {
+                            lastValue = metrics.clearance_m;
+                        } else if (Number.isFinite(metrics.spatial?.clearance_m)) {
+                            lastValue = metrics.spatial.clearance_m;
+                        }
                         break;
                     case 'speed':
-                        lastValue = payload.gait_metrics.temporal?.speed_mps || lastValue;
+                        if (Number.isFinite(metrics.speed_mps)) {
+                            lastValue = metrics.speed_mps;
+                        } else if (Number.isFinite(session.avg_speed_mps)) {
+                            lastValue = session.avg_speed_mps;
+                        } else if (Number.isFinite(metrics.temporal?.speed_mps)) {
+                            lastValue = metrics.temporal.speed_mps;
+                        }
                         break;
                     case 'knee_angle':
                         lastValue = payload.knee_angle || lastValue;
@@ -812,10 +824,6 @@
                 if (chartData.length > 50) chartData.shift();
                 gameChart.data.datasets[0].data = chartData;
                 gameChart.update('none');
-            }
-
-            // Check for step completion (gait event)
-            if (payload.gait_event === 'HEEL_STRIKE' || payload.gait_event === 'STATIC_LANDING') {
                 handleStepComplete(lastValue, payload);
             }
         }
@@ -825,7 +833,9 @@
             steps++;
 
             // Calculate distance
-            const stepLen = payload.gait_metrics?.spatial?.step_length_m || 0;
+            const stepLen = payload.gait_metrics?.step_length_m
+                ?? payload.gait_metrics?.spatial?.step_length_m
+                ?? (Number.isFinite(payload.gait_metrics?.stride_length_m) ? payload.gait_metrics.stride_length_m / 2 : 0);
             distance += stepLen;
 
             // Update UI

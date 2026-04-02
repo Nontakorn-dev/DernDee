@@ -13,11 +13,23 @@ class BLEClient:
         self.global_callback = global_callback
         self.connected = False
 
+    def is_alive(self):
+        return bool(getattr(self.client, "is_connected", False))
+
     async def connect(self):
         try:
+            if self.is_alive():
+                self.connected = True
+                return True
+
+            # Recreate the client object for reconnect attempts.
+            self.client = BleakClient(self.address)
             print(f"🔄 Connecting to {self.name}...")
             await self.client.connect()
-            self.connected = True
+            self.connected = self.is_alive()
+            if not self.connected:
+                print(f"❌ Failed to connect {self.name}: connection did not stay alive")
+                return False
             print(f"✅ Connected: {self.name}")
             
             await self.client.start_notify(CHAR_UUID, self._notification_handler)
@@ -28,10 +40,10 @@ class BLEClient:
             return False
 
     async def disconnect(self):
-        if self.connected:
+        if self.is_alive():
             await self.client.disconnect()
-            self.connected = False
-            print(f"🔌 Disconnected: {self.name}")
+        self.connected = False
+        print(f"🔌 Disconnected: {self.name}")
 
     def _notification_handler(self, sender, data):
         # Inject Device Name into callback
@@ -66,7 +78,12 @@ class MultiBLEManager:
                     if success:
                         self.clients[d.address] = client
                 else:
-                    print(f"   > Already Known: {d.name}")
+                    client = self.clients[d.address]
+                    if client.is_alive():
+                        print(f"   > Already Connected: {d.name}")
+                    else:
+                        print(f"   > Reconnecting: {d.name} ({d.address})")
+                        await client.connect()
 
     async def keep_alive(self):
         while True:

@@ -771,9 +771,12 @@
         function processData(payload) {
             // 1. Only update gait metrics when they exist (not every frame)
             if (payload.gait_metrics) {
+                const metrics = payload.gait_metrics;
+                const session = payload.session_metrics || {};
+
                 // 2. Fixed: clearance_m (not foot_clearance_m)
-                const clearance = payload.gait_metrics.spatial?.clearance_m || 0;
-                const cadence = payload.gait_metrics.temporal?.cadence_spm || 0;
+                const clearance = metrics.clearance_m ?? metrics.spatial?.clearance_m ?? 0;
+                const cadence = session.cadence_spm ?? metrics.cadence_spm ?? metrics.temporal?.cadence_spm ?? currentCadence;
 
                 // Update global state
                 currentClearance = clearance;
@@ -785,23 +788,15 @@
 
                 // Update foot visual position
                 updateFootPosition(clearance);
+                evaluateStep(currentClearance);
+                isSwinging = false;
+            } else if (payload.is_stance === false) {
+                isSwinging = true;
             }
 
             // Check trunk sway (available every frame)
             const trunkAngle = payload.trunk_sway || 0;
             updateEdgeWarnings(trunkAngle);
-
-            // Handle gait events
-            if (payload.gait_event === 'TOE_OFF') {
-                isSwinging = true;
-            }
-
-            if (payload.gait_event === 'HEEL_STRIKE' || payload.gait_event === 'STATIC_LANDING') {
-                if (isSwinging) {
-                    evaluateStep(currentClearance);
-                    isSwinging = false;
-                }
-            }
         }
 
         function updateFootPosition(clearance) {
