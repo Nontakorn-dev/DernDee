@@ -102,7 +102,7 @@ class FeedbackEngine:
         stride = gait_results.get("stride_length_m", 0.0)
         pitch = gait_results.get("touchdown_pitch_deg", 0.0)
         yaw_rate = gait_results.get("max_yaw_rate_rps", 0.0) 
-        push_off = gait_results.get("push_off_power", 0.0)
+        push_off = gait_results.get("push_off_velocity_mps", gait_results.get("push_off_power", 0.0))
         
         feedback = None
         

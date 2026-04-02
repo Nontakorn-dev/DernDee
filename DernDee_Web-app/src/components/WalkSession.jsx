@@ -36,6 +36,7 @@ const WalkSession = () => {
     const [walkingSpeed, setWalkingSpeed] = useState(0);
     const [isWalking, setIsWalking] = useState(false);
     const [isConnected, setIsConnected] = useState(false);
+    const [sessionMetrics, setSessionMetrics] = useState({});
 
     // Gait Metrics (accumulated for summary)
     const [gaitMetrics, setGaitMetrics] = useState({
@@ -156,6 +157,10 @@ const WalkSession = () => {
 
         const payload = msg.payload;
 
+        if (payload.session_metrics) {
+            setSessionMetrics(payload.session_metrics);
+        }
+
         // Update step count and reset idle timer when steps increase
         if (payload.total_steps !== undefined) {
             if (payload.total_steps > lastStepCountRef.current) {
@@ -175,7 +180,7 @@ const WalkSession = () => {
         }
 
         // Update speed from gait_metrics
-        if (payload.gait_metrics?.speed_mps !== undefined) {
+        if (Number.isFinite(payload.gait_metrics?.speed_mps)) {
             setWalkingSpeed(payload.gait_metrics.speed_mps);
         }
 
@@ -184,8 +189,12 @@ const WalkSession = () => {
             setGaitMetrics(prev => ({
                 strideLengths: [...prev.strideLengths, payload.gait_metrics.stride_length_m],
                 clearances: [...prev.clearances, payload.gait_metrics.clearance_m],
-                speeds: [...prev.speeds, payload.gait_metrics.speed_mps],
-                stepDurations: [...prev.stepDurations, payload.gait_metrics.step_duration_s],
+                speeds: Number.isFinite(payload.gait_metrics.speed_mps)
+                    ? [...prev.speeds, payload.gait_metrics.speed_mps]
+                    : prev.speeds,
+                stepDurations: Number.isFinite(payload.gait_metrics.step_duration_s)
+                    ? [...prev.stepDurations, payload.gait_metrics.step_duration_s]
+                    : prev.stepDurations,
             }));
         }
 
@@ -293,8 +302,23 @@ const WalkSession = () => {
         const avgSpeed = avg(gaitMetrics.speeds);
         const avgStepDuration = avg(gaitMetrics.stepDurations);
 
-        // Cadence = steps per minute
-        const cadence = avgStepDuration > 0 ? (60 / avgStepDuration) : 0;
+        const cadence = Number.isFinite(sessionMetrics?.cadence_spm)
+            ? sessionMetrics.cadence_spm
+            : (avgStepDuration > 0 ? (60 / avgStepDuration) : 0);
+
+        const summaryStrideLength = Number.isFinite(sessionMetrics?.avg_stride_length_m)
+            ? sessionMetrics.avg_stride_length_m
+            : avgStrideLength;
+        const summaryStepLength = summaryStrideLength / 2;
+        const summaryClearance = Number.isFinite(sessionMetrics?.avg_clearance_m)
+            ? sessionMetrics.avg_clearance_m
+            : avgClearance;
+        const summarySpeed = Number.isFinite(sessionMetrics?.avg_speed_mps)
+            ? sessionMetrics.avg_speed_mps
+            : avgSpeed;
+        const summarySteps = Number.isFinite(sessionMetrics?.total_steps)
+            ? sessionMetrics.total_steps
+            : steps;
 
         // Walking time in minutes
         const walkingTimeMinutes = timeElapsed / 60;
@@ -302,14 +326,14 @@ const WalkSession = () => {
         navigate('/walk-summary', {
             state: {
                 duration: formatTime(timeElapsed),
-                steps: steps,
-                walkingSpeed: avgSpeed,
+                steps: summarySteps,
+                walkingSpeed: summarySpeed,
                 cadence: Math.round(cadence),
-                stepLength: avgStepLength,
-                strideLength: avgStrideLength,
-                clearance: avgClearance,
+                stepLength: summaryStepLength,
+                strideLength: summaryStrideLength,
+                clearance: summaryClearance,
                 // Summary stats for future use
-                totalSteps: steps,
+                totalSteps: summarySteps,
                 walkingTimeMinutes: walkingTimeMinutes,
             }
         });

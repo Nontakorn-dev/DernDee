@@ -200,11 +200,14 @@ class ZUPTGaitEstimator:
         self.velocity = np.zeros(3)  # [vx, vy, vz] in m/s
         
         # ==== Step Tracking ====
-        self.step_start_time = None
         self.step_start_pos = np.zeros(3)
+        self.stride_start_time_ms = None      # Same-foot heel-strike that started the current stride
+        self.toe_off_time_ms = None           # Toe-off that started the current swing
+        self.heel_strike_time_ms = None       # Most recent heel-strike timestamp
         self.swing_accel_history = []  # For dedrifting
         self.swing_velocity_history = []  # For dedrifting
         self.swing_time_history = []  # For dedrifting
+        self.swing_dt_history = []  # Real dt per swing sample
         
         # ==== Results ====
         self.last_stride_length = 0.0
@@ -214,6 +217,7 @@ class ZUPTGaitEstimator:
         
         # ==== Gyro Norm History (for tilt-rate) ====
         self.gyro_norm_history = deque(maxlen=5)
+        self.gyro_time_history = deque(maxlen=5)
         self.last_gyro_norm = 0.0
         
         # ==== Z-position tracking for clearance ====
@@ -287,8 +291,10 @@ class ZUPTGaitEstimator:
             float: Pitch angle in degrees
         """
         w, x, y, z = q
-        # Pitch (θ) = atan2(2(wy - zx), 1 - 2(x² + y²))
-        pitch_rad = np.arctan2(2*(w*y - z*x), 1 - 2*(x*x + y*y))
+        # Pitch (θ) in ZYX convention = asin(2(wy - zx))
+        sin_pitch = 2 * (w * y - z * x)
+        sin_pitch = np.clip(sin_pitch, -1.0, 1.0)
+        pitch_rad = np.arcsin(sin_pitch)
         return np.degrees(pitch_rad)
     
     def detect_stance(self, gyro_norm, current_time_ms):
@@ -307,11 +313,15 @@ class ZUPTGaitEstimator:
         """
         # Calculate tilt-rate (slope of gyro_norm)
         tilt_rate = 0.0
-        if len(self.gyro_norm_history) >= 2:
-            dt_samples = len(self.gyro_norm_history) * self.dt
-            tilt_rate = (gyro_norm - self.gyro_norm_history[0]) / dt_samples
-        
+        if len(self.gyro_norm_history) >= 2 and len(self.gyro_time_history) >= 2:
+            ref_gyro = self.gyro_norm_history[0]
+            ref_time_ms = self.gyro_time_history[0]
+            dt_sec = (current_time_ms - ref_time_ms) / 1000.0
+            if dt_sec > 0:
+                tilt_rate = (gyro_norm - ref_gyro) / dt_sec
+
         self.gyro_norm_history.append(gyro_norm)
+        self.gyro_time_history.append(current_time_ms)
         self.last_gyro_norm = gyro_norm
         
         # Stance detection logic
@@ -366,7 +376,18 @@ class ZUPTGaitEstimator:
             corrected.append(v_corrected)
         
         return corrected
-    
+
+    def _duration_s(self, start_time_ms, end_time_ms):
+        """Convert timestamp delta to seconds when both timestamps are valid."""
+        if start_time_ms is None or end_time_ms is None:
+            return None
+
+        duration_ms = end_time_ms - start_time_ms
+        if duration_ms <= 0:
+            return None
+
+        return duration_ms / 1000.0
+
     def update(self, accel, gyro, timestamp_ms, dt=None, is_walking=True):
         """
         Main update function - process one IMU sample.
@@ -403,16 +424,31 @@ class ZUPTGaitEstimator:
         # 4. Stance Detection
         self.was_stance = self.is_stance
         is_stance, is_toe_off = self.detect_stance(gyro_norm, timestamp_ms)
-        
+        just_toe_off = self.was_stance and not is_stance
+        just_heel_strike = (not self.was_stance) and is_stance
+
         result = None
-        
+
         # 5. ZUPT Logic
+        if just_toe_off:
+            self.toe_off_time_ms = timestamp_ms
+            self.step_start_pos = self.position.copy()
+            self.swing_accel_history = []
+            self.swing_velocity_history = []
+            self.swing_time_history = []
+            self.swing_dt_history = []
+            self.swing_gyro_history = []
+            self.swing_q_history = []
+            self.max_z_in_swing = 0.0
+            self.max_forward_velocity = 0.0
+            self.max_yaw_rate = 0.0
+
         if is_stance:
             # Zero Velocity Update
             self.velocity = np.zeros(3)
             
             # If just transitioned to stance (heel-strike) - calculate step
-            if not self.was_stance and len(self.swing_velocity_history) > 5:
+            if just_heel_strike and len(self.swing_velocity_history) > 5:
                 # Apply Linear Dedrifting
                 corrected_velocities = self.linear_dedrift(
                     self.swing_velocity_history,
@@ -427,18 +463,24 @@ class ZUPTGaitEstimator:
                 temp_z = 0.0           # Z position (starts at 0 each step)
                 max_z_final = 0.0      # Correct max clearance
                 final_pos = self.step_start_pos.copy()  # For stride length
+                prev_v = np.zeros(3)
                 
-                # 2. Loop: Re-integrate corrected velocities
-                for v in corrected_velocities:
+                # 2. Loop: Re-integrate corrected velocities with per-sample dt
+                for v, sample_dt in zip(corrected_velocities, self.swing_dt_history):
+                    if sample_dt <= 0:
+                        continue
+
                     # A. Accumulate XY position (for stride length)
-                    final_pos += v * dt
+                    final_pos += (prev_v + v) * 0.5 * sample_dt
                     
                     # B. Accumulate Z height (relative, starts at 0)
-                    temp_z += v[2] * dt
+                    temp_z += (prev_v[2] + v[2]) * 0.5 * sample_dt
                     
                     # C. Track maximum Z (peak detection)
                     if temp_z > max_z_final:
                         max_z_final = temp_z
+
+                    prev_v = v
                 
                 # Calculate Stride Length (horizontal distance)
                 dx = final_pos[0] - self.step_start_pos[0]
@@ -448,15 +490,20 @@ class ZUPTGaitEstimator:
                 # 3. Use RE-INTEGRATED max_z for clearance (NOT the drifted one!)
                 clearance = max_z_final
                 
-                # Calculate Speed
-                step_duration = (timestamp_ms - self.step_start_time) / 1000.0 if self.step_start_time else 1.0
-                speed = stride_length / step_duration if step_duration > 0 else 0.0
+                heel_strike_time_ms = timestamp_ms
+                stride_duration_s = self._duration_s(self.stride_start_time_ms, heel_strike_time_ms)
+                swing_duration_s = self._duration_s(self.toe_off_time_ms, heel_strike_time_ms)
+                stance_duration_s = self._duration_s(self.stride_start_time_ms, self.toe_off_time_ms)
+
+                # Speed over the full stride is more biomechanically meaningful here.
+                speed = stride_length / stride_duration_s if stride_duration_s else None
                 
                 # Validate and store
                 if 0.1 < stride_length < 2.0:  # Reasonable stride (10cm - 2m)
                     self.last_stride_length = stride_length
                     self.last_clearance = max(0, clearance)
-                    self.last_speed = speed
+                    if speed is not None:
+                        self.last_speed = speed
                     self.total_steps += 1
                     
                     # === NEW: Compute Virtual Coach Metrics ===
@@ -476,12 +523,18 @@ class ZUPTGaitEstimator:
                         'stride_length_m': stride_length,
                         'clearance_m': max(0, clearance),
                         'speed_mps': speed,
-                        'step_duration_s': step_duration,
+                        'step_duration_s': None,  # Filled by dual-foot aggregator in main.py
+                        'stride_duration_s': stride_duration_s,
+                        'swing_duration_s': swing_duration_s,
+                        'stance_duration_s': stance_duration_s,
                         'step_count': self.total_steps,
                         # NEW: Virtual Coach Metrics
                         'touchdown_pitch_deg': self.touchdown_pitch,
                         'push_off_velocity_mps': push_off_velocity,
-                        'max_yaw_rate_rps': yaw_rate
+                        'max_yaw_rate_rps': yaw_rate,
+                        'stride_start_time_ms': self.stride_start_time_ms,
+                        'toe_off_time_ms': self.toe_off_time_ms,
+                        'heel_strike_time_ms': heel_strike_time_ms
                     }
                     
                     print(f"✨ [STEP #{self.total_steps}] Stride: {stride_length*100:.1f}cm | Pitch: {self.touchdown_pitch:.1f}° | Yaw: {yaw_rate:.2f}r/s")
@@ -489,18 +542,8 @@ class ZUPTGaitEstimator:
                 # Reset for next step
                 self.position = np.zeros(3)
                 self.ground_z = 0.0
-            
-            # Update step start reference
-            self.step_start_pos = self.position.copy()
-            self.step_start_time = timestamp_ms
-            self.swing_accel_history = []
-            self.swing_velocity_history = []
-            self.swing_time_history = []
-            self.swing_gyro_history = []   # Reset gyro history
-            self.swing_q_history = []      # Reset quaternion history
-            self.max_z_in_swing = 0.0
-            self.max_forward_velocity = 0.0
-            self.max_yaw_rate = 0.0
+                self.heel_strike_time_ms = heel_strike_time_ms
+                self.stride_start_time_ms = heel_strike_time_ms
             
         else:
             # Swing Phase - Integrate
@@ -515,6 +558,7 @@ class ZUPTGaitEstimator:
                 self.swing_velocity_history.append(self.velocity.copy())
                 self.swing_accel_history.append(accel_linear.copy())
                 self.swing_time_history.append(timestamp_ms)
+                self.swing_dt_history.append(dt)
                 
                 # Integrate velocity to position using TRAPEZOIDAL method
                 # pos += (vel_prev + vel_curr) * 0.5 * dt (more accurate than Euler)
@@ -579,13 +623,23 @@ class ZUPTGaitEstimator:
         # 3. Reset step tracking
         self.is_stance = True
         self.was_stance = True
-        self.step_start_time = None
         self.step_start_pos = np.zeros(3)
+        self.stride_start_time_ms = None
+        self.toe_off_time_ms = None
+        self.heel_strike_time_ms = None
         self.swing_accel_history = []
         self.swing_velocity_history = []
         self.swing_time_history = []
+        self.swing_dt_history = []
+        self.swing_gyro_history = []
+        self.swing_q_history = []
         self.gyro_norm_history.clear()
+        self.gyro_time_history.clear()
+        self.last_gyro_norm = 0.0
         self.max_z_in_swing = 0.0
+        self.max_forward_velocity = 0.0
+        self.touchdown_pitch = 0.0
+        self.max_yaw_rate = 0.0
         
         # 4. [NEW] Record shoe inclination as Pitch offset
         # This is the pitch angle when standing flat - used for relative pitch calculation
@@ -604,18 +658,29 @@ class ZUPTGaitEstimator:
         self.was_stance = True
         self.position = np.zeros(3)
         self.velocity = np.zeros(3)
-        self.step_start_time = None
         self.step_start_pos = np.zeros(3)
+        self.stride_start_time_ms = None
+        self.toe_off_time_ms = None
+        self.heel_strike_time_ms = None
         self.swing_accel_history = []
         self.swing_velocity_history = []
         self.swing_time_history = []
+        self.swing_dt_history = []
+        self.swing_gyro_history = []
+        self.swing_q_history = []
         self.gyro_norm_history.clear()
+        self.gyro_time_history.clear()
+        self.last_gyro_norm = 0.0
         self.last_stride_length = 0.0
         self.last_clearance = 0.0
         self.last_speed = 0.0
         self.total_steps = 0
         self.max_z_in_swing = 0.0
         self.ground_z = 0.0
+        self.max_forward_velocity = 0.0
+        self.touchdown_pitch = 0.0
+        self.max_yaw_rate = 0.0
+        self.standing_pitch = 0.0
         print("🔄 ZUPTGaitEstimator Reset")
 
 
@@ -629,22 +694,80 @@ class DualFootAnalyzer:
         self.right_strides = deque(maxlen=20)
         self.left_clearances = deque(maxlen=20)
         self.right_clearances = deque(maxlen=20)
+        self.all_strides = deque(maxlen=100)
+        self.all_clearances = deque(maxlen=100)
+        self.all_speeds = deque(maxlen=100)
+        self.all_stride_durations = deque(maxlen=100)
+        self.step_intervals = deque(maxlen=100)
+        self.last_step_time_ms = None
+        self.last_step_side = None
+        self.left_total_steps = 0
+        self.right_total_steps = 0
     
-    def add_step(self, side, stride_length, clearance):
+    def _append_if_valid(self, history, value):
+        if value is None:
+            return
+        if isinstance(value, (float, int, np.floating, np.integer)):
+            history.append(float(value))
+
+    def _mean(self, history):
+        if not history:
+            return None
+        return float(np.mean(history))
+
+    def register_step(self, side, gait_metrics):
         """
-        Add a step measurement.
+        Register a completed step from one foot and update aggregate metrics.
         
         Args:
             side: 'L' or 'R'
-            stride_length: Stride length in meters
-            clearance: Foot clearance in meters
+            gait_metrics: Per-step metrics from ZUPTGaitEstimator
+
+        Returns:
+            dict: Updated session-level aggregate metrics
         """
+        stride_length = gait_metrics.get('stride_length_m')
+        clearance = gait_metrics.get('clearance_m')
+        speed_mps = gait_metrics.get('speed_mps')
+        stride_duration_s = gait_metrics.get('stride_duration_s')
+        heel_strike_time_ms = gait_metrics.get('heel_strike_time_ms')
+
         if side == 'L':
-            self.left_strides.append(stride_length)
-            self.left_clearances.append(clearance)
+            self.left_total_steps += 1
+            self._append_if_valid(self.left_strides, stride_length)
+            self._append_if_valid(self.left_clearances, clearance)
         else:
-            self.right_strides.append(stride_length)
-            self.right_clearances.append(clearance)
+            self.right_total_steps += 1
+            self._append_if_valid(self.right_strides, stride_length)
+            self._append_if_valid(self.right_clearances, clearance)
+
+        self._append_if_valid(self.all_strides, stride_length)
+        self._append_if_valid(self.all_clearances, clearance)
+        self._append_if_valid(self.all_speeds, speed_mps)
+        self._append_if_valid(self.all_stride_durations, stride_duration_s)
+
+        latest_step_duration_s = None
+        if heel_strike_time_ms is not None:
+            if self.last_step_time_ms is not None and heel_strike_time_ms > self.last_step_time_ms:
+                step_interval_s = (heel_strike_time_ms - self.last_step_time_ms) / 1000.0
+                # Only treat alternating-foot events as global step intervals.
+                if self.last_step_side != side:
+                    self.step_intervals.append(step_interval_s)
+                    latest_step_duration_s = step_interval_s
+
+            self.last_step_time_ms = heel_strike_time_ms
+            self.last_step_side = side
+
+        metrics = self.get_session_metrics()
+        metrics['latest_step_duration_s'] = latest_step_duration_s
+        return metrics
+
+    def add_step(self, side, stride_length, clearance):
+        """Backward-compatible wrapper for older call sites."""
+        return self.register_step(side, {
+            'stride_length_m': stride_length,
+            'clearance_m': clearance,
+        })
     
     def get_symmetry(self):
         """
@@ -666,7 +789,32 @@ class DualFootAnalyzer:
             return 100.0
         
         symmetry = 100 * min(avg_left, avg_right) / max(avg_left, avg_right)
-        return symmetry
+        return float(symmetry)
+
+    def get_session_metrics(self):
+        """Return aggregate metrics across both feet for the current session."""
+        total_steps = self.left_total_steps + self.right_total_steps
+        avg_stride_duration_s = self._mean(self.all_stride_durations)
+        avg_step_duration_s = self._mean(self.step_intervals)
+
+        # If only one foot has completed strides so far, approximate cadence from stride duration.
+        if avg_step_duration_s is None and avg_stride_duration_s:
+            avg_step_duration_s = avg_stride_duration_s / 2.0
+
+        cadence_spm = 60.0 / avg_step_duration_s if avg_step_duration_s else None
+
+        return {
+            'total_steps': total_steps,
+            'left_steps': self.left_total_steps,
+            'right_steps': self.right_total_steps,
+            'cadence_spm': cadence_spm,
+            'avg_step_duration_s': avg_step_duration_s,
+            'avg_stride_duration_s': avg_stride_duration_s,
+            'avg_stride_length_m': self._mean(self.all_strides),
+            'avg_clearance_m': self._mean(self.all_clearances),
+            'avg_speed_mps': self._mean(self.all_speeds),
+            'symmetry_percent': self.get_symmetry(),
+        }
     
     def get_clearance_warning(self, threshold_cm=2.0):
         """
@@ -698,6 +846,15 @@ class DualFootAnalyzer:
         self.right_strides.clear()
         self.left_clearances.clear()
         self.right_clearances.clear()
+        self.all_strides.clear()
+        self.all_clearances.clear()
+        self.all_speeds.clear()
+        self.all_stride_durations.clear()
+        self.step_intervals.clear()
+        self.last_step_time_ms = None
+        self.last_step_side = None
+        self.left_total_steps = 0
+        self.right_total_steps = 0
 
 
 # Convenience alias

@@ -244,20 +244,25 @@ def data_handler(sender_name, data):
     
     # === DUAL FOOT ANALYSIS ===
     feedback_result = None
+    session_metrics = dual_foot_analyzer.get_session_metrics()
     # Determine side - support both naming conventions
     side = "L" if ("_L_" in sender_name or "Left" in sender_name or "L_Shank" in sender_name) else "R"
     
     if gait_result:
-        # Add to dual-foot analyzer
-        dual_foot_analyzer.add_step(
-            side,
-            gait_result['stride_length_m'],
-            gait_result['clearance_m']
-        )
+        # Add to dual-foot analyzer and compute aggregate session metrics
+        session_metrics = dual_foot_analyzer.register_step(side, gait_result)
         
-        # Get symmetry
-        symmetry = dual_foot_analyzer.get_symmetry()
-        gait_result['symmetry_percent'] = symmetry
+        # Enrich per-step metrics with dual-foot aggregates
+        gait_result['symmetry_percent'] = session_metrics['symmetry_percent']
+        gait_result['step_count'] = session_metrics['total_steps']
+        gait_result['total_steps'] = session_metrics['total_steps']
+        gait_result['cadence_spm'] = session_metrics.get('cadence_spm')
+
+        # `step_duration_s` is defined as the alternating-foot step interval.
+        if session_metrics.get('latest_step_duration_s') is not None:
+            gait_result['step_duration_s'] = session_metrics['latest_step_duration_s']
+        elif session_metrics.get('avg_step_duration_s') is not None:
+            gait_result['step_duration_s'] = session_metrics['avg_step_duration_s']
         
         # === Virtual Gait Coach: Analyze step with hierarchical feedback ===
         feedback_result = feedback_engine.analyze_step(gait_result, side=side)
@@ -285,9 +290,11 @@ def data_handler(sender_name, data):
                 "position": state['position'],
                 "velocity": state['velocity'],
                 "quaternion": state['quaternion'],
-                "total_steps": state['total_steps'],
+                "sensor_total_steps": state['total_steps'],
+                "total_steps": session_metrics.get('total_steps', 0),
                 # Gait metrics (if step completed)
                 "gait_metrics": gait_result,
+                "session_metrics": session_metrics,
                 # Feedback
                 "feedback": feedback_result
             }
