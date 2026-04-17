@@ -11,9 +11,17 @@ const GAME_STATES = {
     COMPLETED: 'COMPLETED'
 };
 
-// Timing thresholds (ms)
-const PERFECT_THRESHOLD = 100;
-const GOOD_THRESHOLD = 200;
+const DEFAULT_BPM = 50;
+const TARGET_SCORE = 1000;
+
+function getTimingThresholds(bpm) {
+    const beatInterval = 60000 / bpm;
+    return {
+        perfect: Math.min(160, beatInterval * 0.18),
+        good: Math.min(300, beatInterval * 0.32),
+        assist: Math.min(420, beatInterval * 0.42)
+    };
+}
 
 const GameRhythm = () => {
     const navigate = useNavigate();
@@ -25,32 +33,36 @@ const GameRhythm = () => {
     const [soundEnabled, setSoundEnabled] = useState(true);
 
     // === Tempo Settings ===
-    const [bpm, setBpm] = useState(60); // Default 60 BPM
-    const bpmRef = useRef(60);
+    const [bpm, setBpm] = useState(DEFAULT_BPM);
+    const bpmRef = useRef(DEFAULT_BPM);
 
     // === Rhythm State ===
     const [isPulsing, setIsPulsing] = useState(false);
     const [beatCount, setBeatCount] = useState(0);
     const [feedbackState, setFeedbackState] = useState('waiting'); // waiting, perfect, good, miss
     const [feedbackText, setFeedbackText] = useState('');
+    const [nextBeatCountdownMs, setNextBeatCountdownMs] = useState(0);
+    const [beatProgress, setBeatProgress] = useState(0);
+    const [timingHint, setTimingHint] = useState('กด Start เพื่อเริ่ม');
+    const [lastTimingLabel, setLastTimingLabel] = useState('รอฟังจังหวะก่อนลงเท้า');
+    const [lastTimingOffsetMs, setLastTimingOffsetMs] = useState(null);
 
     // === Metrics ===
     const [cadence, setCadence] = useState(0); // Steps per minute
-    const [accuracy, setAccuracy] = useState(100);
     const [score, setScore] = useState(0);
     const [streak, setStreak] = useState(0);
     const [sessionTime, setSessionTime] = useState(0);
-    const [perfectCount, setPerfectCount] = useState(0);
-    const [goodCount, setGoodCount] = useState(0);
-    const [missCount, setMissCount] = useState(0);
 
     // === Timing Refs ===
     const nextBeatTimeRef = useRef(0);
+    const lastJudgedBeatTimeRef = useRef(null);
     const lastStepTimeRef = useRef(0);
     const stepTimesRef = useRef([]); // For cadence calculation
     const beatTimerRef = useRef(null);
+    const guideTimerRef = useRef(null);
     const sessionTimerRef = useRef(null);
     const audioContextRef = useRef(null);
+    const feedbackTimerRef = useRef(null);
 
     // === WebSocket ===
     const wsRef = useRef(null);
@@ -114,6 +126,8 @@ const GameRhythm = () => {
 
         // Schedule next beat
         nextBeatTimeRef.current = now + beatInterval;
+        setNextBeatCountdownMs(Math.round(beatInterval));
+        setBeatProgress(0);
 
         // Visual pulse
         setIsPulsing(true);
@@ -147,6 +161,13 @@ const GameRhythm = () => {
         if (beatTimerRef.current) {
             clearInterval(beatTimerRef.current);
             beatTimerRef.current = null;
+        }
+    }, []);
+
+    const stopGuideTimer = useCallback(() => {
+        if (guideTimerRef.current) {
+            clearInterval(guideTimerRef.current);
+            guideTimerRef.current = null;
         }
     }, []);
 
@@ -220,39 +241,69 @@ const GameRhythm = () => {
             const beatInterval = 60000 / bpmRef.current;
             const lastBeatTime = nextBeatTimeRef.current - beatInterval;
             const nextBeat = nextBeatTimeRef.current;
+            const thresholds = getTimingThresholds(bpmRef.current);
 
             // Find closest beat
             const errorToLast = Math.abs(now - lastBeatTime);
             const errorToNext = Math.abs(now - nextBeat);
             const error = Math.min(errorToLast, errorToNext);
+            const targetBeatTime = errorToLast <= errorToNext ? lastBeatTime : nextBeat;
+            const signedError = Math.round(now - targetBeatTime);
+
+            if (
+                lastJudgedBeatTimeRef.current !== null &&
+                Math.abs(targetBeatTime - lastJudgedBeatTimeRef.current) < beatInterval * 0.5
+            ) {
+                return;
+            }
+
+            lastJudgedBeatTimeRef.current = targetBeatTime;
+
+            setLastTimingOffsetMs(signedError);
+
+            if (feedbackTimerRef.current) {
+                clearTimeout(feedbackTimerRef.current);
+            }
 
             // Determine feedback
-            if (error <= PERFECT_THRESHOLD) {
+            if (error <= thresholds.perfect) {
                 setFeedbackState('perfect');
                 setFeedbackText('Perfect!');
-                setPerfectCount(prev => prev + 1);
-                setStreak(prev => prev + 1);
-                setScore(prev => prev + 100 + (streak * 10)); // Bonus for streak
+                setLastTimingLabel(`ลงเท้าตรงจังหวะแล้ว (${Math.round(error)} ms)`);
+                setStreak(prev => {
+                    const nextStreak = prev + 1;
+                    setScore(scorePrev => scorePrev + 30);
+                    return nextStreak;
+                });
                 playSuccessSound();
-            } else if (error <= GOOD_THRESHOLD) {
+            } else if (error <= thresholds.good) {
                 setFeedbackState('good');
                 setFeedbackText('Good!');
-                setGoodCount(prev => prev + 1);
-                setStreak(prev => prev + 1);
-                setScore(prev => prev + 50 + (streak * 5));
+                setLastTimingLabel(`ตามจังหวะดีแล้ว (${Math.round(error)} ms)`);
+                setStreak(prev => {
+                    const nextStreak = prev + 1;
+                    setScore(scorePrev => scorePrev + 20);
+                    return nextStreak;
+                });
+            } else if (error <= thresholds.assist) {
+                setFeedbackState('close');
+                setFeedbackText('On Beat');
+                setLastTimingLabel(`ทันจังหวะแล้ว (${Math.round(error)} ms)`);
+                setStreak(prev => {
+                    const nextStreak = prev + 1;
+                    setScore(scorePrev => scorePrev + 10);
+                    return nextStreak;
+                });
             } else {
                 setFeedbackState('miss');
-                if (now < lastBeatTime + beatInterval / 2) {
-                    setFeedbackText('เร็วไป');
-                } else {
-                    setFeedbackText('ช้าไป');
-                }
-                setMissCount(prev => prev + 1);
+                const isEarly = signedError < 0;
+                setFeedbackText(isEarly ? 'เร็วไป' : 'ช้าไป');
+                setLastTimingLabel(`${isEarly ? 'เร็วไป' : 'ช้าไป'} ${Math.abs(signedError)} ms`);
                 setStreak(0);
             }
 
             // Clear feedback after 500ms
-            setTimeout(() => {
+            feedbackTimerRef.current = setTimeout(() => {
                 setFeedbackState('waiting');
                 setFeedbackText('');
             }, 500);
@@ -271,14 +322,56 @@ const GameRhythm = () => {
         }
     }, [playSuccessSound]);
 
-    // === Update Accuracy ===
+    // === Auto Complete When Score Reaches Goal ===
     useEffect(() => {
-        const total = perfectCount + goodCount + missCount;
-        if (total > 0) {
-            const acc = Math.round(((perfectCount * 1 + goodCount * 0.5) / total) * 100);
-            setAccuracy(acc);
+        if (gameState !== GAME_STATES.PLAYING || score < TARGET_SCORE) {
+            return;
         }
-    }, [perfectCount, goodCount, missCount]);
+
+        setGameState(GAME_STATES.COMPLETED);
+        gameStateRef.current = GAME_STATES.COMPLETED;
+        stopMetronome();
+        stopGuideTimer();
+    }, [gameState, score, stopGuideTimer, stopMetronome]);
+
+    // === Beat Guide ===
+    useEffect(() => {
+        stopGuideTimer();
+
+        if (gameState !== GAME_STATES.PLAYING) {
+            setNextBeatCountdownMs(0);
+            setBeatProgress(0);
+            setTimingHint('กด Start เพื่อเริ่ม');
+            return;
+        }
+
+        guideTimerRef.current = setInterval(() => {
+            if (!nextBeatTimeRef.current) return;
+
+            const now = performance.now();
+            const beatInterval = 60000 / bpmRef.current;
+            const thresholds = getTimingThresholds(bpmRef.current);
+            const remaining = Math.max(0, nextBeatTimeRef.current - now);
+            const progress = Math.max(0, Math.min(1, 1 - (remaining / beatInterval)));
+
+            setNextBeatCountdownMs(Math.round(remaining));
+            setBeatProgress(progress);
+
+            if (remaining <= thresholds.perfect) {
+                setTimingHint('ลงเท้าตอนนี้');
+            } else if (remaining <= thresholds.good) {
+                setTimingHint('เตรียมลงเท้า');
+            } else if (remaining <= thresholds.assist) {
+                setTimingHint('ตามเสียงไว้');
+            } else {
+                setTimingHint('รอบีตถัดไป');
+            }
+        }, 50);
+
+        return () => {
+            stopGuideTimer();
+        };
+    }, [gameState, bpm, stopGuideTimer]);
 
     // === Session Timer ===
     useEffect(() => {
@@ -317,12 +410,21 @@ const GameRhythm = () => {
         setScore(0);
         setStreak(0);
         setBeatCount(0);
-        setPerfectCount(0);
-        setGoodCount(0);
-        setMissCount(0);
         setCadence(0);
-        setAccuracy(100);
+        setNextBeatCountdownMs(Math.round(60000 / bpmRef.current));
+        setBeatProgress(0);
+        setTimingHint('ฟังจังหวะแล้วค่อยลงเท้า');
+        setLastTimingLabel('รอฟังจังหวะก่อนลงเท้า');
+        setLastTimingOffsetMs(null);
+        setFeedbackState('waiting');
+        setFeedbackText('');
         stepTimesRef.current = [];
+        lastStepTimeRef.current = 0;
+        lastJudgedBeatTimeRef.current = null;
+
+        if (feedbackTimerRef.current) {
+            clearTimeout(feedbackTimerRef.current);
+        }
 
         startMetronome();
     };
@@ -331,11 +433,13 @@ const GameRhythm = () => {
         setGameState(GAME_STATES.PAUSED);
         gameStateRef.current = GAME_STATES.PAUSED;
         stopMetronome();
+        stopGuideTimer();
     };
 
     const resumeSession = () => {
         setGameState(GAME_STATES.PLAYING);
         gameStateRef.current = GAME_STATES.PLAYING;
+        lastJudgedBeatTimeRef.current = null;
         startMetronome();
     };
 
@@ -343,6 +447,7 @@ const GameRhythm = () => {
         setGameState(GAME_STATES.COMPLETED);
         gameStateRef.current = GAME_STATES.COMPLETED;
         stopMetronome();
+        stopGuideTimer();
     };
 
     const resetSession = () => {
@@ -352,14 +457,24 @@ const GameRhythm = () => {
         setScore(0);
         setStreak(0);
         setBeatCount(0);
-        setPerfectCount(0);
-        setGoodCount(0);
-        setMissCount(0);
         setCadence(0);
-        setAccuracy(100);
+        setNextBeatCountdownMs(0);
+        setBeatProgress(0);
+        setTimingHint('กด Start เพื่อเริ่ม');
+        setLastTimingLabel('รอฟังจังหวะก่อนลงเท้า');
+        setLastTimingOffsetMs(null);
         setFeedbackState('waiting');
         setFeedbackText('');
         stepTimesRef.current = [];
+        lastStepTimeRef.current = 0;
+        lastJudgedBeatTimeRef.current = null;
+        nextBeatTimeRef.current = 0;
+        stopGuideTimer();
+
+        if (feedbackTimerRef.current) {
+            clearTimeout(feedbackTimerRef.current);
+            feedbackTimerRef.current = null;
+        }
     };
 
     // === Format Time ===
@@ -374,6 +489,7 @@ const GameRhythm = () => {
         switch (feedbackState) {
             case 'perfect': return 'ring-emerald-400 bg-emerald-500/20';
             case 'good': return 'ring-amber-400 bg-amber-500/20';
+            case 'close': return 'ring-sky-400 bg-sky-500/20';
             case 'miss': return 'ring-gray-400 bg-gray-500/20';
             default: return 'ring-blue-400 bg-blue-500/20';
         }
@@ -383,11 +499,21 @@ const GameRhythm = () => {
         if (feedbackState === 'perfect') {
             return 'shadow-[0_0_50px_rgba(16,185,129,0.5)]';
         }
+        if (feedbackState === 'close') {
+            return 'shadow-[0_0_35px_rgba(56,189,248,0.35)]';
+        }
         if (isPulsing) {
             return 'shadow-[0_0_30px_rgba(59,130,246,0.4)]';
         }
         return '';
     };
+
+    const timingThresholds = getTimingThresholds(bpm);
+    const beatIntervalMs = 60000 / bpm;
+    const assistZoneStartPercent = Math.max(0, Math.min(100, (1 - (timingThresholds.assist / beatIntervalMs)) * 100));
+    const guideProgressPercent = Math.max(0, Math.min(100, beatProgress * 100));
+    const scoreProgressPercent = Math.max(0, Math.min(100, (score / TARGET_SCORE) * 100));
+    const goalReached = score >= TARGET_SCORE;
 
     return (
         <div className="min-h-screen bg-gradient-to-b from-blue-50 via-blue-100 to-blue-200">
@@ -451,14 +577,14 @@ const GameRhythm = () => {
                             />
                             <div className="flex justify-between text-xs text-gray-400 mt-1">
                                 <span>40 (Slow)</span>
-                                <span>80</span>
+                                <span>70</span>
                                 <span>120 (Fast)</span>
                             </div>
                         </div>
 
                         {/* Preset Buttons */}
                         <div className="grid grid-cols-3 gap-2">
-                            {[50, 60, 80].map(preset => (
+                            {[45, 50, 60].map(preset => (
                                 <button
                                     key={preset}
                                     onClick={() => setBpm(preset)}
@@ -480,6 +606,23 @@ const GameRhythm = () => {
 
                 {/* LEFT: Rhythm Ring (Visual) */}
                 <div className="lg:col-span-8 flex flex-col items-center justify-center min-h-[50vh] lg:min-h-[70vh]">
+                    <div className="w-full max-w-2xl mb-6 lg:mb-8 px-1 sm:px-2">
+                        <div className="relative h-5 sm:h-6 rounded-full overflow-hidden bg-white/85 border border-blue-100 shadow-lg">
+                            <div
+                                className="absolute inset-y-0 right-0 bg-emerald-100/90"
+                                style={{ left: `${assistZoneStartPercent}%` }}
+                            ></div>
+                            <div
+                                className="absolute inset-y-0 left-0 bg-gradient-to-r from-blue-400 via-cyan-400 to-emerald-400 transition-all duration-75"
+                                style={{ width: `${guideProgressPercent}%` }}
+                            ></div>
+                            <div
+                                className="absolute top-1/2 h-8 w-1 -translate-y-1/2 rounded-full bg-white/90 shadow"
+                                style={{ left: `calc(${guideProgressPercent}% - 2px)` }}
+                            ></div>
+                        </div>
+                    </div>
+
                     {/* Timer (Mobile Only) */}
                     <div className="lg:hidden text-center mb-6">
                         <span className="text-4xl font-extrabold tracking-tight text-gray-800">
@@ -520,13 +663,15 @@ const GameRhythm = () => {
                                         {/* Inline Feedback */}
                                         <div className={`mt-1 font-black text-lg uppercase tracking-wider transition-all duration-200 ${feedbackState === 'perfect' ? 'text-emerald-500 scale-110' :
                                             feedbackState === 'good' ? 'text-amber-500 scale-105' :
+                                                feedbackState === 'close' ? 'text-sky-500 scale-105' :
                                                 feedbackState === 'miss' ? 'text-red-500' : 'opacity-0'
                                             }`}>
                                             {feedbackState === 'waiting' ? (
                                                 <span className="text-[10px] text-blue-300 font-bold animate-pulse">READY</span>
                                             ) :
                                                 feedbackState === 'perfect' ? 'Perfect!' :
-                                                    feedbackState === 'good' ? 'Good' : 'Miss'}
+                                                    feedbackState === 'good' ? 'Good' :
+                                                        feedbackState === 'close' ? 'On Beat' : 'Miss'}
                                         </div>
                                     </div>
                                 </div>
@@ -540,7 +685,7 @@ const GameRhythm = () => {
                 {/* RIGHT: Dashboard (Stats & Controls) */}
                 <div className="lg:col-span-4 flex flex-col gap-6 w-full">
 
-                    {/* Timer & Accuracy (Desktop) */}
+                    {/* Timer & Streak (Desktop) */}
                     <div className="hidden lg:flex flex-col bg-white rounded-3xl shadow-xl p-8 text-center border border-blue-50">
                         <div className="flex justify-between items-center mb-6">
                             <div className="text-left">
@@ -559,21 +704,20 @@ const GameRhythm = () => {
                     </div>
 
                     {/* Performance Stats */}
-                    <div className="grid grid-cols-2 gap-4">
-                        {/* Score Card */}
-                        <div className="bg-white rounded-3xl shadow-lg p-6 lg:p-8 flex flex-col items-center justify-center text-center">
+                    <div className="grid grid-cols-1 gap-4">
+                        <div className="bg-white rounded-3xl shadow-lg p-6 lg:p-8 text-center border border-blue-50">
                             <div className="text-sm font-bold text-gray-400 uppercase tracking-wide mb-2">Score</div>
                             <div className="text-4xl lg:text-5xl font-black text-blue-600 tabular-nums">
-                                {score}
+                                {score}<span className="text-xl lg:text-2xl text-gray-300"> / {TARGET_SCORE}</span>
                             </div>
-                        </div>
-
-                        {/* Accuracy Card */}
-                        <div className="bg-white rounded-3xl shadow-lg p-6 lg:p-8 flex flex-col items-center justify-center text-center">
-                            <div className="text-sm font-bold text-gray-400 uppercase tracking-wide mb-2">Accuracy</div>
-                            <div className={`text-4xl lg:text-5xl font-black tabular-nums ${accuracy > 80 ? 'text-emerald-500' : accuracy > 50 ? 'text-amber-500' : 'text-red-500'
-                                }`}>
-                                {accuracy}%
+                            <div className="mt-4 h-3 rounded-full bg-blue-50 overflow-hidden">
+                                <div
+                                    className={`h-full rounded-full transition-all duration-300 ${goalReached ? 'bg-emerald-500' : 'bg-gradient-to-r from-blue-500 to-emerald-400'}`}
+                                    style={{ width: `${scoreProgressPercent}%` }}
+                                ></div>
+                            </div>
+                            <div className={`mt-3 text-sm font-bold ${goalReached ? 'text-emerald-600' : 'text-gray-500'}`}>
+                                {goalReached ? 'Goal reached' : `Reach ${TARGET_SCORE} points to clear`}
                             </div>
                         </div>
                     </div>
@@ -631,9 +775,13 @@ const GameRhythm = () => {
 
                     {/* Completion Message */}
                     {gameState === GAME_STATES.COMPLETED && (
-                        <div className="mt-2 bg-emerald-50 border-2 border-emerald-100 rounded-2xl p-4 text-center">
-                            <h3 className="text-xl font-bold text-emerald-800">Session Complete!</h3>
-                            <p className="text-emerald-600">Great rhythm consistency.</p>
+                        <div className={`mt-2 rounded-2xl p-4 text-center border-2 ${goalReached ? 'bg-emerald-50 border-emerald-100' : 'bg-amber-50 border-amber-100'}`}>
+                            <h3 className={`text-xl font-bold ${goalReached ? 'text-emerald-800' : 'text-amber-800'}`}>
+                                {goalReached ? 'Goal Reached!' : 'Session Complete!'}
+                            </h3>
+                            <p className={goalReached ? 'text-emerald-600' : 'text-amber-600'}>
+                                {goalReached ? `ทำคะแนนได้ ${score} / ${TARGET_SCORE}` : `คะแนนล่าสุด ${score} / ${TARGET_SCORE}`}
+                            </p>
                         </div>
                     )}
                 </div>
