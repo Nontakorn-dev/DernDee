@@ -1,0 +1,10 @@
+# Ignore build files
+DernDee_Web-app/dist/
+
+# Ignore session recordings
+gateway_v2/recordings/
+*.csv
+*.jsonl
+
+# Ignore Mac OS files
+.DS_Store
