@@ -104,31 +104,16 @@ const GameClearance = () => {
 
         const payload = msg.payload;
 
-        // === Use Position Z (accurate) with PEAK HOLD to prevent flicker ===
+        // === Use Position Z from ZUPT estimator ===
         if (payload.position && Array.isArray(payload.position)) {
             const rawHeight = payload.position[2] * 100; // m to cm
-            const adjustedHeight = Math.max(0, rawHeight * sensitivity);
+            const adjustedHeight = Math.min(MAX_SCALE_HEIGHT, Math.max(0, rawHeight * sensitivity));
 
-            // Peak Hold Logic: If we had a high value and it suddenly drops to ~0,
-            // hold the peak value for a short time (prevents ZUPT flicker)
+            // Light low-pass filter: responsive both up and down
+            // Backend zeros position during stance, so no peak-hold needed.
             setCurrentHeight(prev => {
-                const HOLD_THRESHOLD = 3; // cm - if new value drops below this
-                const PEAK_THRESHOLD = 5; // cm - only hold if previous was above this
-
-                if (prev >= PEAK_THRESHOLD && adjustedHeight < HOLD_THRESHOLD) {
-                    // Peak hold: start a decay instead of instant drop
-                    // Slowly decay toward the new value
-                    const decayRate = 0.85; // 15% decay per frame
-                    const decayedValue = prev * decayRate;
-
-                    if (decayedValue < HOLD_THRESHOLD) {
-                        return adjustedHeight; // Finally let it drop
-                    }
-                    return decayedValue;
-                }
-
-                // Normal update: take the new value or the higher of the two
-                return Math.max(adjustedHeight, prev * 0.5); // Smooth transition
+                const ALPHA = 0.6; // Higher = more responsive
+                return ALPHA * adjustedHeight + (1 - ALPHA) * prev;
             });
         }
 

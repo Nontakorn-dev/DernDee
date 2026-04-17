@@ -800,8 +800,10 @@ class ZUPTGaitEstimator:
                 self.heel_strike_time_ms = heel_strike_time_ms
                 self.stride_start_time_ms = heel_strike_time_ms
             else:
-                # Stable stance sample outside a just-completed step
+                # Stable stance: foot on ground → zero velocity AND position
+                # so real-time displays (Clearance game) show 0 when standing.
                 self.velocity = np.zeros(3)
+                self.position = np.zeros(3)
             
         else:
             # Swing Phase - Integrate
@@ -821,6 +823,14 @@ class ZUPTGaitEstimator:
                 # Integrate velocity to position using TRAPEZOIDAL method
                 # pos += (vel_prev + vel_curr) * 0.5 * dt (more accurate than Euler)
                 self.position += (vel_prev + self.velocity) * 0.5 * dt
+                
+                # Clamp Z to biomechanical max based on sensor mount.
+                # Shank-mounted IMU sits ~30cm above foot so its Z trajectory
+                # is amplified vs actual foot clearance; use tighter limit.
+                max_swing_z = 0.20 if self.sensor_mount == "shank" else 0.35
+                if self.position[2] > max_swing_z:
+                    self.position[2] = max_swing_z
+                    self.velocity[2] = min(self.velocity[2], 0.0)  # kill upward velocity
                 
                 # Track max Z for clearance
                 if self.position[2] > self.max_z_in_swing:

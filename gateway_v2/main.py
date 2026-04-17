@@ -308,26 +308,21 @@ def data_handler(sender_name, data):
     if int(current_ts) % 1000 < 15:  # ~every second
         print(f"🔍 [{sender_name}] gyro_norm={detection['gyro_norm']:.2f} rad/s | CWT={detection['cwt_value']:.2f} | thresh={detection['adaptive_threshold']:.2f} | walking={is_walking}")
     
-    # === LAYER 2: ZUPT ESTIMATOR (Only if walking) ===
+    # === LAYER 2: ZUPT ESTIMATOR ===
+    # Always integrate position so real-time game displays (Clearance, etc.)
+    # respond instantly. Stance/swing detection handles ZUPT resets naturally.
+    # Only gate STEP METRIC reporting on CWT is_walking.
     estimator = estimators[sender_name]
-    gait_result = None
     prev_is_walking = last_walking_flags.get(sender_name, False)
 
-    # Start each confirmed walking bout from a clean stance so we do not
-    # integrate a partial swing that happened before the detector locked on.
     if is_walking and not prev_is_walking:
-        estimator.reset_bout_state()
-        print(f"🚶 [{sender_name}] Walking bout started - estimator phase reset")
+        print(f"🚶 [{sender_name}] Walking bout detected")
     elif (not is_walking) and prev_is_walking:
-        estimator.reset_bout_state()
-        print(f"🛑 [{sender_name}] Walking bout ended - estimator phase reset")
+        print(f"🛑 [{sender_name}] Walking bout ended")
     
-    if is_walking:
-        # Pass real dt from ESP32 timestamp for accurate integration
-        gait_result = estimator.update(accel.tolist(), gyro.tolist(), current_ts, dt=dt_sec, is_walking=True)
-    else:
-        # Still update for stance detection, but don't integrate
-        estimator.update(accel.tolist(), gyro.tolist(), current_ts, dt=dt_sec, is_walking=False)
+    # Always integrate; stance/swing detector handles ZUPT naturally.
+    # CWT is kept for bout logging only, not for gating position or step metrics.
+    gait_result = estimator.update(accel.tolist(), gyro.tolist(), current_ts, dt=dt_sec, is_walking=True)
     last_walking_flags[sender_name] = is_walking
     
     # === DUAL FOOT ANALYSIS ===
