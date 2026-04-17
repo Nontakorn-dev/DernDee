@@ -12,6 +12,7 @@ Simplified from v1.0:
 import asyncio
 import json
 import time
+from pathlib import Path
 import websockets
 import numpy as np
 from connection import MultiBLEManager
@@ -21,23 +22,33 @@ from shoe_detector import CWTWalkingDetector  # [v2.0] CWT-based
 from gait_estimator import ZUPTGaitEstimator, DualFootAnalyzer  # [v2.0] ZUPT-based
 from calibration import CalibrationManager
 from feedback_engine import FeedbackEngine
+from sample_export import LiveSampleExporter
+from shank_event_detector_prototype import ShankEventDetectorComparison
 
 # ==== Global State ====
 # Per-device instances
 detectors = {}  # {Name: CWTWalkingDetector}
 estimators = {}  # {Name: ZUPTGaitEstimator}
+prototype_comparators = {}  # {Name: ShankEventDetectorComparison}
 
 # Shared analyzers
 dual_foot_analyzer = DualFootAnalyzer()
 calibration_manager = CalibrationManager()
 feedback_engine = FeedbackEngine()
+sample_exporter = LiveSampleExporter(Path(__file__).resolve().parent / "recordings")
 
 # Tracking
 last_timestamps = {}  # {sender_name: timestamp_ms}
 last_seen_times = {}  # {sender_name: timestamp_ms}
+last_walking_flags = {}  # {sender_name: bool}
 
 # WebSocket clients
 connected_clients = set()
+
+
+def infer_sensor_mount(sender_name):
+    """Infer whether the IMU is mounted on the foot or shank from the device name."""
+    return "shank" if "Shank" in sender_name else "foot"
 
 
 def convert_to_json_serializable(obj):
@@ -58,6 +69,40 @@ def convert_to_json_serializable(obj):
         return obj
 
 
+def serialize_prototype_compare(result):
+    """Convert detector dataclass results into plain dicts for WebSocket payloads."""
+    if not result:
+        return None
+    return {
+        "timestamp_ms": result.get("timestamp_ms"),
+        "norm": {
+            "phase": result["norm"].phase,
+            "event": result["norm"].event,
+            "debug": result["norm"].debug,
+        },
+        "fsm": {
+            "phase": result["fsm"].phase,
+            "event": result["fsm"].event,
+            "debug": result["fsm"].debug,
+        },
+    }
+
+
+def reset_runtime_state():
+    """Reset runtime-only state while preserving calibration results."""
+    for det in detectors.values():
+        det.reset()
+    for est in estimators.values():
+        est.reset()
+
+    prototype_comparators.clear()
+    dual_foot_analyzer.reset()
+    feedback_engine.reset()
+    last_timestamps.clear()
+    last_seen_times.clear()
+    last_walking_flags.clear()
+
+
 async def broadcast(data):
     """Broadcast data to all connected WebSocket clients."""
     if not connected_clients:
@@ -75,22 +120,29 @@ async def ws_handler(websocket):
     """WebSocket handler for client connections."""
     connected_clients.add(websocket)
     print(f"📱 WebSocket client connected (Total: {len(connected_clients)})")
+    await websocket.send(json.dumps({"type": "RECORDING_STATUS", "payload": sample_exporter.get_status()}))
     
     try:
         async for message in websocket:
             if message == "CALIBRATE":
+                reset_runtime_state()
                 calibration_manager.start_calibration()
                 await broadcast({"type": "CALIBRATION_START"})
                 
             elif message == "RESET":
-                # Reset all detectors and estimators
-                for det in detectors.values():
-                    det.reset()
-                for est in estimators.values():
-                    est.reset()
-                dual_foot_analyzer.reset()
+                reset_runtime_state()
                 print("🔄 All systems reset")
                 await broadcast({"type": "SYSTEM_RESET"})
+
+            elif message == "START_RECORD":
+                status = sample_exporter.start()
+                print(f"🎙️ Sample export started: {status.get('session_dir')}")
+                await broadcast({"type": "RECORDING_STATUS", "payload": status})
+
+            elif message == "STOP_RECORD":
+                status = sample_exporter.stop()
+                print(f"🧾 Sample export stopped: {status.get('session_dir')}")
+                await broadcast({"type": "RECORDING_STATUS", "payload": status})
                 
     except websockets.exceptions.ConnectionClosed:
         print("📱 WebSocket client disconnected")
@@ -163,10 +215,15 @@ def data_handler(sender_name, data):
     last_timestamps[sender_name] = current_ts
     
     # 3. Initialize detectors/estimators if needed
+    sensor_mount = infer_sensor_mount(sender_name)
+    side = "L" if ("_L_" in sender_name or "Left" in sender_name or "L_Shank" in sender_name) else "R"
     if sender_name not in detectors:
         detectors[sender_name] = CWTWalkingDetector(sample_rate=100.0)
-        estimators[sender_name] = ZUPTGaitEstimator(sample_rate=100.0)
+        estimators[sender_name] = ZUPTGaitEstimator(sample_rate=100.0, sensor_mount=sensor_mount)
         print(f"🆕 Created CWT Detector + ZUPT Estimator for {sender_name}")
+    if sensor_mount == "shank" and sender_name not in prototype_comparators:
+        prototype_comparators[sender_name] = ShankEventDetectorComparison(side=side)
+        print(f"🧪 Created Shank Prototype Comparator for {sender_name}")
     
     # 4. Apply axis remapping
     ax_raw, ay_raw, az_raw = physics["accel"]
@@ -181,15 +238,9 @@ def data_handler(sender_name, data):
     accel = np.array([ax, ay, az])
     gyro = np.array([gx, gy, gz])
     
-    # 5. Apply calibration if available
-    corrected_gyro = calibration_manager.get_corrected_gyro(sender_name, gyro.tolist())
-    gyro = np.array(corrected_gyro)
-    
-    accel_scale = calibration_manager.get_accel_scale(sender_name)
-    accel = accel * accel_scale
-    
     # === CALIBRATION MODE ===
     if calibration_manager.is_calibrating():
+        # Use remapped but otherwise uncorrected data so re-calibration can learn fresh biases/scales.
         calibration_manager.process_data(sender_name, [1, 0, 0, 0], gyro.tolist(), accel.tolist())
         
         if not calibration_manager.is_calibrating():
@@ -197,28 +248,54 @@ def data_handler(sender_name, data):
                 print(f"✅ {sender_name}: Calibration completed!")
                 
                 # === INSTANT ALIGNMENT (per SRS) ===
-                # Get average accel during calibration (gravity vector)
-                mean_accel = calibration_manager.get_average_accel(sender_name)
-                
-                if mean_accel is not None and sender_name in estimators:
-                    # Apply axis remapping to mean accel (same as live data)
-                    is_right = "_R_" in sender_name or "Right" in sender_name or "R_Shank" in sender_name
-                    ax, ay, az = mean_accel[0], mean_accel[1], mean_accel[2]
-                    
+                for device_name, mean_accel in calibration_manager.avg_accels.items():
+                    if mean_accel is None:
+                        continue
+                    if device_name not in estimators:
+                        device_mount = infer_sensor_mount(device_name)
+                        estimators[device_name] = ZUPTGaitEstimator(sample_rate=100.0, sensor_mount=device_mount)
+                        print(f"🆕 Created ZUPT Estimator for {device_name} during calibration")
+
+                    ax_mean, ay_mean, az_mean = mean_accel[0], mean_accel[1], mean_accel[2]
+
                     # Remap: Y-Forward, Z-Up installation
-                    n_ax = ay
-                    n_ay = -ax
-                    n_az = az
-                    
+                    n_ax = ay_mean
+                    n_ay = -ax_mean
+                    n_az = az_mean
+
                     # Initialize estimator orientation from gravity
-                    estimators[sender_name].initialize_orientation(n_ax, n_ay, n_az)
-                    print(f"⚡ {sender_name}: Instant Alignment applied!")
+                    estimators[device_name].initialize_orientation(n_ax, n_ay, n_az)
+                    print(f"⚡ {device_name}: Instant Alignment applied!")
                 
                 asyncio.create_task(broadcast({"type": "CALIBRATION_DONE"}))
             else:
                 print(f"❌ {sender_name}: Calibration failed")
                 asyncio.create_task(broadcast({"type": "CALIBRATION_FAILED"}))
         return
+
+    # 5. Apply calibration if available
+    corrected_gyro = calibration_manager.get_corrected_gyro(sender_name, gyro)
+    gyro = np.asarray(corrected_gyro, dtype=float)
+    
+    accel_scale = calibration_manager.get_accel_scale(sender_name)
+    accel = accel * accel_scale
+
+    sample_exporter.record_sample(
+        sensor_name=sender_name,
+        side=side,
+        sensor_mount=sensor_mount,
+        timestamp_ms=current_ts,
+        accel=accel,
+        gyro=gyro,
+        raw_accel=physics["accel"],
+        raw_gyro=physics["gyro"],
+        dt_sec=dt_sec,
+    )
+
+    prototype_compare = None
+    if sensor_mount == "shank":
+        comparator = prototype_comparators[sender_name]
+        prototype_compare = comparator.update(accel.tolist(), gyro.tolist(), current_ts)
     
     # === LAYER 1: CWT WALKING DETECTOR ===
     detector = detectors[sender_name]
@@ -234,6 +311,16 @@ def data_handler(sender_name, data):
     # === LAYER 2: ZUPT ESTIMATOR (Only if walking) ===
     estimator = estimators[sender_name]
     gait_result = None
+    prev_is_walking = last_walking_flags.get(sender_name, False)
+
+    # Start each confirmed walking bout from a clean stance so we do not
+    # integrate a partial swing that happened before the detector locked on.
+    if is_walking and not prev_is_walking:
+        estimator.reset_bout_state()
+        print(f"🚶 [{sender_name}] Walking bout started - estimator phase reset")
+    elif (not is_walking) and prev_is_walking:
+        estimator.reset_bout_state()
+        print(f"🛑 [{sender_name}] Walking bout ended - estimator phase reset")
     
     if is_walking:
         # Pass real dt from ESP32 timestamp for accurate integration
@@ -241,38 +328,48 @@ def data_handler(sender_name, data):
     else:
         # Still update for stance detection, but don't integrate
         estimator.update(accel.tolist(), gyro.tolist(), current_ts, dt=dt_sec, is_walking=False)
+    last_walking_flags[sender_name] = is_walking
     
     # === DUAL FOOT ANALYSIS ===
     feedback_result = None
-    # Determine side - support both naming conventions
-    side = "L" if ("_L_" in sender_name or "Left" in sender_name or "L_Shank" in sender_name) else "R"
+    session_metrics = dual_foot_analyzer.get_session_metrics()
     
     if gait_result:
-        # Add to dual-foot analyzer
-        dual_foot_analyzer.add_step(
-            side,
-            gait_result['stride_length_m'],
-            gait_result['clearance_m']
-        )
+        gait_result["sensor_mount"] = sensor_mount
+        if sensor_mount != "foot":
+            # This metric is defined for foot-mounted IMUs; on shank it becomes misleading.
+            gait_result["touchdown_pitch_deg"] = None
+
+        # Add to dual-foot analyzer and compute aggregate session metrics
+        session_metrics = dual_foot_analyzer.register_step(side, gait_result)
         
-        # Get symmetry
-        symmetry = dual_foot_analyzer.get_symmetry()
-        gait_result['symmetry_percent'] = symmetry
+        # Enrich per-step metrics with dual-foot aggregates
+        gait_result['symmetry_percent'] = session_metrics['symmetry_percent']
+        gait_result['step_count'] = session_metrics['total_steps']
+        gait_result['total_steps'] = session_metrics['total_steps']
+        gait_result['cadence_spm'] = session_metrics.get('cadence_spm')
+
+        # `step_duration_s` is defined as the alternating-foot step interval.
+        if session_metrics.get('latest_step_duration_s') is not None:
+            gait_result['step_duration_s'] = session_metrics['latest_step_duration_s']
+        elif session_metrics.get('avg_step_duration_s') is not None:
+            gait_result['step_duration_s'] = session_metrics['avg_step_duration_s']
         
         # === Virtual Gait Coach: Analyze step with hierarchical feedback ===
         feedback_result = feedback_engine.analyze_step(gait_result, side=side)
         if feedback_result:
             print(f"🗣️ [{side}] {feedback_result.get('text', '')}")
+
+    state = estimator.get_current_state()
     
     # === BROADCAST TO FRONTEND ===
     if connected_clients:
-        state = estimator.get_current_state()
-        
         payload = {
             "type": "DATA",
             "payload": {
                 "name": sender_name,
                 "side": side,
+                "sensor_mount": sensor_mount,
                 # Detection layer
                 "is_walking": is_walking,
                 "step_detected": step_detected,
@@ -280,14 +377,18 @@ def data_handler(sender_name, data):
                 "cwt_value": detection['cwt_value'],
                 "adaptive_threshold": detection['adaptive_threshold'],
                 "steps_in_bout": detection['steps_in_bout'],
+                "prototype_compare": serialize_prototype_compare(prototype_compare),
                 # Estimator layer
                 "is_stance": state['is_stance'],
                 "position": state['position'],
                 "velocity": state['velocity'],
                 "quaternion": state['quaternion'],
-                "total_steps": state['total_steps'],
+                "sensor_total_steps": state['total_steps'],
+                "last_reject_reason": state.get('last_reject_reason'),
+                "total_steps": session_metrics.get('total_steps', 0),
                 # Gait metrics (if step completed)
                 "gait_metrics": gait_result,
+                "session_metrics": session_metrics,
                 # Feedback
                 "feedback": feedback_result
             }

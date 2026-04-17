@@ -100,9 +100,11 @@ class FeedbackEngine:
         # Extract Metrics
         clearance = gait_results.get("clearance_m", 0.0)
         stride = gait_results.get("stride_length_m", 0.0)
-        pitch = gait_results.get("touchdown_pitch_deg", 0.0)
+        pitch = gait_results.get("touchdown_pitch_deg")
         yaw_rate = gait_results.get("max_yaw_rate_rps", 0.0) 
-        push_off = gait_results.get("push_off_power", 0.0)
+        push_off = gait_results.get("push_off_velocity_mps", gait_results.get("push_off_power", 0.0))
+        sensor_mount = gait_results.get("sensor_mount", "foot")
+        pitch_available = isinstance(pitch, (int, float)) and sensor_mount == "foot"
         
         feedback = None
         
@@ -115,7 +117,7 @@ class FeedbackEngine:
         elif trunk_angle is not None and abs(trunk_angle) > self.thresholds["max_trunk_sway_deg"]:
             feedback = self._create_feedback("trunk_sway", "DANGER", {"val": f"{abs(trunk_angle):.1f}°"})
             
-        elif abs(pitch) < self.thresholds["min_pitch_deg"]:
+        elif pitch_available and abs(pitch) < self.thresholds["min_pitch_deg"]:
             feedback = self._create_feedback("heel_strike", "DANGER", {"val": f"{pitch:.1f}°"})
         
         # 2. Foundation

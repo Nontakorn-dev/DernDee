@@ -47,6 +47,7 @@ class CWTWalkingDetector:
         
         # ==== Bout Detection Parameters ====
         self.max_gap_samples = int(5.0 * sample_rate)  # 5 seconds max gap
+        self.max_gap_ms = int(self.max_gap_samples * 1000 / sample_rate)
         self.min_steps_per_bout = 3  # Minimum steps to be valid walking
         
         # ==== Buffers ====
@@ -208,15 +209,15 @@ class CWTWalkingDetector:
         if len(self.current_bout_peaks) > 0:
             time_since_last_peak = timestamp_ms - self.current_bout_peaks[-1]
             
-            if time_since_last_peak > 5000:  # 5 seconds in ms
+            if time_since_last_peak > self.max_gap_ms:
                 # Bout ended - validate it
-                if len(self.current_bout_peaks) >= self.min_steps_per_bout:
-                    self.is_currently_walking = True
-                else:
+                if len(self.current_bout_peaks) < self.min_steps_per_bout:
                     # Reject bout (< 3 steps)
-                    self.is_currently_walking = False
                     print(f"🚫 [CWT] Bout rejected: only {len(self.current_bout_peaks)} steps")
-                
+
+                # No recent steps anymore, so the current walking state must end here.
+                self.is_currently_walking = False
+
                 # Reset for next bout
                 self.current_bout_peaks = []
                 self.steps_in_current_bout = 0

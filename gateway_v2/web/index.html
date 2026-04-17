@@ -600,7 +600,9 @@
 
                     // Support both formats for step count
                     let stepCount = 0;
-                    if (m.step_count !== undefined) {
+                    if (data.sensor_total_steps !== undefined) {
+                        stepCount = data.sensor_total_steps;  // Per-sensor runtime count
+                    } else if (m.step_count !== undefined) {
                         stepCount = m.step_count;  // New format
                     } else if (m.temporal && m.temporal.step_count !== undefined) {
                         stepCount = m.temporal.step_count;  // Old format
@@ -641,7 +643,8 @@
                     }
 
                     // Update summary
-                    document.getElementById('total-steps').textContent = totalStepsL + totalStepsR;
+                    const totalSteps = data.total_steps !== undefined ? data.total_steps : totalStepsL + totalStepsR;
+                    document.getElementById('total-steps').textContent = totalSteps;
 
                     const allStrides = [...leftStrides, ...rightStrides];
                     if (allStrides.length > 0) {
