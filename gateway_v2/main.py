@@ -378,6 +378,7 @@ def data_handler(sender_name, data):
                 "position": state['position'],
                 "velocity": state['velocity'],
                 "quaternion": state['quaternion'],
+                "accel": accel.tolist(),  # Body-frame accel for drift-free tilt (Balance game)
                 "sensor_total_steps": state['total_steps'],
                 "last_reject_reason": state.get('last_reject_reason'),
                 "total_steps": session_metrics.get('total_steps', 0),

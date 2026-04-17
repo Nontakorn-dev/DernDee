@@ -17,14 +17,43 @@ const ZONE_A_THRESHOLD = 15; // Perfect (green)
 const ZONE_B_THRESHOLD = 35; // Warning (yellow)
 // Beyond Zone B = Critical (red)
 
+// === Quaternion math helpers ===
+function quatMultiply(a, b) {
+    return [
+        a[0]*b[0] - a[1]*b[1] - a[2]*b[2] - a[3]*b[3],
+        a[0]*b[1] + a[1]*b[0] + a[2]*b[3] - a[3]*b[2],
+        a[0]*b[2] - a[1]*b[3] + a[2]*b[0] + a[3]*b[1],
+        a[0]*b[3] + a[1]*b[2] - a[2]*b[1] + a[3]*b[0]
+    ];
+}
+
+function quatConjugate(q) {
+    return [q[0], -q[1], -q[2], -q[3]];
+}
+
+function quatToRotVec(q) {
+    let [w, x, y, z] = q;
+    if (w < 0) { w = -w; x = -x; y = -y; z = -z; }
+    const sinHalf = Math.sqrt(x * x + y * y + z * z);
+    if (sinHalf < 1e-6) return [0, 0, 0];
+    const scale = 2 * Math.atan2(sinHalf, w) / sinHalf;
+    return [x * scale, y * scale, z * scale];
+}
+
+function quatAngleDeg(a, b) {
+    const delta = quatMultiply(quatConjugate(a), b);
+    const w = Math.max(-1, Math.min(1, Math.abs(delta[0])));
+    return 2 * Math.acos(w) * 180 / Math.PI;
+}
+
 const GameBalance = () => {
     const navigate = useNavigate();
 
     // === Game State ===
-    const [gameState, setGameState] = useState(GAME_STATES.READY);
+    const [gameState, setGameState] = useState(GAME_STATES.CALIBRATING);
     const [showSettings, setShowSettings] = useState(false);
-    const [sensitivity, setSensitivity] = useState(3.0); // For display
-    const gameStateRef = useRef(GAME_STATES.READY);
+    const [sensitivity, setSensitivity] = useState(1.0); // For display
+    const gameStateRef = useRef(GAME_STATES.CALIBRATING);
 
     // === Calibration Offsets (use refs so callback always gets latest) ===
     const offsetRollRef = useRef(0);
@@ -34,7 +63,7 @@ const GameBalance = () => {
     const [isCalibrating, setIsCalibrating] = useState(false);
     const isCalibratingRef = useRef(false); // Ref for callback
     const calibrationSamplesRef = useRef([]);
-    const sensitivityRef = useRef(3.0);
+    const sensitivityRef = useRef(1.0);
 
     // === Real-time Sensor Data ===
     const [rawRoll, setRawRoll] = useState(0);
@@ -76,8 +105,20 @@ const GameBalance = () => {
 
     const zone = getZone();
 
-    // === Auto-Calibration State ===
-    const hasAutoCalibratedRef = useRef(false);
+    // === Calibration State ===
+    const refQuaternionRef = useRef(null); // Reference quaternion — set by Calibration page or Re-center
+    const lastQuaternionRef = useRef(null); // Always tracks latest quaternion from gateway
+    const lastSmoothedYawRef = useRef(0);
+    const yawBaselineRef = useRef(0); // Slow-moving yaw baseline for drift compensation
+    const yawBaselineInitRef = useRef(false); // Whether baseline has been initialized
+    const autoCenterArmedRef = useRef(true); // Auto-center should only run once when entering the game
+    const autoCenterFirstDataAtRef = useRef(null); // Warm-up time before checking stillness
+    const autoCenterStableSinceRef = useRef(null); // How long the leg has stayed still
+    const autoCenterDriftSinceRef = useRef(null); // How long the bubble has drifted while still
+    const autoCenterCooldownUntilRef = useRef(0); // Prevent repeated auto-calibrations back-to-back
+    const autoCenterPrevQuaternionRef = useRef(null); // Previous quaternion for stillness detection
+    const calibrationSourceRef = useRef('manual'); // Track whether calibration was manual or automatic
+    const startCalibrationRef = useRef(null); // Ref to call startCalibration from handleSensorData
 
     // === WebSocket Connection ===
     useEffect(() => {
@@ -87,13 +128,33 @@ const GameBalance = () => {
 
                 wsRef.current.onopen = () => {
                     console.log('🎯 Balance Game connected to WebSocket');
-                    // Reset auto-calibration flag on new connection to ensure we get a good zero
-                    hasAutoCalibratedRef.current = false;
                 };
 
                 wsRef.current.onmessage = (event) => {
                     try {
                         const msg = JSON.parse(event.data);
+
+                        // When Calibration page completes → capture current quaternion as reference
+                        if (msg.type === 'CALIBRATION_DONE') {
+                            if (lastQuaternionRef.current) {
+                                refQuaternionRef.current = [...lastQuaternionRef.current];
+                                lastSmoothedRollRef.current = 0;
+                                lastSmoothedPitchRef.current = 0;
+                                lastSmoothedYawRef.current = 0;
+                                yawBaselineRef.current = 0;
+                                yawBaselineInitRef.current = false;
+                                autoCenterArmedRef.current = false;
+                                autoCenterFirstDataAtRef.current = null;
+                                autoCenterStableSinceRef.current = null;
+                                autoCenterDriftSinceRef.current = null;
+                                autoCenterCooldownUntilRef.current = 0;
+                                autoCenterPrevQuaternionRef.current = null;
+                                setGameState(GAME_STATES.READY);
+                                gameStateRef.current = GAME_STATES.READY;
+                                console.log('🎯 CALIBRATION_DONE → Reference quaternion set for Balance');
+                            }
+                        }
+
                         handleSensorData(msg);
                     } catch (e) {
                         console.error('Parse error:', e);
@@ -128,91 +189,180 @@ const GameBalance = () => {
 
         const payload = msg.payload;
 
-        // Extract Roll and Pitch from quaternion
-        if (payload.quaternion && Array.isArray(payload.quaternion)) {
-            const [w, x, y, z] = payload.quaternion;
+        // === Get quaternion (tracks full 3D orientation including yaw) ===
+        const q = payload.quaternion;
+        if (!q || !Array.isArray(q) || q.length !== 4) return;
 
-            // Convert quaternion to Euler angles
-            // Roll (X-axis rotation) - Inversion/Eversion
-            const sinr_cosp = 2.0 * (w * x + y * z);
-            const cosr_cosp = 1.0 - 2.0 * (x * x + y * y);
-            const roll = Math.atan2(sinr_cosp, cosr_cosp) * (180 / Math.PI);
+        // Always track latest quaternion
+        lastQuaternionRef.current = [...q];
 
-            // Pitch (Y-axis rotation) - Dorsiflexion/Plantarflexion
-            const sinp = 2.0 * (w * y - z * x);
-            const pitch = Math.abs(sinp) >= 1
-                ? Math.sign(sinp) * 90
-                : Math.asin(sinp) * (180 / Math.PI);
+        const now = Date.now();
+        const gyroNorm = typeof payload.gyro_norm === 'number' ? payload.gyro_norm : null;
+        const prevQuaternion = autoCenterPrevQuaternionRef.current;
+        const quatDeltaDeg = prevQuaternion ? quatAngleDeg(prevQuaternion, q) : 0;
+        const prePlayState = gameStateRef.current === GAME_STATES.CALIBRATING || gameStateRef.current === GAME_STATES.READY;
 
-            setRawRoll(roll);
-            setRawPitch(pitch);
+        autoCenterPrevQuaternionRef.current = [...q];
 
-            // === AUTO-CALIBRATION ON ENTRY (SILENT) ===
-            // Since user just finished mandatory calibration, we snap the current posture 
-            // as the center point instantly without showing the loading spinner again.
-            if (!hasAutoCalibratedRef.current && !isCalibratingRef.current) {
-                console.log("🚀 Silent Auto-Tare applied");
+        if (!autoCenterFirstDataAtRef.current) {
+            autoCenterFirstDataAtRef.current = now;
+        }
 
-                // Instant Snap
-                offsetRollRef.current = roll;
-                offsetPitchRef.current = pitch;
-                setOffsetRoll(roll);
-                setOffsetPitch(pitch);
+        const warmupDone = now - autoCenterFirstDataAtRef.current >= 2500;
+        const gyroStable = gyroNorm === null || gyroNorm < 0.12;
+        const quatStable = quatDeltaDeg < 0.25;
+        const isStill = prePlayState && warmupDone && gyroStable && quatStable;
 
-                hasAutoCalibratedRef.current = true;
-            }
-
-            // Collect samples during calibration (USE REF!)
-            if (isCalibratingRef.current) {
-                calibrationSamplesRef.current.push({ roll, pitch });
-            }
-
-            // Apply calibration offset and sensitivity (READ FROM REFS!)
-            const targetRoll = (roll - offsetRollRef.current) * sensitivityRef.current;
-            const targetPitch = (pitch - offsetPitchRef.current) * sensitivityRef.current;
-
-            // Apply Smoothing (LERP) - Factor 0.1 for very smooth visualization
-            const smoothFactor = 0.1;
-            const smoothedRoll = lastSmoothedRollRef.current + (targetRoll - lastSmoothedRollRef.current) * smoothFactor;
-            const smoothedPitch = lastSmoothedPitchRef.current + (targetPitch - lastSmoothedPitchRef.current) * smoothFactor;
-
-            // Update refs
-            lastSmoothedRollRef.current = smoothedRoll;
-            lastSmoothedPitchRef.current = smoothedPitch;
-
-            setCalibratedRoll(smoothedRoll);
-            setCalibratedPitch(smoothedPitch);
-
-            // Throttled Display Update (Every 700ms)
-            const now = Date.now();
-            if (now - lastDisplayUpdateRef.current > 700) {
-                setDisplayRoll(smoothedRoll);
-                setDisplayPitch(smoothedPitch);
-                lastDisplayUpdateRef.current = now;
-            }
-
-            // Clamp to -100 to 100 range (map ±30° to ±100%)
-            const maxAngle = 30;
-            const newX = Math.max(-100, Math.min(100, (smoothedRoll / maxAngle) * 100));
-            const newY = Math.max(-100, Math.min(100, (-smoothedPitch / maxAngle) * 100)); // Invert Y
-
-            setBubbleX(newX);
-            setBubbleY(newY);
-
-            // Track deviation for average calculation
-            if (gameStateRef.current === GAME_STATES.PLAYING) {
-                const deviation = Math.sqrt(calibratedRoll ** 2 + calibratedPitch ** 2);
-                deviationHistoryRef.current.push(deviation);
-
-                // Keep last 100 samples for rolling average
-                if (deviationHistoryRef.current.length > 100) {
-                    deviationHistoryRef.current.shift();
+        // Auto-center on game entry: wait for stable sensor data, then call startCalibration()
+        if (!refQuaternionRef.current && autoCenterArmedRef.current && !isCalibratingRef.current && now >= autoCenterCooldownUntilRef.current) {
+            if (isStill) {
+                if (!autoCenterStableSinceRef.current) {
+                    autoCenterStableSinceRef.current = now;
                 }
 
-                // Update average deviation
-                const avg = deviationHistoryRef.current.reduce((a, b) => a + b, 0) / deviationHistoryRef.current.length;
-                setAvgDeviation(avg);
+                if (now - autoCenterStableSinceRef.current >= 800) {
+                    autoCenterStableSinceRef.current = null;
+                    autoCenterDriftSinceRef.current = null;
+                    autoCenterPrevQuaternionRef.current = null;
+                    console.log(`🎯 Auto-center: sensor stable (gyro=${gyroNorm?.toFixed?.(3) ?? 'n/a'}, quatΔ=${quatDeltaDeg.toFixed(3)}°) → calling startCalibration()`);
+                    if (startCalibrationRef.current) {
+                        startCalibrationRef.current('auto');
+                    }
+                }
+            } else {
+                autoCenterStableSinceRef.current = null;
             }
+        }
+
+        // Collect samples during manual Re-center calibration
+        if (isCalibratingRef.current) {
+            calibrationSamplesRef.current.push([...q]);
+        }
+
+        // Need reference quaternion to compute relative orientation
+        if (!refQuaternionRef.current) return;
+
+        // === Relative quaternion: how has orientation changed from reference? ===
+        const q_rel = quatMultiply(quatConjugate(refQuaternionRef.current), q);
+
+        // === Convert to rotation vector [rx, ry, rz] in radians ===
+        const rv = quatToRotVec(q_rel);
+        const RAD_TO_DEG = 180 / Math.PI;
+
+        // Body frame after gateway remap: X=down, Y=left, Z=forward
+        // rv[0]: rotation around X (down) → yaw;  CCW from above = negative rv[0]
+        // rv[1]: rotation around Y (left) → pitch; lean forward = negative rv[1]
+        // rv[2]: rotation around Z (fwd)  → roll;  lean left = positive rv[2]
+        const leanLeftDeg = rv[2] * RAD_TO_DEG;
+        const leanFwdDeg = -rv[1] * RAD_TO_DEG;
+        const rawYawDeg = -rv[0] * RAD_TO_DEG;
+
+        // === Yaw drift compensation: slow baseline tracks drift, fast movements pass through ===
+        if (!yawBaselineInitRef.current) {
+            yawBaselineRef.current = rawYawDeg;
+            yawBaselineInitRef.current = true;
+        } else {
+            // Very slow tracking: baseline follows drift (~0.2% per frame at 100Hz)
+            yawBaselineRef.current += (rawYawDeg - yawBaselineRef.current) * 0.002;
+        }
+        const yawDeg = rawYawDeg - yawBaselineRef.current;
+
+        setRawRoll(leanLeftDeg);
+        setRawPitch(leanFwdDeg);
+
+        // === Apply sensitivity & dead zone ===
+        const sens = sensitivityRef.current;
+        const DEAD_ZONE = 1.0;
+        const RAMP_ZONE = 1.0;
+        const applyDeadZone = (value) => {
+            const abs = Math.abs(value);
+            if (abs < DEAD_ZONE) return 0;
+            if (abs < DEAD_ZONE + RAMP_ZONE) {
+                const ratio = (abs - DEAD_ZONE) / RAMP_ZONE;
+                return Math.sign(value) * ratio * (abs - DEAD_ZONE);
+            }
+            return value;
+        };
+
+        const targetLeanLeft = applyDeadZone(leanLeftDeg * sens);
+        const targetLeanFwd = applyDeadZone(leanFwdDeg * sens);
+        const targetYaw = applyDeadZone(yawDeg * sens);
+
+        // === Smoothing (LERP) ===
+        const smoothFactor = 0.18;
+        const smoothedLeanLeft = lastSmoothedRollRef.current + (targetLeanLeft - lastSmoothedRollRef.current) * smoothFactor;
+        const smoothedLeanFwd = lastSmoothedPitchRef.current + (targetLeanFwd - lastSmoothedPitchRef.current) * smoothFactor;
+        const smoothedYaw = lastSmoothedYawRef.current + (targetYaw - lastSmoothedYawRef.current) * smoothFactor;
+
+        lastSmoothedRollRef.current = smoothedLeanLeft;
+        lastSmoothedPitchRef.current = smoothedLeanFwd;
+        lastSmoothedYawRef.current = smoothedYaw;
+
+        setCalibratedRoll(smoothedLeanLeft);
+        setCalibratedPitch(smoothedLeanFwd);
+
+        // Throttled Display Update (Every 700ms)
+        if (now - lastDisplayUpdateRef.current > 700) {
+            setDisplayRoll(smoothedLeanLeft);
+            setDisplayPitch(smoothedLeanFwd);
+            lastDisplayUpdateRef.current = now;
+        }
+
+        // === Map to ball position ===
+        const maxAngle = 45;
+
+        // Tilt contribution (lean left → ball left, lean forward → ball up)
+        let newX = (-smoothedLeanLeft / maxAngle) * 100;
+        let newY = (-smoothedLeanFwd / maxAngle) * 100;
+
+        // Yaw contribution (drift-compensated via slow baseline subtraction)
+        const yawRad = smoothedYaw * Math.PI / 180;
+        const yawAmplitude = Math.min(Math.abs(smoothedYaw), maxAngle) / maxAngle * 100;
+        newX += -Math.sin(yawRad) * yawAmplitude;
+        newY += -Math.cos(yawRad) * yawAmplitude;
+
+        const centerDistance = Math.sqrt(newX * newX + newY * newY);
+
+        if (refQuaternionRef.current && autoCenterArmedRef.current && !isCalibratingRef.current && now >= autoCenterCooldownUntilRef.current) {
+            if (isStill && centerDistance > 10) {
+                if (!autoCenterDriftSinceRef.current) {
+                    autoCenterDriftSinceRef.current = now;
+                }
+
+                if (now - autoCenterDriftSinceRef.current >= 900) {
+                    autoCenterStableSinceRef.current = null;
+                    autoCenterDriftSinceRef.current = null;
+                    autoCenterPrevQuaternionRef.current = null;
+                    console.log(`🎯 Auto-center: bubble drifted to ${centerDistance.toFixed(1)}% while still → calling startCalibration() again`);
+                    if (startCalibrationRef.current) {
+                        startCalibrationRef.current('auto');
+                    }
+                }
+            } else {
+                autoCenterDriftSinceRef.current = null;
+            }
+        } else {
+            autoCenterDriftSinceRef.current = null;
+        }
+
+        // Clamp to [-100, 100]
+        newX = Math.max(-100, Math.min(100, newX));
+        newY = Math.max(-100, Math.min(100, newY));
+
+        setBubbleX(newX);
+        setBubbleY(newY);
+
+        // Track deviation for average calculation
+        if (gameStateRef.current === GAME_STATES.PLAYING) {
+            const deviation = Math.sqrt(smoothedLeanLeft ** 2 + smoothedLeanFwd ** 2);
+            deviationHistoryRef.current.push(deviation);
+
+            if (deviationHistoryRef.current.length > 100) {
+                deviationHistoryRef.current.shift();
+            }
+
+            const avg = deviationHistoryRef.current.reduce((a, b) => a + b, 0) / deviationHistoryRef.current.length;
+            setAvgDeviation(avg);
         }
     }, []); // No deps needed since everything uses refs
 
@@ -221,36 +371,50 @@ const GameBalance = () => {
     const finishCalibration = useCallback(() => {
         const samples = calibrationSamplesRef.current;
         if (samples.length > 0) {
-            const avgRoll = samples.reduce((a, b) => a + b.roll, 0) / samples.length;
-            const avgPitch = samples.reduce((a, b) => a + b.pitch, 0) / samples.length;
-
-            // Set both ref AND state
-            offsetRollRef.current = avgRoll;
-            offsetPitchRef.current = avgPitch;
-            setOffsetRoll(avgRoll);
-            setOffsetPitch(avgPitch);
-
-            console.log(`✅ Calibrated: Roll=${avgRoll.toFixed(1)}°, Pitch=${avgPitch.toFixed(1)}°`);
+            // Use the last quaternion sample as new reference orientation
+            refQuaternionRef.current = [...samples[samples.length - 1]];
+            // Reset smoothing state so ball snaps to center
+            lastSmoothedRollRef.current = 0;
+            lastSmoothedPitchRef.current = 0;
+            lastSmoothedYawRef.current = 0;
+            yawBaselineRef.current = 0;
+            yawBaselineInitRef.current = false;
+            autoCenterArmedRef.current = calibrationSourceRef.current === 'auto';
+            autoCenterFirstDataAtRef.current = Date.now();
+            autoCenterStableSinceRef.current = null;
+            autoCenterDriftSinceRef.current = null;
+            autoCenterPrevQuaternionRef.current = null;
+            console.log('✅ Re-centered: New reference quaternion set');
         }
 
         setIsCalibrating(false);
-        isCalibratingRef.current = false; // Reset ref too!
+        isCalibratingRef.current = false;
         setGameState(GAME_STATES.READY);
         gameStateRef.current = GAME_STATES.READY;
     }, []);
 
-    const startCalibration = () => {
+    const startCalibration = (source = 'manual') => {
+        calibrationSourceRef.current = source;
+        autoCenterArmedRef.current = source === 'auto';
+        autoCenterFirstDataAtRef.current = Date.now();
+        autoCenterStableSinceRef.current = null;
+        autoCenterDriftSinceRef.current = null;
+        autoCenterCooldownUntilRef.current = source === 'auto' ? Date.now() + 2800 : 0;
+        autoCenterPrevQuaternionRef.current = null;
         setIsCalibrating(true);
-        isCalibratingRef.current = true; // Set ref too!
+        isCalibratingRef.current = true;
         calibrationSamplesRef.current = [];
         setGameState(GAME_STATES.CALIBRATING);
         gameStateRef.current = GAME_STATES.CALIBRATING;
 
-        // Collect samples for 2 seconds
+        // Collect samples for 1.5s
         setTimeout(() => {
             finishCalibration();
-        }, 1500); // 1.5s for manual calibration
+        }, 1500);
     };
+
+    // Keep ref updated so handleSensorData auto-center can call the EXACT same function
+    startCalibrationRef.current = startCalibration;
 
     // === Session Timer ===
     useEffect(() => {
@@ -310,6 +474,9 @@ const GameBalance = () => {
 
     // === Game Controls ===
     const startSession = () => {
+        autoCenterArmedRef.current = false;
+        autoCenterStableSinceRef.current = null;
+        autoCenterDriftSinceRef.current = null;
         setGameState(GAME_STATES.PLAYING);
         gameStateRef.current = GAME_STATES.PLAYING;
         setTimeInZone(0);
@@ -325,6 +492,9 @@ const GameBalance = () => {
     };
 
     const resumeSession = () => {
+        autoCenterArmedRef.current = false;
+        autoCenterStableSinceRef.current = null;
+        autoCenterDriftSinceRef.current = null;
         setGameState(GAME_STATES.PLAYING);
         gameStateRef.current = GAME_STATES.PLAYING;
     };
@@ -531,8 +701,8 @@ const GameBalance = () => {
                                         'bg-gradient-to-br from-red-400 to-red-600 shadow-red-300/50'
                                 }`}
                             style={{
-                                left: `calc(50% + ${bubbleX * 1.2}px - ${window.innerWidth >= 1024 ? 32 : 20}px)`,
-                                top: `calc(50% + ${bubbleY * 1.2}px - ${window.innerWidth >= 1024 ? 32 : 20}px)`,
+                                left: `calc(50% + ${bubbleX * 2.5}px - ${window.innerWidth >= 1024 ? 32 : 20}px)`,
+                                top: `calc(50% + ${bubbleY * 2.5}px - ${window.innerWidth >= 1024 ? 32 : 20}px)`,
                                 transform: zone === 'B' ? 'scale(1.05)' : 'scale(1)'
                             }}
                         >
