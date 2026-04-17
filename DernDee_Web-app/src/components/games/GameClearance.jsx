@@ -16,6 +16,12 @@ const GAME_STATES = {
     COMPLETED: 'COMPLETED'
 };
 
+function quatToPitchDeg(q) {
+    const [w, x, y, z] = q;
+    const sinPitch = Math.max(-1, Math.min(1, 2 * (w * y - z * x)));
+    return Math.asin(sinPitch) * 180 / Math.PI;
+}
+
 const GameClearance = () => {
     const navigate = useNavigate();
 
@@ -40,6 +46,8 @@ const GameClearance = () => {
     // === WebSocket ===
     const wsRef = useRef(null);
     const timerRef = useRef(null);
+    const liftBaselinePitchRef = useRef(null);
+    const liftStableSinceRef = useRef(null);
 
     // === Audio ===
     const successSoundRef = useRef(null);
@@ -103,19 +111,67 @@ const GameClearance = () => {
         if (msg.type !== 'DATA') return;
 
         const payload = msg.payload;
+        let estimatorHeightCm = 0;
 
         // === Use Position Z from ZUPT estimator ===
         if (payload.position && Array.isArray(payload.position)) {
             const rawHeight = payload.position[2] * 100; // m to cm
-            const adjustedHeight = Math.min(MAX_SCALE_HEIGHT, Math.max(0, rawHeight * sensitivity));
-
-            // Light low-pass filter: responsive both up and down
-            // Backend zeros position during stance, so no peak-hold needed.
-            setCurrentHeight(prev => {
-                const ALPHA = 0.6; // Higher = more responsive
-                return ALPHA * adjustedHeight + (1 - ALPHA) * prev;
-            });
+            estimatorHeightCm = Math.min(MAX_SCALE_HEIGHT, Math.max(0, rawHeight * sensitivity));
         }
+
+        let liveLiftHeightCm = 0;
+        const quaternion = payload.quaternion;
+        let effectiveStance = payload.is_stance === true;
+
+        if (quaternion && Array.isArray(quaternion) && quaternion.length === 4) {
+            const now = Date.now();
+            const gyroNorm = typeof payload.gyro_norm === 'number' ? payload.gyro_norm : null;
+            const currentPitchDeg = quatToPitchDeg(quaternion);
+            const pitchCloseToBaseline = liftBaselinePitchRef.current === null
+                || Math.abs(currentPitchDeg - liftBaselinePitchRef.current) < 3.0;
+            const pseudoStanceCandidate = (gyroNorm === null || gyroNorm < 0.10) && pitchCloseToBaseline;
+
+            if (effectiveStance || pseudoStanceCandidate) {
+                if (!liftStableSinceRef.current) {
+                    liftStableSinceRef.current = now;
+                }
+
+                if (effectiveStance || now - liftStableSinceRef.current >= 180) {
+                    effectiveStance = true;
+                }
+            } else {
+                liftStableSinceRef.current = null;
+            }
+
+            if (effectiveStance) {
+                if (liftBaselinePitchRef.current === null || now - liftStableSinceRef.current >= 250) {
+                    liftBaselinePitchRef.current = currentPitchDeg;
+                }
+            }
+
+            const fallbackActive = !effectiveStance && ((gyroNorm !== null && gyroNorm > 0.18) || estimatorHeightCm > 0.5);
+
+            if (liftBaselinePitchRef.current !== null && fallbackActive) {
+                const forwardLiftDeg = Math.max(0, (liftBaselinePitchRef.current - currentPitchDeg) - 2);
+                liveLiftHeightCm = Math.min(MAX_SCALE_HEIGHT, Math.max(0, forwardLiftDeg * 0.45 * sensitivity));
+            }
+        }
+
+        if (effectiveStance) {
+            estimatorHeightCm = 0;
+        }
+
+        const adjustedHeight = effectiveStance ? 0 : Math.max(estimatorHeightCm, liveLiftHeightCm);
+
+        // Light low-pass filter: responsive both up and down.
+        // Use the best available live signal so the gauge responds from step 1.
+        setCurrentHeight(prev => {
+            if (effectiveStance) {
+                return 0;
+            }
+            const ALPHA = 0.6;
+            return ALPHA * adjustedHeight + (1 - ALPHA) * prev;
+        });
 
         // Update stability score from feedback if available
         if (payload.gait_metrics?.stability_score !== undefined) {
@@ -214,6 +270,8 @@ const GameClearance = () => {
         setSessionTime(0);
         setCurrentHeight(0);
         setRepState('READY');
+        liftBaselinePitchRef.current = null;
+        liftStableSinceRef.current = null;
     };
 
     // === Get Gauge Colors ===
