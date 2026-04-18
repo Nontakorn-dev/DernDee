@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, Settings, Target, Play, Pause, Square, X, ChevronLeft, ChevronRight, ChevronUp, ChevronDown } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Settings, Target, Play, Pause, Square, X, ChevronLeft, ChevronRight, ChevronUp, ChevronDown } from 'lucide-react';
 import derndeeLogo from '../../assets/images/derndee-logo.png';
 
 // === CONSTANTS ===
@@ -504,6 +504,10 @@ const GameBalance = () => {
         gameStateRef.current = GAME_STATES.COMPLETED;
     };
 
+    const goToNextGame = () => {
+        navigate('/game/rhythm');
+    };
+
     const resetSession = () => {
         setGameState(GAME_STATES.READY);
         gameStateRef.current = GAME_STATES.READY;
@@ -838,6 +842,14 @@ const GameBalance = () => {
                                 <span>Try Again</span>
                             </button>
                         )}
+
+                        <button
+                            onClick={goToNextGame}
+                            className="w-full py-4 border-2 border-blue-200 bg-white hover:bg-blue-50 text-blue-700 font-extrabold text-lg rounded-2xl shadow-lg transition-all hover:scale-[1.01] flex items-center justify-center gap-2"
+                        >
+                            <span>Next: Rhythm Drummer</span>
+                            <ArrowRight className="w-5 h-5" />
+                        </button>
                     </div>
                 </div>
             </main>

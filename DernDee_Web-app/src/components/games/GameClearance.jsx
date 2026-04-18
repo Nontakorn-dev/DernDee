@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, Settings, Pause, Play, Square, X, Volume2, VolumeX, Vibrate } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Settings, Pause, Play, Square, X, Volume2, VolumeX, Vibrate } from 'lucide-react';
 import derndeeLogo from '../../assets/images/derndee-logo.png';
 
 // === CONSTANTS ===
@@ -262,6 +262,10 @@ const GameClearance = () => {
         if (timerRef.current) {
             clearInterval(timerRef.current);
         }
+    };
+
+    const goToNextGame = () => {
+        navigate('/game/balance');
     };
 
     const resetSession = () => {
@@ -572,6 +576,14 @@ const GameClearance = () => {
                             </button>
                         )}
                     </div>
+
+                    <button
+                        onClick={goToNextGame}
+                        className="w-full py-4 border-2 border-blue-200 bg-white hover:bg-blue-50 text-blue-700 font-black text-lg rounded-2xl shadow-lg transition-all hover:scale-[1.01] flex items-center justify-center gap-2"
+                    >
+                        <span>Next: Magic Plate</span>
+                        <ArrowRight className="w-5 h-5" />
+                    </button>
 
                 </div>
             </main>
