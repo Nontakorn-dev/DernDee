@@ -58,6 +58,46 @@ const commonScaleOptions = {
   },
 };
 
+const ANGULAR_VELOCITY_SCALE = {
+  min: -400,
+  max: 400,
+  stepSize: 100,
+};
+
+const SHANK_ANGLE_SCALE = {
+  min: -45,
+  max: 45,
+  stepSize: 15,
+};
+
+function getStableScaleRange(values, baseRange) {
+  const numericValues = values.filter(Number.isFinite);
+
+  if (!numericValues.length) {
+    return baseRange;
+  }
+
+  let min = baseRange.min;
+  let max = baseRange.max;
+
+  const dataMin = Math.min(...numericValues);
+  const dataMax = Math.max(...numericValues);
+
+  if (dataMin < min) {
+    min = Math.floor(dataMin / baseRange.stepSize) * baseRange.stepSize;
+  }
+
+  if (dataMax > max) {
+    max = Math.ceil(dataMax / baseRange.stepSize) * baseRange.stepSize;
+  }
+
+  return {
+    min,
+    max,
+    stepSize: baseRange.stepSize,
+  };
+}
+
 export class ChartsManager {
   constructor() {
     this.angVelChart = null;
@@ -168,6 +208,12 @@ export class ChartsManager {
           y: {
             ...commonScaleOptions,
             title: { display: true, text: 'Angular Velocity (deg/s)', font: { size: 10, weight: '600' }, color: '#757575' },
+            min: ANGULAR_VELOCITY_SCALE.min,
+            max: ANGULAR_VELOCITY_SCALE.max,
+            ticks: {
+              ...commonScaleOptions.ticks,
+              stepSize: ANGULAR_VELOCITY_SCALE.stepSize,
+            },
           },
         },
       },
@@ -217,6 +263,11 @@ export class ChartsManager {
     this.angVelChart.data.datasets[1].data = hsData;
     this.angVelChart.data.datasets[2].data = toData;
     this.angVelChart.data.datasets[3].data = msvData;
+
+    const angVelScale = getStableScaleRange(angVelData, ANGULAR_VELOCITY_SCALE);
+    this.angVelChart.options.scales.y.min = angVelScale.min;
+    this.angVelChart.options.scales.y.max = angVelScale.max;
+
     this.angVelChart.update('none');
   }
 
@@ -278,6 +329,12 @@ export class ChartsManager {
           y: {
             ...commonScaleOptions,
             title: { display: true, text: 'Angle (deg)', font: { size: 10, weight: '600' }, color: '#757575' },
+            min: SHANK_ANGLE_SCALE.min,
+            max: SHANK_ANGLE_SCALE.max,
+            ticks: {
+              ...commonScaleOptions.ticks,
+              stepSize: SHANK_ANGLE_SCALE.stepSize,
+            },
           },
         },
       },
@@ -301,6 +358,11 @@ export class ChartsManager {
 
     this.angleChart.data.labels = labels;
     this.angleChart.data.datasets[0].data = angleData;
+
+    const angleScale = getStableScaleRange(angleData, SHANK_ANGLE_SCALE);
+    this.angleChart.options.scales.y.min = angleScale.min;
+    this.angleChart.options.scales.y.max = angleScale.max;
+
     this.angleChart.update('none');
   }
 
