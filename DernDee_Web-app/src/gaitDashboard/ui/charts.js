@@ -5,9 +5,7 @@
 import {
   Chart,
   LineController,
-  BarController,
   LineElement,
-  BarElement,
   PointElement,
   LinearScale,
   CategoryScale,
@@ -18,9 +16,7 @@ import {
 
 Chart.register(
   LineController,
-  BarController,
   LineElement,
-  BarElement,
   PointElement,
   LinearScale,
   CategoryScale,
@@ -102,19 +98,16 @@ export class ChartsManager {
   constructor() {
     this.angVelChart = null;
     this.angleChart = null;
-    this.strideChart = null;
   }
 
   init() {
     this._createAngVelChart();
     this._createAngleChart();
-    this._createStrideChart();
   }
 
   update(processedData, params) {
     this._updateAngVelChart(processedData);
     this._updateAngleChart(processedData);
-    this._updateStrideChart(params);
   }
 
   _createAngVelChart() {
@@ -366,84 +359,8 @@ export class ChartsManager {
     this.angleChart.update('none');
   }
 
-  _createStrideChart() {
-    const ctx = document.getElementById('chart-stride').getContext('2d');
-
-    this.strideChart = new Chart(ctx, {
-      type: 'bar',
-      data: {
-        labels: [],
-        datasets: [{
-          label: 'Stride Length',
-          data: [],
-          backgroundColor: (context) => {
-            const chart = context.chart;
-            const { ctx: canvasCtx, chartArea } = chart;
-            if (!chartArea) {
-              return CHART_COLORS.emerald;
-            }
-            const gradient = canvasCtx.createLinearGradient(0, chartArea.bottom, 0, chartArea.top);
-            gradient.addColorStop(0, 'rgba(76, 175, 80, 0.3)');
-            gradient.addColorStop(1, 'rgba(76, 175, 80, 0.7)');
-            return gradient;
-          },
-          borderColor: CHART_COLORS.emerald,
-          borderWidth: 1,
-          borderRadius: 4,
-          borderSkipped: false,
-        }],
-      },
-      options: {
-        responsive: true,
-        maintainAspectRatio: false,
-        animation: { duration: 400 },
-        plugins: {
-          legend: { display: false },
-          tooltip: {
-            backgroundColor: 'rgba(255, 255, 255, 0.95)',
-            titleColor: '#212121',
-            bodyColor: '#424242',
-            borderColor: '#e0e0e0',
-            borderWidth: 1,
-            cornerRadius: 8,
-            padding: 10,
-            callbacks: {
-              label: (ctx) => `Stride: ${ctx.parsed.y?.toFixed(2)} m`,
-            },
-          },
-        },
-        scales: {
-          x: {
-            ...commonScaleOptions,
-            title: { display: true, text: 'Stride #', font: { size: 10, weight: '600' }, color: '#757575' },
-          },
-          y: {
-            ...commonScaleOptions,
-            title: { display: true, text: 'Length (m)', font: { size: 10, weight: '600' }, color: '#757575' },
-            suggestedMin: 0,
-            suggestedMax: 2.0,
-          },
-        },
-      },
-    });
-  }
-
-  _updateStrideChart(params) {
-    if (!this.strideChart || !params) {
-      return;
-    }
-
-    const strides = params.strideLengths || [];
-    const labels = strides.map((_, i) => `#${i + 1}`);
-
-    this.strideChart.data.labels = labels;
-    this.strideChart.data.datasets[0].data = strides;
-    this.strideChart.update('none');
-  }
-
   destroy() {
     this.angVelChart?.destroy();
     this.angleChart?.destroy();
-    this.strideChart?.destroy();
   }
 }
