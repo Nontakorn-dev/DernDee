@@ -1,6 +1,6 @@
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, Mountain, Target, Music, Timer } from 'lucide-react';
+import { Activity, ArrowLeft, Mountain, Target, Music, Timer } from 'lucide-react';
 import derndeeLogo from '../assets/images/derndee-logo.png';
 
 const TherapySelect = () => {
@@ -49,6 +49,10 @@ const TherapySelect = () => {
         navigate('/calibration', { state: { target: route } });
     };
 
+    const openGaitDashboard = () => {
+        window.location.assign('/gait-dashboard.html');
+    };
+
     return (
         <div className="min-h-screen bg-gradient-to-b from-blue-50 via-blue-100 to-blue-200 font-sans">
             {/* Header */}
@@ -75,6 +79,15 @@ const TherapySelect = () => {
                     <p className="text-base sm:text-lg md:text-xl text-gray-500 font-medium tracking-wide">
                         Select your training program today
                     </p>
+                    <div className="pt-3">
+                        <button
+                            onClick={openGaitDashboard}
+                            className="inline-flex items-center gap-2 rounded-full border-2 border-blue-200 bg-white px-5 py-2.5 text-sm sm:text-base font-bold text-blue-700 shadow-md transition-all hover:scale-[1.02] hover:bg-blue-50"
+                        >
+                            <Activity className="w-4 h-4 sm:w-5 sm:h-5" />
+                            <span>Open Gait Dashboard</span>
+                        </button>
+                    </div>
                 </div>
 
                 {/* Cards Grid */}

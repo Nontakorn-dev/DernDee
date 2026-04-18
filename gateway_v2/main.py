@@ -287,8 +287,8 @@ def data_handler(sender_name, data):
         timestamp_ms=current_ts,
         accel=accel,
         gyro=gyro,
-        raw_accel=physics["accel"],
-        raw_gyro=physics["gyro"],
+        raw_accel=raw["raw_accel"],
+        raw_gyro=raw["raw_gyro"],
         dt_sec=dt_sec,
     )
 
@@ -302,8 +302,7 @@ def data_handler(sender_name, data):
     detection = detector.update(gyro[0], gyro[1], gyro[2], current_ts)
     
     is_walking = detection['is_walking']
-    step_detected = detection['step_detected']
-    
+    step_detected = detection.get('step_detected', False)
     # === DEBUG: Show values every 100 samples ===
     if int(current_ts) % 1000 < 15:  # ~every second
         print(f"🔍 [{sender_name}] gyro_norm={detection['gyro_norm']:.2f} rad/s | CWT={detection['cwt_value']:.2f} | thresh={detection['adaptive_threshold']:.2f} | walking={is_walking}")
@@ -365,6 +364,8 @@ def data_handler(sender_name, data):
                 "name": sender_name,
                 "side": side,
                 "sensor_mount": sensor_mount,
+                "raw_accel": raw["raw_accel"],
+                "raw_gyro": raw["raw_gyro"],
                 # Detection layer
                 "is_walking": is_walking,
                 "step_detected": step_detected,
