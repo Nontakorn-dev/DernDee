@@ -13,8 +13,8 @@ const Calibration = () => {
     const targetRoute = location.state?.target || '/walk-session';
 
     const [isConnected, setIsConnected] = useState(false);
-    const [countdown, setCountdown] = useState(5); 
-    const [calibrationProgress, setCalibrationProgress] = useState(0); 
+    const [countdown, setCountdown] = useState(5);
+    const [calibrationProgress, setCalibrationProgress] = useState(0);
     const [isCalibrating, setIsCalibrating] = useState(false);
     const [isCountdownActive, setIsCountdownActive] = useState(false);
     const [isCalibrationComplete, setIsCalibrationComplete] = useState(false);
@@ -301,7 +301,7 @@ const Calibration = () => {
             {/* Main Content */}
             <main className="p-3 sm:p-4 lg:p-6 pb-6 max-w-full mx-auto">
                 {/* Mobile: Separate Cards */}
-                <div className="block lg:hidden bg-white rounded-3xl shadow-2xl p-4 sm:p-6 mb-3 sm:mb-4">
+                <div className="block md:hidden bg-white rounded-3xl shadow-2xl p-4 sm:p-6 mb-3 sm:mb-4">
                     <div className="flex items-center gap-3 sm:gap-4">
                         {/* <button
                             onClick={() => navigate('/therapy')}
@@ -316,7 +316,7 @@ const Calibration = () => {
                 </div>
 
                 {/* Calibration Status Card - Mobile */}
-                <div className={`block lg:hidden rounded-3xl shadow-2xl p-4 sm:p-5 md:p-6 mb-3 sm:mb-4 transition-all duration-300 border-2 ${isConnected ? 'bg-gradient-to-br from-green-50 to-green-100 border-green-200' : 'bg-gradient-to-br from-red-50 to-red-100 border-red-200'}`}>
+                <div className={`block md:hidden rounded-3xl shadow-2xl p-4 sm:p-5 md:p-6 mb-3 sm:mb-4 transition-all duration-300 border-2 ${isConnected ? 'bg-gradient-to-br from-green-50 to-green-100 border-green-200' : 'bg-gradient-to-br from-red-50 to-red-100 border-red-200'}`}>
                     <div className="flex items-center justify-between gap-3 sm:gap-4 mb-3 sm:mb-4">
                         <div className="flex items-center gap-3 sm:gap-4">
                             <div className={`w-4 h-4 sm:w-5 sm:h-5 rounded-full flex items-center justify-center animate-pulse shadow-lg ${isConnected ? 'bg-green-500 shadow-green-500/50' : 'bg-red-500 shadow-red-500/50'}`}>
@@ -363,8 +363,8 @@ const Calibration = () => {
                 </div>
 
                 {/* Image Card - Mobile */}
-                <div className="block lg:hidden bg-white rounded-3xl shadow-2xl p-3 sm:p-4 md:p-6 mb-3 sm:mb-4">
-                    <div className="w-full h-auto min-h-[250px] sm:min-h-[350px] rounded-2xl bg-gray-100 flex items-center justify-center overflow-hidden mb-3 sm:mb-4">
+                <div className="block md:hidden bg-white rounded-3xl shadow-2xl p-3 sm:p-4 md:p-6 mb-3 sm:mb-4">
+                    <div className="w-full h-[240px] sm:h-[300px] md:h-[320px] rounded-2xl border border-blue-100 bg-white flex items-center justify-center overflow-hidden mb-3 sm:mb-4">
                         <img
                             src={tPoseImage}
                             alt="T-Pose Mannequin"
@@ -410,6 +410,123 @@ const Calibration = () => {
                     )}
                 </div>
 
+                {/* Tablet Portrait: Two-Column Layout */}
+                <div className="hidden md:flex lg:hidden min-h-[calc(100vh-8.5rem)] flex-col bg-white rounded-3xl shadow-2xl p-5 mb-4">
+                    <div className="grid flex-1 min-h-0 grid-cols-[minmax(0,0.92fr)_minmax(0,1.08fr)] gap-5 items-stretch">
+                        <div className="min-w-0">
+                            <div className="h-full min-h-[460px] rounded-2xl border border-blue-100 bg-white flex items-center justify-center overflow-hidden p-6">
+                                <img
+                                    src={tPoseImage}
+                                    alt="T-Pose Mannequin"
+                                    className="w-full h-full object-contain max-h-[700px]"
+                                    loading="lazy"
+                                />
+                            </div>
+                        </div>
+
+                        <div className="min-w-0 h-full flex flex-col gap-4">
+                            <div className={`rounded-3xl shadow-xl p-5 transition-all duration-300 border-2 ${isConnected ? 'bg-gradient-to-br from-green-50 to-green-100 border-green-200' : 'bg-gradient-to-br from-red-50 to-red-100 border-red-200'}`}>
+                                <div className="flex items-start justify-between gap-4 mb-4">
+                                    <div className="flex items-center gap-4">
+                                        <div className={`w-5 h-5 rounded-full flex items-center justify-center animate-pulse shadow-lg ${isConnected ? 'bg-green-500 shadow-green-500/50' : 'bg-red-500 shadow-red-500/50'}`}>
+                                            <div className="w-3 h-3 rounded-full bg-white"></div>
+                                        </div>
+                                        <span className={`text-xl font-bold ${isConnected ? 'text-green-700' : 'text-red-700'}`}>
+                                            {isConnected ? 'Connected' : 'Disconnected'}
+                                        </span>
+                                    </div>
+
+                                    {isConnected && (
+                                        <button
+                                            onClick={handleDisconnect}
+                                            className="px-4 py-2 rounded-full text-sm font-semibold border-2 border-red-300 text-red-600 hover:bg-red-50"
+                                        >
+                                            Disconnect
+                                        </button>
+                                    )}
+                                </div>
+
+                                <div className="flex items-center gap-3 mb-4">
+                                    <h2 className="text-lg font-bold text-gray-800">
+                                        Calibration
+                                    </h2>
+                                    <div className={`w-4 h-4 rounded-full flex-shrink-0 ${isCalibrating ? 'bg-yellow-500 animate-pulse' : isCalibrationComplete ? 'bg-green-500' : 'bg-gray-300'}`}></div>
+                                </div>
+
+                                <div>
+                                    <div className="w-full bg-gray-200 rounded-full h-4 overflow-hidden mb-2 shadow-inner">
+                                        <div
+                                            className={`h-full rounded-full transition-all duration-100 shadow-md ${isCalibrationComplete ? 'bg-green-500' : 'bg-red-500'}`}
+                                            style={{ width: `${(calibrationProgress / 3) * 100}%` }}
+                                        ></div>
+                                    </div>
+                                    <div className="flex justify-end">
+                                        <span className="text-sm text-gray-700 font-medium">
+                                            {Math.floor(calibrationProgress)}s / 3s
+                                        </span>
+                                    </div>
+                                </div>
+                            </div>
+                            <div className="bg-gradient-to-br from-amber-50 to-orange-50 border-2 border-amber-200 rounded-3xl shadow-xl p-5">
+                                <h3 className="text-lg font-bold text-gray-800 mb-3">
+                                    Calibration Instructions
+                                </h3>
+                                <div className="space-y-2">
+                                    <p className="text-sm md:text-base text-gray-700 leading-relaxed">
+                                        Please follow these instructions <span className="font-semibold text-amber-700">strictly</span>:
+                                    </p>
+                                    <ol className="space-y-2 text-sm md:text-base text-gray-700 list-decimal list-inside ml-2">
+                                        <li className="pl-2">
+                                            <span className="font-semibold text-amber-700">Stand Upright</span>, Keep your body straight.
+                                        </li>
+                                        <li className="pl-2">
+                                            <span className="font-semibold text-amber-700">T-Pose</span>, extend your arms to the sides parallel to the ground.
+                                        </li>
+                                        <li className="pl-2">
+                                            <span className="font-semibold text-amber-700">Stay Still</span> during the calibration process.
+                                        </li>
+                                    </ol>
+                                </div>
+                            </div>
+
+                            <div className="space-y-3">
+                                {!isCalibrationComplete && !isCalibrating && (
+                                    <button
+                                        onClick={handleManualStartCalibration}
+                                        disabled={!isConnected}
+                                        className={`w-full py-4 rounded-2xl text-base font-bold transition-all duration-300 shadow-lg ${isConnected
+                                            ? 'bg-amber-500 hover:bg-amber-600 text-white cursor-pointer hover:scale-[1.02] transform'
+                                            : 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                                            }`}
+                                    >
+                                        START CALIBRATION
+                                    </button>
+                                )}
+
+                                <button
+                                    onClick={handleStartRecording}
+                                    disabled={!isConnected || !isCalibrationComplete}
+                                    className={`w-full py-4 rounded-2xl text-base font-bold transition-all duration-300 shadow-lg ${isConnected && isCalibrationComplete
+                                        ? 'bg-blue-600 hover:bg-blue-700 text-white cursor-pointer hover:scale-[1.02] transform'
+                                        : 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                                        }`}
+                                >
+                                    START SESSION
+                                </button>
+                            </div>
+
+                            {(!isConnected || !isCalibrationComplete) && (
+                                <p className="text-red-500 text-sm text-center">
+                                    {!isConnected
+                                        ? 'Please connect to the backend server'
+                                        : !isCalibrationComplete ? 'Press START CALIBRATION when ready' : 'Ready to start'
+                                    }
+                                </p>
+                            )}
+                        </div>
+                    </div>
+                </div>
+
                 {/* Desktop/Tablet Landscape: Combined Card */}
                 <div className="hidden lg:block bg-white rounded-3xl shadow-2xl p-4 md:p-6 lg:p-8 mb-3 sm:mb-4">
                     <div className="mb-5 md:mb-6 lg:mb-8 pb-4 md:pb-5 lg:pb-6 border-b border-gray-200">
@@ -428,7 +545,7 @@ const Calibration = () => {
 
                     <div className="flex flex-row gap-6 md:gap-8 lg:gap-10 items-stretch">
                         <div className="w-[42%] md:w-[40%] lg:w-[38%] flex-shrink-0">
-                            <div className="w-full h-full max-h-[600px] md:max-h-[650px] lg:max-h-[700px] rounded-2xl bg-gray-100 flex items-center justify-center overflow-hidden p-4">
+                            <div className="w-full h-full max-h-[600px] md:max-h-[650px] lg:max-h-[700px] rounded-2xl border border-blue-100 bg-white flex items-center justify-center overflow-hidden p-4">
                                 <img
                                     src={tPoseImage}
                                     alt="T-Pose Mannequin"
