@@ -52,9 +52,7 @@
   --transition-base: 250ms ease;
 }
 
-*,
-*::before,
-*::after {
+*, *::before, *::after {
   margin: 0;
   padding: 0;
   box-sizing: border-box;
@@ -207,7 +205,7 @@ body {
   display: grid;
   grid-template-columns: 1fr 380px;
   gap: 20px;
-  align-items: stretch;
+  align-items: start;
 }
 
 .dashboard-lower-row {
@@ -267,7 +265,6 @@ body {
   display: flex;
   flex-direction: column;
   gap: 20px;
-  justify-content: space-between;
 }
 
 .chart-container {
@@ -401,13 +398,8 @@ body {
   gap: 5px;
 }
 
-.phase-label.stance {
-  color: var(--color-stance);
-}
-
-.phase-label.swing {
-  color: var(--color-swing);
-}
+.phase-label.stance { color: var(--color-stance); }
+.phase-label.swing { color: var(--color-swing); }
 
 .phase-dot {
   width: 8px;
@@ -415,13 +407,8 @@ body {
   border-radius: 50%;
 }
 
-.phase-dot.stance {
-  background: var(--color-stance);
-}
-
-.phase-dot.swing {
-  background: var(--color-swing);
-}
+.phase-dot.stance { background: var(--color-stance); }
+.phase-dot.swing { background: var(--color-swing); }
 
 .event-list {
   display: flex;
@@ -467,60 +454,28 @@ body {
 }
 
 @keyframes pulse {
-
-  0%,
-  100% {
-    opacity: 1;
-  }
-
-  50% {
-    opacity: 0.5;
-  }
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
 }
 
 @keyframes fadeInScale {
-  from {
-    opacity: 0;
-    transform: scale(0.9);
-  }
-
-  to {
-    opacity: 1;
-    transform: scale(1);
-  }
+  from { opacity: 0; transform: scale(0.9); }
+  to { opacity: 1; transform: scale(1); }
 }
 
 @keyframes fadeInUp {
-  from {
-    opacity: 0;
-    transform: translateY(8px);
-  }
-
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
 }
 
 .fade-in-up {
   animation: fadeInUp 0.4s ease-out both;
 }
 
-.fade-in-up:nth-child(1) {
-  animation-delay: 0.05s;
-}
-
-.fade-in-up:nth-child(2) {
-  animation-delay: 0.10s;
-}
-
-.fade-in-up:nth-child(3) {
-  animation-delay: 0.15s;
-}
-
-.fade-in-up:nth-child(4) {
-  animation-delay: 0.20s;
-}
+.fade-in-up:nth-child(1) { animation-delay: 0.05s; }
+.fade-in-up:nth-child(2) { animation-delay: 0.10s; }
+.fade-in-up:nth-child(3) { animation-delay: 0.15s; }
+.fade-in-up:nth-child(4) { animation-delay: 0.20s; }
 
 .loading-overlay {
   position: fixed;
@@ -556,9 +511,7 @@ body {
 }
 
 @keyframes spin {
-  to {
-    transform: rotate(360deg);
-  }
+  to { transform: rotate(360deg); }
 }
 
 ::-webkit-scrollbar {
