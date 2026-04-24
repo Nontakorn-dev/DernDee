@@ -30,7 +30,8 @@ export class GaitProcessor {
     this.latestParams = null;
     this.totalStepCount = 0;
     this.totalStrideCount = 0;
-    this.lastStrideLength = null;
+    this.lastCountedCycleStartSampleId = null;
+    this.nextSampleId = 1;
     this.sessionStartTime = null;
     this.processedData = {
       timestamps: [],
@@ -50,7 +51,12 @@ export class GaitProcessor {
       this.sessionStartTime = Date.now();
     }
 
-    this.buffer.push(sample);
+    this.buffer.push({
+      ...sample,
+      sampleId: this.nextSampleId,
+    });
+    this.nextSampleId += 1;
+
     if (this.buffer.length > this.maxBuffer) {
       this.buffer.shift();
     }
@@ -146,10 +152,13 @@ export class GaitProcessor {
     const swingPctLast = swingPcts[lastIdx];
     const peakAngleLast = peakAngles[lastIdx];
 
-    const strideLengthRounded = strideLengthLast.toFixed(3);
-    if (this.lastStrideLength === null || this.lastStrideLength !== strideLengthRounded) {
+    const cycleStartSampleId = samples[lastCycle.hsStart.index]?.sampleId ?? null;
+    if (
+      cycleStartSampleId !== null
+      && cycleStartSampleId !== this.lastCountedCycleStartSampleId
+    ) {
       this.totalStepCount += 1;
-      this.lastStrideLength = strideLengthRounded;
+      this.lastCountedCycleStartSampleId = cycleStartSampleId;
     }
     this.totalStrideCount = Math.floor(this.totalStepCount / 2);
 
@@ -208,7 +217,8 @@ export class GaitProcessor {
     this.latestParams = null;
     this.totalStepCount = 0;
     this.totalStrideCount = 0;
-    this.lastStrideLength = null;
+    this.lastCountedCycleStartSampleId = null;
+    this.nextSampleId = 1;
     this.sessionStartTime = null;
     this.processedData = {
       timestamps: [],
