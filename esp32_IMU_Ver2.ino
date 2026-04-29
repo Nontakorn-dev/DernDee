@@ -179,10 +179,9 @@ void setup() {
   Serial.println("BLE advertising started");
 
   // --- Tasks ---
-  xTaskCreatePinnedToCore(imuTask, "imuTask", 4096, nullptr, 2, &imuTaskHandle,
-                          1);
-  xTaskCreatePinnedToCore(bleTask, "bleTask", 4096, nullptr, 1, &bleTaskHandle,
-                          0);
+  // Avoid core pinning so the sketch can run on single-core ESP32-C3 boards.
+  xTaskCreate(imuTask, "imuTask", 4096, nullptr, 2, &imuTaskHandle);
+  xTaskCreate(bleTask, "bleTask", 4096, nullptr, 1, &bleTaskHandle);
 }
 
 void loop() {
