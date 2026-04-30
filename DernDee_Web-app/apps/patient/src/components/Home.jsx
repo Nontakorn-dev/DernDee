@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useUserAuth } from '@shared/context/UserAuthContext.jsx';
+import { fetchPatientDailyProgress } from '@shared/services/sessionService.js';
 // Import Home icon as HomeIcon to avoid naming conflict with component
 import { Home as HomeIcon, User, Settings, Bluetooth, Clock, TrendingUp, Video, Menu, Bell, LogOut, Upload } from 'lucide-react';
 import derndeeLogo from '@shared/assets/images/derndee-logo.png';
@@ -15,7 +16,7 @@ const Home = () => {
     const [connectedDevices, setConnectedDevices] = useState([]);
     const [menuOpen, setMenuOpen] = useState(false);
     const [profileImage, setProfileImage] = useState(null);
-    const [stepsProgress, setStepsProgress] = useState({ current: 400, target: 500 });
+    const [stepsProgress, setStepsProgress] = useState({ current: 0, target: 500 });
     // ใช้ imported image หรือสามารถกำหนดเป็น path อื่นได้
     const [doctorImage, setDoctorImage] = useState(doctorImageSrc);
 
@@ -30,11 +31,19 @@ const Home = () => {
                 const data = profile || await refreshProfile();
                 setUserProfile(data);
 
-                if (data?.steps) {
-                    setStepsProgress({ current: data.steps.current || 400, target: data.steps.target || 500 });
-                }
+                const configuredTargetSteps = Number(data?.preferences?.dailyStepGoal);
+                const targetSteps = Number.isFinite(configuredTargetSteps) && configuredTargetSteps > 0
+                    ? configuredTargetSteps
+                    : 500;
+                const dailyProgress = await fetchPatientDailyProgress(user.uid, targetSteps);
+
+                setStepsProgress({
+                    current: dailyProgress.currentSteps,
+                    target: dailyProgress.targetSteps,
+                });
             } catch (error) {
                 console.error("Error fetching user profile:", error);
+                setStepsProgress({ current: 0, target: 500 });
             } finally {
                 setLoading(false);
             }

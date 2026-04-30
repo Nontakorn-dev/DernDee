@@ -1,5 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useUserAuth } from '@shared/context/UserAuthContext.jsx';
+import { usePersistedGatewaySession } from '@shared/hooks/usePersistedGatewaySession.js';
 import { ArrowLeft, ArrowRight, Settings, Target, Play, Pause, Square, X, ChevronLeft, ChevronRight, ChevronUp, ChevronDown } from 'lucide-react';
 import derndeeLogo from '@shared/assets/images/derndee-logo.png';
 
@@ -48,6 +50,7 @@ function quatAngleDeg(a, b) {
 
 const GameBalance = () => {
     const navigate = useNavigate();
+    const { user } = useUserAuth();
 
     // === Game State ===
     const [gameState, setGameState] = useState(GAME_STATES.CALIBRATING);
@@ -88,11 +91,14 @@ const GameBalance = () => {
     const [avgDeviation, setAvgDeviation] = useState(0); // average angle deviation
     const [sessionTime, setSessionTime] = useState(0);
     const deviationHistoryRef = useRef([]);
+    const [isConnected, setIsConnected] = useState(false);
+    const [sessionMetrics, setSessionMetrics] = useState({});
 
     // === WebSocket ===
     const wsRef = useRef(null);
     const timerRef = useRef(null);
     const zoneTimerRef = useRef(null);
+    const manualDisconnectRef = useRef(false);
 
     // === Computed Values ===
     const distanceFromCenter = Math.sqrt(bubbleX * bubbleX + bubbleY * bubbleY);
@@ -104,6 +110,48 @@ const GameBalance = () => {
     };
 
     const zone = getZone();
+
+    const buildSessionSummary = useCallback(() => {
+        const trackedDuration = zoneStats.A + zoneStats.B + zoneStats.C;
+        const zoneAPercent = trackedDuration > 0 ? Math.round((zoneStats.A / trackedDuration) * 100) : 0;
+
+        return {
+            total_steps: Number.isFinite(sessionMetrics?.total_steps) ? sessionMetrics.total_steps : 0,
+            avg_speed_mps: Number.isFinite(sessionMetrics?.avg_speed_mps) ? sessionMetrics.avg_speed_mps : null,
+            cadence_spm: Number.isFinite(sessionMetrics?.cadence_spm) ? sessionMetrics.cadence_spm : 0,
+            avg_step_length_m: Number.isFinite(sessionMetrics?.avg_step_length_m) ? sessionMetrics.avg_step_length_m : null,
+            avg_stride_length_m: Number.isFinite(sessionMetrics?.avg_stride_length_m) ? sessionMetrics.avg_stride_length_m : null,
+            avg_clearance_m: Number.isFinite(sessionMetrics?.avg_clearance_m) ? sessionMetrics.avg_clearance_m : null,
+            symmetry_score: Number.isFinite(sessionMetrics?.symmetry_percent) ? sessionMetrics.symmetry_percent : zoneAPercent,
+        };
+    }, [sessionMetrics, zoneStats]);
+
+    const buildSessionDetails = useCallback(() => {
+        const trackedDuration = zoneStats.A + zoneStats.B + zoneStats.C;
+        const centerHoldPercent = trackedDuration > 0 ? Math.round((zoneStats.A / trackedDuration) * 100) : 0;
+
+        return {
+            time_in_zone_a_seconds: Number(zoneStats.A.toFixed(1)),
+            time_in_zone_b_seconds: Number(zoneStats.B.toFixed(1)),
+            time_in_zone_c_seconds: Number(zoneStats.C.toFixed(1)),
+            center_hold_percent: centerHoldPercent,
+            avg_deviation_deg: Number(avgDeviation.toFixed(1)),
+        };
+    }, [avgDeviation, zoneStats]);
+
+    const { endSessionIfActive } = usePersistedGatewaySession({
+        wsRef,
+        userId: user?.uid,
+        isConnected,
+        shouldStart: gameState === GAME_STATES.PLAYING,
+        shouldComplete: gameState === GAME_STATES.COMPLETED,
+        sessionType: 'magic_plate',
+        buildSummary: buildSessionSummary,
+        buildDetails: buildSessionDetails,
+        metadata: {
+            game_label: 'Magic Plate',
+        },
+    });
 
     // === Calibration State ===
     const refQuaternionRef = useRef(null); // Reference quaternion — set by Calibration page or Re-center
@@ -122,12 +170,15 @@ const GameBalance = () => {
 
     // === WebSocket Connection ===
     useEffect(() => {
+        manualDisconnectRef.current = false;
+
         const connectWebSocket = () => {
             try {
                 wsRef.current = new WebSocket(`ws://${window.location.hostname}:8765`);
 
                 wsRef.current.onopen = () => {
                     console.log('🎯 Balance Game connected to WebSocket');
+                    setIsConnected(true);
                 };
 
                 wsRef.current.onmessage = (event) => {
@@ -162,6 +213,12 @@ const GameBalance = () => {
                 };
 
                 wsRef.current.onclose = () => {
+                    setIsConnected(false);
+
+                    if (manualDisconnectRef.current) {
+                        return;
+                    }
+
                     console.log('WebSocket closed, reconnecting...');
                     setTimeout(connectWebSocket, 3000);
                 };
@@ -177,17 +234,23 @@ const GameBalance = () => {
         connectWebSocket();
 
         return () => {
+            manualDisconnectRef.current = true;
+            endSessionIfActive();
             if (wsRef.current) {
                 wsRef.current.close();
             }
         };
-    }, []);
+    }, [endSessionIfActive]);
 
     // === Handle Sensor Data ===
     const handleSensorData = useCallback((msg) => {
         if (msg.type !== 'DATA') return;
 
         const payload = msg.payload;
+
+        if (payload.session_metrics) {
+            setSessionMetrics(payload.session_metrics);
+        }
 
         // === Get quaternion (tracks full 3D orientation including yaw) ===
         const q = payload.quaternion;
@@ -483,6 +546,7 @@ const GameBalance = () => {
         setZoneStats({ A: 0, B: 0, C: 0 });
         setSessionTime(0);
         setAvgDeviation(0);
+        setSessionMetrics({});
         deviationHistoryRef.current = [];
     };
 
@@ -515,6 +579,7 @@ const GameBalance = () => {
         setZoneStats({ A: 0, B: 0, C: 0 });
         setSessionTime(0);
         setAvgDeviation(0);
+        setSessionMetrics({});
         deviationHistoryRef.current = [];
     };
 

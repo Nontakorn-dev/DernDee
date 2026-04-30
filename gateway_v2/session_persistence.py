@@ -25,6 +25,12 @@ def _is_jwt_api_key(api_key: str | None) -> bool:
     return bool(re.match(r"^[A-Za-z0-9-_=]+\.[A-Za-z0-9-_=]+\.?[A-Za-z0-9-_.+/=]*$", api_key))
 
 
+def _is_missing_column_error(error: Exception, column_name: str) -> bool:
+    message = str(error).lower()
+    normalized_column = column_name.lower()
+    return normalized_column in message and ('column' in message or 'schema cache' in message or 'pgrst' in message)
+
+
 class SupabaseSessionRepository:
     def __init__(self) -> None:
         load_dotenv(Path(__file__).with_name('.env'))
@@ -76,7 +82,18 @@ class SupabaseSessionRepository:
         if not self.client and not self.rest_client:
             return None
 
-        session_data = self._insert_rows('sessions', [session_row])
+        insert_row = dict(session_row)
+
+        try:
+            session_data = self._insert_rows('sessions', [insert_row])
+        except Exception as error:
+            if 'details' not in insert_row or not _is_missing_column_error(error, 'details'):
+                raise
+
+            fallback_row = dict(insert_row)
+            fallback_row.pop('details', None)
+            session_data = self._insert_rows('sessions', [fallback_row])
+
         if not session_data:
             raise RuntimeError('Supabase did not return a created session row')
 
@@ -148,11 +165,17 @@ class SessionPersistenceManager:
 
         self.active_session.gait_metrics_rows.append(row)
 
-    def end_session(self, session_metrics: dict[str, Any], summary_overrides: dict[str, Any] | None = None) -> dict[str, Any] | None:
+    def end_session(
+        self,
+        session_metrics: dict[str, Any],
+        summary_overrides: dict[str, Any] | None = None,
+        session_details: dict[str, Any] | None = None,
+    ) -> dict[str, Any] | None:
         if not self.active_session:
             return None
 
         summary_overrides = summary_overrides or {}
+        session_details = session_details or {}
         active_session = self.active_session
         self.active_session = None
 
@@ -169,6 +192,11 @@ class SessionPersistenceManager:
         )
         avg_clearance_m = summary_overrides.get('avg_clearance_m', session_metrics.get('avg_clearance_m'))
         symmetry_score = summary_overrides.get('symmetry_score', session_metrics.get('symmetry_percent'))
+        details_payload = dict(session_details)
+
+        game_label = active_session.metadata.get('game_label')
+        if game_label and 'game_label' not in details_payload:
+            details_payload['game_label'] = game_label
 
         session_row = {
             'patient_id': active_session.patient_id,
@@ -185,6 +213,7 @@ class SessionPersistenceManager:
             'avg_clearance_m': avg_clearance_m,
             'symmetry_score': symmetry_score,
             'source': 'gateway',
+            'details': details_payload,
         }
 
         session_id = self.repository.save_session(session_row, active_session.gait_metrics_rows)

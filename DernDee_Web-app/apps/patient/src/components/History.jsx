@@ -11,11 +11,38 @@ import {
     BarChart3,
     Heart,
     Clock,
-    Footprints,
-    TrendingUp,
     X
 } from 'lucide-react';
 import derndeeLogo from '@shared/assets/images/derndee-logo.png';
+
+const SESSION_TONE_STYLES = {
+    blue: {
+        card: 'border-blue-200 bg-gradient-to-r from-blue-50 to-white hover:border-blue-300',
+        badge: 'bg-blue-100 text-blue-700',
+        metricCard: 'border-blue-100',
+        icon: 'text-blue-600',
+    },
+    emerald: {
+        card: 'border-emerald-200 bg-gradient-to-r from-emerald-50 to-white hover:border-emerald-300',
+        badge: 'bg-emerald-100 text-emerald-700',
+        metricCard: 'border-emerald-100',
+        icon: 'text-emerald-600',
+    },
+    amber: {
+        card: 'border-amber-200 bg-gradient-to-r from-amber-50 to-white hover:border-amber-300',
+        badge: 'bg-amber-100 text-amber-700',
+        metricCard: 'border-amber-100',
+        icon: 'text-amber-600',
+    },
+    violet: {
+        card: 'border-violet-200 bg-gradient-to-r from-violet-50 to-white hover:border-violet-300',
+        badge: 'bg-violet-100 text-violet-700',
+        metricCard: 'border-violet-100',
+        icon: 'text-violet-600',
+    },
+};
+
+const getToneStyle = (tone) => SESSION_TONE_STYLES[tone] || SESSION_TONE_STYLES.blue;
 
 const History = () => {
     const navigate = useNavigate();
@@ -66,8 +93,12 @@ const History = () => {
             filtered = filtered.filter(session => {
                 const dateStr = formatDate(session.date || session.createdAt);
                 const timeStr = formatTime(session.date || session.createdAt);
+                const sessionLabel = session.sessionLabel || '';
+                const sessionDescription = session.sessionDescription || '';
                 return dateStr.toLowerCase().includes(searchQuery.toLowerCase()) ||
                     timeStr.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                    sessionLabel.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                    sessionDescription.toLowerCase().includes(searchQuery.toLowerCase()) ||
                     session.totalSteps?.toString().includes(searchQuery);
             });
         }
@@ -377,56 +408,53 @@ const History = () => {
                         </div>
                     ) : (
                         filteredData.map((session) => (
-                            <div
-                                key={session.id}
-                                className="bg-white rounded-3xl shadow-xl p-4 sm:p-6 border-2 border-gray-200 hover:border-blue-300 transition-all duration-300 cursor-pointer"
-                                onClick={() => navigate('/analysis-result', { state: { session } })}
-                            >
-                                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                                    <div className="flex-1">
-                                        <div className="flex items-center gap-3 mb-2">
-                                            <Calendar className="w-5 h-5 text-blue-600" />
-                                            <span className="text-base sm:text-lg font-bold text-gray-900">
-                                                {formatDate(session.date || session.createdAt)}
-                                            </span>
-                                            <Clock className="w-4 h-4 text-gray-500 ml-2" />
-                                            <span className="text-sm sm:text-base text-gray-600">
-                                                {formatTime(session.date || session.createdAt)}
-                                            </span>
-                                        </div>
-                                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4 mt-3">
-                                            <div className="flex items-center gap-2">
-                                                <Footprints className="w-4 h-4 text-blue-500" />
-                                                <div>
-                                                    <p className="text-xs text-gray-500">Steps</p>
-                                                    <p className="text-sm sm:text-base font-bold text-gray-900">{session.totalSteps || 0}</p>
+                            (() => {
+                                const toneStyle = getToneStyle(session.sessionTone);
+
+                                return (
+                                    <div
+                                        key={session.id}
+                                        className={`rounded-3xl shadow-xl p-4 sm:p-6 border-2 transition-all duration-300 cursor-pointer ${toneStyle.card}`}
+                                        onClick={() => navigate('/analysis-result', { state: { session } })}
+                                    >
+                                        <div className="flex flex-col gap-4">
+                                            <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
+                                                <div className="flex-1">
+                                                    <div className="flex flex-wrap items-center gap-3 mb-2">
+                                                        <span className={`px-3 py-1 rounded-full text-xs font-bold ${toneStyle.badge}`}>
+                                                            {session.sessionLabel || 'Therapy Session'}
+                                                        </span>
+                                                        <div className="flex items-center gap-2 text-gray-700">
+                                                            <Calendar className={`w-4 h-4 ${toneStyle.icon}`} />
+                                                            <span className="text-base sm:text-lg font-bold text-gray-900">
+                                                                {formatDate(session.date || session.createdAt)}
+                                                            </span>
+                                                        </div>
+                                                        <div className="flex items-center gap-2 text-gray-500">
+                                                            <Clock className="w-4 h-4" />
+                                                            <span className="text-sm sm:text-base text-gray-600">
+                                                                {formatTime(session.date || session.createdAt)}
+                                                            </span>
+                                                        </div>
+                                                    </div>
+                                                    <p className="text-sm text-gray-500">
+                                                        {session.sessionDescription || 'Session summary'}
+                                                    </p>
                                                 </div>
                                             </div>
-                                            <div className="flex items-center gap-2">
-                                                <TrendingUp className="w-4 h-4 text-green-500" />
-                                                <div>
-                                                    <p className="text-xs text-gray-500">Cadence</p>
-                                                    <p className="text-sm sm:text-base font-bold text-gray-900">{session.cadence || 0} /min</p>
-                                                </div>
-                                            </div>
-                                            <div className="flex items-center gap-2">
-                                                <Clock className="w-4 h-4 text-purple-500" />
-                                                <div>
-                                                    <p className="text-xs text-gray-500">Duration</p>
-                                                    <p className="text-sm sm:text-base font-bold text-gray-900">{session.duration || '00:00'}</p>
-                                                </div>
-                                            </div>
-                                            <div className="flex items-center gap-2">
-                                                <BarChart3 className="w-4 h-4 text-orange-500" />
-                                                <div>
-                                                    <p className="text-xs text-gray-500">Speed</p>
-                                                    <p className="text-sm sm:text-base font-bold text-gray-900">{session.walkingSpeed?.toFixed(2) || '0.00'} m/s</p>
-                                                </div>
+
+                                            <div className="grid grid-cols-2 xl:grid-cols-4 gap-3 sm:gap-4">
+                                                {(session.cardMetrics || []).map((metric) => (
+                                                    <div key={`${session.id}-${metric.label}`} className={`rounded-2xl border bg-white p-3 sm:p-4 ${toneStyle.metricCard}`}>
+                                                        <p className="text-xs text-gray-500 mb-1">{metric.label}</p>
+                                                        <p className="text-sm sm:text-base font-bold text-gray-900">{metric.value}</p>
+                                                    </div>
+                                                ))}
                                             </div>
                                         </div>
                                     </div>
-                                </div>
-                            </div>
+                                );
+                            })()
                         ))
                     )}
                 </div>

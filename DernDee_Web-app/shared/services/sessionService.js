@@ -2,7 +2,7 @@ import { getSupabaseClient } from '@shared/supabase/client.js'
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 
-const SESSION_COLUMNS = `
+const LEGACY_SESSION_COLUMNS = `
   id,
   patient_id,
   gateway_session_id,
@@ -22,6 +22,10 @@ const SESSION_COLUMNS = `
   reviewed_by,
   reviewed_at,
   created_at
+`
+
+const SESSION_COLUMNS = `${LEGACY_SESSION_COLUMNS.trim()},
+  details
 `
 
 const PROFILE_COLUMNS = `
@@ -69,6 +73,204 @@ const formatDashboardDate = (value) => toDate(value).toLocaleDateString('th-TH',
   year: 'numeric',
 })
 
+const SESSION_TYPE_CONFIG = {
+  free_walk: {
+    label: 'Free Walk',
+    description: 'General walking session',
+    tone: 'blue',
+  },
+  high_stepper: {
+    label: 'High Stepper',
+    description: 'Lift training with target clearance',
+    tone: 'emerald',
+  },
+  magic_plate: {
+    label: 'Magic Plate',
+    description: 'Balance and center-control training',
+    tone: 'amber',
+  },
+  rhythm_drummer: {
+    label: 'Rhythm Drummer',
+    description: 'Cadence and timing training',
+    tone: 'violet',
+  },
+}
+
+const DEFAULT_SESSION_TYPE_CONFIG = {
+  label: 'Therapy Session',
+  description: 'Session summary',
+  tone: 'blue',
+}
+
+const toFiniteNumber = (value) => {
+  const numericValue = Number(value)
+  return Number.isFinite(numericValue) ? numericValue : null
+}
+
+const normalizeSessionDetails = (details) => {
+  if (!details) {
+    return {}
+  }
+
+  if (typeof details === 'string') {
+    try {
+      const parsed = JSON.parse(details)
+      return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {}
+    } catch {
+      return {}
+    }
+  }
+
+  return typeof details === 'object' && !Array.isArray(details) ? details : {}
+}
+
+const formatNumberValue = (value, digits = 0) => {
+  const numericValue = toFiniteNumber(value)
+  if (numericValue === null) {
+    return '-'
+  }
+
+  return numericValue.toFixed(digits)
+}
+
+const formatCountValue = (value, suffix = '') => {
+  const numericValue = toFiniteNumber(value)
+  if (numericValue === null) {
+    return '-'
+  }
+
+  return `${Math.round(numericValue)}${suffix}`
+}
+
+const formatPercentValue = (value) => {
+  const numericValue = toFiniteNumber(value)
+  if (numericValue === null) {
+    return '-'
+  }
+
+  return `${Math.round(numericValue)}%`
+}
+
+const formatSecondsValue = (value) => {
+  const numericValue = toFiniteNumber(value)
+  if (numericValue === null) {
+    return '-'
+  }
+
+  return formatDuration(Math.round(numericValue))
+}
+
+const getSessionTypeConfig = (sessionType) => SESSION_TYPE_CONFIG[sessionType] || DEFAULT_SESSION_TYPE_CONFIG
+
+const isMissingSessionDetailsColumnError = (error) => {
+  const message = `${error?.message || ''} ${error?.details || ''} ${error?.hint || ''}`.toLowerCase()
+  return message.includes('details') && (message.includes('column') || message.includes('schema cache') || message.includes('pgrst'))
+}
+
+const buildSessionCardMetrics = (session) => {
+  const details = session.details || {}
+
+  if (session.sessionType === 'high_stepper') {
+    const liftSuccess = toFiniteNumber(details.red_line_hits) ?? toFiniteNumber(session.totalSteps)
+    const targetReps = toFiniteNumber(details.target_reps)
+
+    return [
+      {
+        label: 'Red Line Hits',
+        value: formatCountValue(liftSuccess, ' times'),
+      },
+      {
+        label: 'Avg Cadence',
+        value: session.cadence ? `${session.cadence} /min` : '-',
+      },
+      {
+        label: 'Target Height',
+        value: toFiniteNumber(details.target_height_cm) !== null ? `${formatNumberValue(details.target_height_cm)} cm` : '-',
+      },
+      {
+        label: 'Goal Progress',
+        value: targetReps !== null && liftSuccess !== null
+          ? `${Math.round(liftSuccess)} / ${Math.round(targetReps)}`
+          : formatPercentValue(details.goal_progress_percent),
+      },
+    ]
+  }
+
+  if (session.sessionType === 'magic_plate') {
+    return [
+      {
+        label: 'Center Hold',
+        value: formatPercentValue(details.center_hold_percent),
+      },
+      {
+        label: 'Avg Deviation',
+        value: toFiniteNumber(details.avg_deviation_deg) !== null ? `${formatNumberValue(details.avg_deviation_deg, 1)}°` : '-',
+      },
+      {
+        label: 'Perfect Zone',
+        value: formatSecondsValue(details.time_in_zone_a_seconds),
+      },
+      {
+        label: 'Unstable Zone',
+        value: formatSecondsValue(details.time_in_zone_c_seconds),
+      },
+    ]
+  }
+
+  if (session.sessionType === 'rhythm_drummer') {
+    const targetScore = toFiniteNumber(details.target_score)
+    const score = toFiniteNumber(details.score)
+
+    return [
+      {
+        label: 'Score',
+        value: targetScore !== null && score !== null ? `${Math.round(score)} / ${Math.round(targetScore)}` : formatCountValue(score),
+      },
+      {
+        label: 'Best Streak',
+        value: formatCountValue(details.best_streak),
+      },
+      {
+        label: 'Avg Cadence',
+        value: session.cadence ? `${session.cadence} /min` : '-',
+      },
+      {
+        label: 'Target Tempo',
+        value: toFiniteNumber(details.target_bpm) !== null ? `${formatNumberValue(details.target_bpm)} BPM` : '-',
+      },
+    ]
+  }
+
+  return [
+    {
+      label: 'Cadence',
+      value: session.cadence ? `${session.cadence} /min` : '-',
+    },
+    {
+      label: 'Speed',
+      value: `${session.walkingSpeed} m/s`,
+    },
+    {
+      label: 'Duration',
+      value: session.duration,
+    },
+    {
+      label: 'Steps',
+      value: formatCountValue(session.totalSteps),
+    },
+  ]
+}
+
+async function executeSessionQuery(queryFactory) {
+  let response = await queryFactory(SESSION_COLUMNS)
+
+  if (response.error && isMissingSessionDetailsColumnError(response.error)) {
+    response = await queryFactory(LEGACY_SESSION_COLUMNS)
+  }
+
+  return response
+}
+
 const calculateAge = (dateOfBirth) => {
   if (!dateOfBirth) {
     return null
@@ -106,11 +308,16 @@ const computeProgress = (sessions) => {
 const mapSessionRow = (session) => {
   const startTime = toDate(session.start_time)
   const endTime = toDate(session.end_time)
+  const details = normalizeSessionDetails(session.details)
+  const sessionTypeConfig = getSessionTypeConfig(session.session_type)
 
-  return {
+  const mappedSession = {
     id: session.id,
     patientId: session.patient_id,
     sessionType: session.session_type,
+    sessionLabel: sessionTypeConfig.label,
+    sessionDescription: sessionTypeConfig.description,
+    sessionTone: sessionTypeConfig.tone,
     cadence: Math.round(session.cadence_spm || 0),
     stepLength: Number(session.avg_step_length_m || 0),
     strideLength: Number(session.avg_stride_length_m || 0),
@@ -126,11 +333,17 @@ const mapSessionRow = (session) => {
     date: startTime,
     startTime,
     endTime,
+    details,
     time: startTime.toLocaleTimeString('th-TH', {
       hour: '2-digit',
       minute: '2-digit',
     }),
     raw: session,
+  }
+
+  return {
+    ...mappedSession,
+    cardMetrics: buildSessionCardMetrics(mappedSession),
   }
 }
 
@@ -231,11 +444,11 @@ export async function addDoctorPatientAssignment(doctorId, rawPatientId) {
 
 export async function fetchPatientHistorySessions(patientId) {
   const supabase = getSupabaseClient()
-  const { data, error } = await supabase
+  const { data, error } = await executeSessionQuery((columns) => supabase
     .from('sessions')
-    .select(SESSION_COLUMNS)
+    .select(columns)
     .eq('patient_id', patientId)
-    .order('start_time', { ascending: false })
+    .order('start_time', { ascending: false }))
 
   if (error) {
     throw error
@@ -246,19 +459,47 @@ export async function fetchPatientHistorySessions(patientId) {
 
 export async function fetchLatestPatientSession(patientId) {
   const supabase = getSupabaseClient()
-  const { data, error } = await supabase
+  const { data, error } = await executeSessionQuery((columns) => supabase
     .from('sessions')
-    .select(SESSION_COLUMNS)
+    .select(columns)
     .eq('patient_id', patientId)
     .order('start_time', { ascending: false })
     .limit(1)
-    .maybeSingle()
+    .maybeSingle())
 
   if (error) {
     throw error
   }
 
   return data ? mapSessionRow(data) : null
+}
+
+export async function fetchPatientDailyProgress(patientId, defaultTargetSteps = 500) {
+  const supabase = getSupabaseClient()
+  const startOfDay = new Date()
+  startOfDay.setHours(0, 0, 0, 0)
+
+  const endOfDay = new Date(startOfDay)
+  endOfDay.setDate(endOfDay.getDate() + 1)
+
+  const { data, error } = await supabase
+    .from('sessions')
+    .select('total_steps, start_time')
+    .eq('patient_id', patientId)
+    .gte('start_time', startOfDay.toISOString())
+    .lt('start_time', endOfDay.toISOString())
+
+  if (error) {
+    throw error
+  }
+
+  const currentSteps = (data || []).reduce((sum, session) => sum + Number(session.total_steps || 0), 0)
+
+  return {
+    currentSteps,
+    sessionCount: (data || []).length,
+    targetSteps: defaultTargetSteps,
+  }
 }
 
 export async function fetchDoctorDashboardData(doctorId) {
@@ -280,7 +521,7 @@ export async function fetchDoctorDashboardData(doctorId) {
   const [{ data: profiles, error: profilesError }, { data: presenceRows, error: presenceError }, { data: sessions, error: sessionsError }] = await Promise.all([
     supabase.from('profiles').select(PROFILE_COLUMNS).in('id', patientIds),
     supabase.from('patient_presence').select('patient_id, is_online, current_session_type, last_seen_at').in('patient_id', patientIds),
-    supabase.from('sessions').select(SESSION_COLUMNS).in('patient_id', patientIds).order('start_time', { ascending: false }),
+    executeSessionQuery((columns) => supabase.from('sessions').select(columns).in('patient_id', patientIds).order('start_time', { ascending: false })),
   ])
 
   if (profilesError) {
@@ -352,7 +593,7 @@ export async function fetchDoctorPatientDetail(doctorId, patientId) {
 
   const [{ data: patientProfile, error: patientError }, { data: sessions, error: sessionsError }] = await Promise.all([
     supabase.from('profiles').select(PROFILE_COLUMNS).eq('id', patientId).single(),
-    supabase.from('sessions').select(SESSION_COLUMNS).eq('patient_id', patientId).order('start_time', { ascending: false }),
+    executeSessionQuery((columns) => supabase.from('sessions').select(columns).eq('patient_id', patientId).order('start_time', { ascending: false })),
   ])
 
   if (patientError) {
@@ -392,7 +633,7 @@ export async function fetchDoctorSessionReview(doctorId, patientId, sessionId) {
 
   const [{ data: patientProfile, error: patientError }, { data: session, error: sessionError }, { data: gaitMetrics, error: gaitMetricsError }] = await Promise.all([
     supabase.from('profiles').select(PROFILE_COLUMNS).eq('id', patientId).single(),
-    supabase.from('sessions').select(SESSION_COLUMNS).eq('id', sessionId).eq('patient_id', patientId).single(),
+    executeSessionQuery((columns) => supabase.from('sessions').select(columns).eq('id', sessionId).eq('patient_id', patientId).single()),
     supabase.from('gait_metrics').select(METRIC_COLUMNS).eq('session_id', sessionId).order('recorded_at', { ascending: true }),
   ])
 
@@ -426,7 +667,7 @@ export async function fetchDoctorSessionReview(doctorId, patientId, sessionId) {
 
 export async function saveDoctorSessionReview(sessionId, reviewedBy, reviewStatus, reviewNotes) {
   const supabase = getSupabaseClient()
-  const { data, error } = await supabase
+  const { error } = await supabase
     .from('sessions')
     .update({
       status: reviewStatus,
@@ -435,11 +676,21 @@ export async function saveDoctorSessionReview(sessionId, reviewedBy, reviewStatu
       reviewed_at: new Date().toISOString(),
     })
     .eq('id', sessionId)
-    .select(SESSION_COLUMNS)
+    .select('id')
     .single()
 
   if (error) {
     throw error
+  }
+
+  const { data, error: fetchError } = await executeSessionQuery((columns) => supabase
+    .from('sessions')
+    .select(columns)
+    .eq('id', sessionId)
+    .single())
+
+  if (fetchError) {
+    throw fetchError
   }
 
   return mapSessionRow(data)

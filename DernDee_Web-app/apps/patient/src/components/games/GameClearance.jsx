@@ -1,5 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useUserAuth } from '@shared/context/UserAuthContext.jsx';
+import { usePersistedGatewaySession } from '@shared/hooks/usePersistedGatewaySession.js';
 import { ArrowLeft, ArrowRight, Settings, Pause, Play, Square, X, Volume2, VolumeX, Vibrate } from 'lucide-react';
 import derndeeLogo from '@shared/assets/images/derndee-logo.png';
 
@@ -24,6 +26,7 @@ function quatToPitchDeg(q) {
 
 const GameClearance = () => {
     const navigate = useNavigate();
+    const { user } = useUserAuth();
 
     // === Game State ===
     const [gameState, setGameState] = useState(GAME_STATES.READY);
@@ -39,6 +42,8 @@ const GameClearance = () => {
     const [totalReps, setTotalReps] = useState(20); // Goal
     const [stabilityScore, setStabilityScore] = useState(100);
     const [sessionTime, setSessionTime] = useState(0);
+    const [isConnected, setIsConnected] = useState(false);
+    const [sessionMetrics, setSessionMetrics] = useState({});
 
     // === Rep Counting State Machine ===
     const [repState, setRepState] = useState('READY'); // READY, HIT_TARGET
@@ -48,6 +53,7 @@ const GameClearance = () => {
     const timerRef = useRef(null);
     const liftBaselinePitchRef = useRef(null);
     const liftStableSinceRef = useRef(null);
+    const manualDisconnectRef = useRef(false);
 
     // === Audio ===
     const successSoundRef = useRef(null);
@@ -65,14 +71,59 @@ const GameClearance = () => {
 
     const gaugeState = getGaugeState();
 
+    const buildSessionSummary = useCallback(() => {
+        const cadenceFromReps = sessionTime > 0 ? Math.round((reps / sessionTime) * 60) : 0;
+        const completionRatio = totalReps > 0 ? Math.min(1, reps / totalReps) : 0;
+        const derivedQualityScore = Math.round(Math.max(0, Math.min(100, (stabilityScore * 0.6) + (completionRatio * 40))));
+
+        return {
+            total_steps: Number.isFinite(sessionMetrics?.total_steps) ? sessionMetrics.total_steps : 0,
+            avg_speed_mps: Number.isFinite(sessionMetrics?.avg_speed_mps) ? sessionMetrics.avg_speed_mps : null,
+            cadence_spm: Number.isFinite(sessionMetrics?.cadence_spm) ? sessionMetrics.cadence_spm : cadenceFromReps,
+            avg_step_length_m: Number.isFinite(sessionMetrics?.avg_step_length_m) ? sessionMetrics.avg_step_length_m : null,
+            avg_stride_length_m: Number.isFinite(sessionMetrics?.avg_stride_length_m) ? sessionMetrics.avg_stride_length_m : null,
+            avg_clearance_m: Number.isFinite(sessionMetrics?.avg_clearance_m) ? sessionMetrics.avg_clearance_m : targetHeight / 100,
+            symmetry_score: Number.isFinite(sessionMetrics?.symmetry_percent) ? sessionMetrics.symmetry_percent : derivedQualityScore,
+        };
+    }, [reps, sessionMetrics, sessionTime, stabilityScore, targetHeight, totalReps]);
+
+    const buildSessionDetails = useCallback(() => {
+        const goalProgressPercent = totalReps > 0 ? Math.round((reps / totalReps) * 100) : 0;
+
+        return {
+            red_line_hits: reps,
+            target_reps: totalReps,
+            target_height_cm: targetHeight,
+            goal_progress_percent: Math.max(0, Math.min(100, goalProgressPercent)),
+            stability_score: stabilityScore,
+        };
+    }, [reps, stabilityScore, targetHeight, totalReps]);
+
+    const { endSessionIfActive } = usePersistedGatewaySession({
+        wsRef,
+        userId: user?.uid,
+        isConnected,
+        shouldStart: gameState === GAME_STATES.PLAYING,
+        shouldComplete: gameState === GAME_STATES.COMPLETED,
+        sessionType: 'high_stepper',
+        buildSummary: buildSessionSummary,
+        buildDetails: buildSessionDetails,
+        metadata: {
+            game_label: 'High Stepper',
+        },
+    });
+
     // === WebSocket Connection ===
     useEffect(() => {
+        manualDisconnectRef.current = false;
+
         const connectWebSocket = () => {
             try {
                 wsRef.current = new WebSocket(`ws://${window.location.hostname}:8765`);
 
                 wsRef.current.onopen = () => {
                     console.log('🎮 High Stepper connected to WebSocket');
+                    setIsConnected(true);
                 };
 
                 wsRef.current.onmessage = (event) => {
@@ -85,6 +136,12 @@ const GameClearance = () => {
                 };
 
                 wsRef.current.onclose = () => {
+                    setIsConnected(false);
+
+                    if (manualDisconnectRef.current) {
+                        return;
+                    }
+
                     console.log('WebSocket closed, reconnecting...');
                     setTimeout(connectWebSocket, 3000);
                 };
@@ -100,11 +157,13 @@ const GameClearance = () => {
         connectWebSocket();
 
         return () => {
+            manualDisconnectRef.current = true;
+            endSessionIfActive();
             if (wsRef.current) {
                 wsRef.current.close();
             }
         };
-    }, []);
+    }, [endSessionIfActive]);
 
     // === Handle Sensor Data ===
     const handleSensorData = useCallback((msg) => {
@@ -112,6 +171,10 @@ const GameClearance = () => {
 
         const payload = msg.payload;
         let estimatorHeightCm = 0;
+
+        if (payload.session_metrics) {
+            setSessionMetrics(payload.session_metrics);
+        }
 
         // === Use Position Z from ZUPT estimator ===
         if (payload.position && Array.isArray(payload.position)) {
@@ -247,6 +310,7 @@ const GameClearance = () => {
         setReps(0);
         setSessionTime(0);
         setRepState('READY');
+        setSessionMetrics({});
     };
 
     const pauseSession = () => {
@@ -274,6 +338,7 @@ const GameClearance = () => {
         setSessionTime(0);
         setCurrentHeight(0);
         setRepState('READY');
+        setSessionMetrics({});
         liftBaselinePitchRef.current = null;
         liftStableSinceRef.current = null;
     };

@@ -5,16 +5,41 @@ import { fetchDoctorPatientDetail } from '@shared/services/sessionService.js';
 import { 
     ArrowLeft,
     Calendar,
-    TrendingUp,
-    Footprints,
     Clock,
-    BarChart3,
     FileText,
-    MessageCircle,
     CheckCircle2,
     AlertCircle
 } from 'lucide-react';
 import derndeeLogo from '@shared/assets/images/derndee-logo.png';
+
+const SESSION_TONE_STYLES = {
+    blue: {
+        card: 'border-blue-200 bg-gradient-to-r from-blue-50 to-white hover:border-blue-300',
+        badge: 'bg-blue-100 text-blue-700',
+        metricCard: 'border-blue-100',
+        icon: 'text-blue-600',
+    },
+    emerald: {
+        card: 'border-emerald-200 bg-gradient-to-r from-emerald-50 to-white hover:border-emerald-300',
+        badge: 'bg-emerald-100 text-emerald-700',
+        metricCard: 'border-emerald-100',
+        icon: 'text-emerald-600',
+    },
+    amber: {
+        card: 'border-amber-200 bg-gradient-to-r from-amber-50 to-white hover:border-amber-300',
+        badge: 'bg-amber-100 text-amber-700',
+        metricCard: 'border-amber-100',
+        icon: 'text-amber-600',
+    },
+    violet: {
+        card: 'border-violet-200 bg-gradient-to-r from-violet-50 to-white hover:border-violet-300',
+        badge: 'bg-violet-100 text-violet-700',
+        metricCard: 'border-violet-100',
+        icon: 'text-violet-600',
+    },
+};
+
+const getToneStyle = (tone) => SESSION_TONE_STYLES[tone] || SESSION_TONE_STYLES.blue;
 
 const DoctorPatientDetail = () => {
     const navigate = useNavigate();
@@ -165,58 +190,61 @@ const DoctorPatientDetail = () => {
                         </div>
                     ) : (
                         <div className="space-y-3 sm:space-y-4">
-                            {sessions.map((session) => (
-                            <div
-                                key={session.id}
-                                onClick={() => navigate(`/patients/${patientId}/analysis/${session.id}`)}
-                                className="p-4 bg-gray-50 rounded-2xl border-2 border-gray-200 hover:border-blue-300 transition-all duration-300 cursor-pointer"
-                            >
-                                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                                    <div className="flex-1">
-                                        <div className="flex items-center gap-3 mb-2">
-                                            <Calendar className="w-5 h-5 text-blue-600" />
-                                            <span className="text-base sm:text-lg font-bold text-gray-900">
-                                                {session.date}
-                                            </span>
-                                            <Clock className="w-4 h-4 text-gray-500 ml-2" />
-                                            <span className="text-sm text-gray-600">{session.time}</span>
-                                            {session.status === 'pending' && (
-                                                <span className="px-3 py-1 bg-yellow-100 text-yellow-700 rounded-full text-xs font-bold">
-                                                    Review Needed
-                                                </span>
-                                            )}
-                                            {session.status === 'reviewed' && (
-                                                <span className="px-3 py-1 bg-green-100 text-green-700 rounded-full text-xs font-bold flex items-center gap-1">
-                                                    <CheckCircle2 className="w-3 h-3" />
-                                                    Reviewed
-                                                </span>
-                                            )}
-                                        </div>
-                                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-sm">
-                                            <div>
-                                                <p className="text-xs text-gray-500 mb-1">Cadence</p>
-                                                <p className="font-bold text-gray-900">{session.cadence} /min</p>
+                            {sessions.map((session) => {
+                                const toneStyle = getToneStyle(session.sessionTone);
+
+                                return (
+                                    <div
+                                        key={session.id}
+                                        onClick={() => navigate(`/patients/${patientId}/analysis/${session.id}`)}
+                                        className={`p-4 rounded-2xl border-2 transition-all duration-300 cursor-pointer ${toneStyle.card}`}
+                                    >
+                                        <div className="flex flex-col gap-4">
+                                            <div className="flex flex-col lg:flex-row lg:items-start justify-between gap-3">
+                                                <div className="flex-1">
+                                                    <div className="flex flex-wrap items-center gap-3 mb-2">
+                                                        <span className={`px-3 py-1 rounded-full text-xs font-bold ${toneStyle.badge}`}>
+                                                            {session.sessionLabel}
+                                                        </span>
+                                                        <div className="flex items-center gap-2 text-gray-600">
+                                                            <Calendar className={`w-4 h-4 ${toneStyle.icon}`} />
+                                                            <span className="text-base sm:text-lg font-bold text-gray-900">{session.date}</span>
+                                                        </div>
+                                                        <div className="flex items-center gap-2 text-gray-500">
+                                                            <Clock className="w-4 h-4" />
+                                                            <span className="text-sm">{session.time}</span>
+                                                        </div>
+                                                        {session.status === 'pending' && (
+                                                            <span className="px-3 py-1 bg-yellow-100 text-yellow-700 rounded-full text-xs font-bold">
+                                                                Review Needed
+                                                            </span>
+                                                        )}
+                                                        {session.status === 'reviewed' && (
+                                                            <span className="px-3 py-1 bg-green-100 text-green-700 rounded-full text-xs font-bold flex items-center gap-1">
+                                                                <CheckCircle2 className="w-3 h-3" />
+                                                                Reviewed
+                                                            </span>
+                                                        )}
+                                                    </div>
+                                                    <p className="text-sm text-gray-500">{session.sessionDescription}</p>
+                                                </div>
+                                                <div className="flex items-center gap-2 self-start lg:self-center">
+                                                    <FileText className={`w-5 h-5 ${toneStyle.icon}`} />
+                                                </div>
                                             </div>
-                                            <div>
-                                                <p className="text-xs text-gray-500 mb-1">Speed</p>
-                                                <p className="font-bold text-gray-900">{session.walkingSpeed} m/s</p>
-                                            </div>
-                                            <div>
-                                                <p className="text-xs text-gray-500 mb-1">Duration</p>
-                                                <p className="font-bold text-gray-900">{session.duration}</p>
-                                            </div>
-                                            <div>
-                                                <p className="text-xs text-gray-500 mb-1">Steps</p>
-                                                <p className="font-bold text-gray-900">{session.totalSteps}</p>
+
+                                            <div className="grid grid-cols-2 xl:grid-cols-4 gap-3 text-sm">
+                                                {session.cardMetrics.map((metric) => (
+                                                    <div key={`${session.id}-${metric.label}`} className={`rounded-xl border bg-white p-3 ${toneStyle.metricCard}`}>
+                                                        <p className="text-xs text-gray-500 mb-1">{metric.label}</p>
+                                                        <p className="font-bold text-gray-900 text-sm sm:text-base">{metric.value}</p>
+                                                    </div>
+                                                ))}
                                             </div>
                                         </div>
                                     </div>
-                                    <div className="flex items-center gap-2">
-                                        <FileText className="w-5 h-5 text-blue-600" />
-                                    </div>
-                                </div>
-                            </div>
-                            ))}
+                                );
+                            })}
                         </div>
                     )}
                 </div>

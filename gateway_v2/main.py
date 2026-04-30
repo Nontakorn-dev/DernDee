@@ -148,6 +148,7 @@ async def handle_control_message(message_type, payload):
             result = session_persistence.end_session(
                 session_metrics=dual_foot_analyzer.get_session_metrics(),
                 summary_overrides=payload.get('summary') or {},
+                session_details=payload.get('details') or {},
             )
         except Exception as error:
             print(f"❌ Failed to persist session: {error}")

@@ -1,5 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useUserAuth } from '@shared/context/UserAuthContext.jsx';
+import { usePersistedGatewaySession } from '@shared/hooks/usePersistedGatewaySession.js';
 import { ArrowLeft, Settings, Music, Play, Pause, Square, X, Volume2, VolumeX, Activity } from 'lucide-react';
 import derndeeLogo from '@shared/assets/images/derndee-logo.png';
 
@@ -25,6 +27,7 @@ function getTimingThresholds(bpm) {
 
 const GameRhythm = () => {
     const navigate = useNavigate();
+    const { user } = useUserAuth();
 
     // === Game State ===
     const [gameState, setGameState] = useState(GAME_STATES.READY);
@@ -51,7 +54,11 @@ const GameRhythm = () => {
     const [cadence, setCadence] = useState(0); // Steps per minute
     const [score, setScore] = useState(0);
     const [streak, setStreak] = useState(0);
+    const [bestStreak, setBestStreak] = useState(0);
     const [sessionTime, setSessionTime] = useState(0);
+    const [detectedSteps, setDetectedSteps] = useState(0);
+    const [isConnected, setIsConnected] = useState(false);
+    const [sessionMetrics, setSessionMetrics] = useState({});
 
     // === Timing Refs ===
     const nextBeatTimeRef = useRef(0);
@@ -63,9 +70,49 @@ const GameRhythm = () => {
     const sessionTimerRef = useRef(null);
     const audioContextRef = useRef(null);
     const feedbackTimerRef = useRef(null);
+    const manualDisconnectRef = useRef(false);
 
     // === WebSocket ===
     const wsRef = useRef(null);
+
+    const buildSessionSummary = useCallback(() => {
+        const rhythmProgress = Math.round(Math.max(0, Math.min(100, (score / TARGET_SCORE) * 100)));
+
+        return {
+            total_steps: Number.isFinite(sessionMetrics?.total_steps) ? sessionMetrics.total_steps : detectedSteps,
+            avg_speed_mps: Number.isFinite(sessionMetrics?.avg_speed_mps) ? sessionMetrics.avg_speed_mps : null,
+            cadence_spm: Number.isFinite(sessionMetrics?.cadence_spm) ? sessionMetrics.cadence_spm : cadence,
+            avg_step_length_m: Number.isFinite(sessionMetrics?.avg_step_length_m) ? sessionMetrics.avg_step_length_m : null,
+            avg_stride_length_m: Number.isFinite(sessionMetrics?.avg_stride_length_m) ? sessionMetrics.avg_stride_length_m : null,
+            avg_clearance_m: Number.isFinite(sessionMetrics?.avg_clearance_m) ? sessionMetrics.avg_clearance_m : null,
+            symmetry_score: Number.isFinite(sessionMetrics?.symmetry_percent) ? sessionMetrics.symmetry_percent : rhythmProgress,
+        };
+    }, [cadence, detectedSteps, score, sessionMetrics]);
+
+    const buildSessionDetails = useCallback(() => {
+        return {
+            score,
+            target_score: TARGET_SCORE,
+            best_streak: bestStreak,
+            target_bpm: bpm,
+            detected_steps: detectedSteps,
+            beat_count: beatCount,
+        };
+    }, [beatCount, bestStreak, bpm, detectedSteps, score]);
+
+    const { endSessionIfActive } = usePersistedGatewaySession({
+        wsRef,
+        userId: user?.uid,
+        isConnected,
+        shouldStart: gameState === GAME_STATES.PLAYING,
+        shouldComplete: gameState === GAME_STATES.COMPLETED,
+        sessionType: 'rhythm_drummer',
+        buildSummary: buildSessionSummary,
+        buildDetails: buildSessionDetails,
+        metadata: {
+            game_label: 'Rhythm Drummer',
+        },
+    });
 
     // === Initialize Audio Context ===
     useEffect(() => {
@@ -173,12 +220,15 @@ const GameRhythm = () => {
 
     // === WebSocket Connection ===
     useEffect(() => {
+        manualDisconnectRef.current = false;
+
         const connectWebSocket = () => {
             try {
                 wsRef.current = new WebSocket(`ws://${window.location.hostname}:8765`);
 
                 wsRef.current.onopen = () => {
                     console.log('🎵 Rhythm Game connected to WebSocket');
+                    setIsConnected(true);
                 };
 
                 wsRef.current.onmessage = (event) => {
@@ -191,6 +241,12 @@ const GameRhythm = () => {
                 };
 
                 wsRef.current.onclose = () => {
+                    setIsConnected(false);
+
+                    if (manualDisconnectRef.current) {
+                        return;
+                    }
+
                     console.log('WebSocket closed, reconnecting...');
                     setTimeout(connectWebSocket, 3000);
                 };
@@ -206,11 +262,13 @@ const GameRhythm = () => {
         connectWebSocket();
 
         return () => {
+            manualDisconnectRef.current = true;
+            endSessionIfActive();
             if (wsRef.current) {
                 wsRef.current.close();
             }
         };
-    }, []);
+    }, [endSessionIfActive]);
 
     // === Handle Sensor Data (Step Detection) ===
     const handleSensorData = useCallback((msg) => {
@@ -218,6 +276,10 @@ const GameRhythm = () => {
         if (gameStateRef.current !== GAME_STATES.PLAYING) return;
 
         const payload = msg.payload;
+
+        if (payload.session_metrics) {
+            setSessionMetrics(payload.session_metrics);
+        }
 
         // Detect step from total_steps change or step_detected flag
         const stepDetected = payload.step_detected ||
@@ -229,6 +291,7 @@ const GameRhythm = () => {
             // Debounce: ignore steps within 300ms of last step
             if (now - lastStepTimeRef.current < 300) return;
             lastStepTimeRef.current = now;
+            setDetectedSteps(prev => prev + 1);
 
             // Record step time for cadence calculation
             stepTimesRef.current.push(now);
@@ -272,6 +335,7 @@ const GameRhythm = () => {
                 setLastTimingLabel(`ลงเท้าตรงจังหวะแล้ว (${Math.round(error)} ms)`);
                 setStreak(prev => {
                     const nextStreak = prev + 1;
+                    setBestStreak(best => Math.max(best, nextStreak));
                     setScore(scorePrev => scorePrev + 30);
                     return nextStreak;
                 });
@@ -282,6 +346,7 @@ const GameRhythm = () => {
                 setLastTimingLabel(`ตามจังหวะดีแล้ว (${Math.round(error)} ms)`);
                 setStreak(prev => {
                     const nextStreak = prev + 1;
+                    setBestStreak(best => Math.max(best, nextStreak));
                     setScore(scorePrev => scorePrev + 20);
                     return nextStreak;
                 });
@@ -291,6 +356,7 @@ const GameRhythm = () => {
                 setLastTimingLabel(`ทันจังหวะแล้ว (${Math.round(error)} ms)`);
                 setStreak(prev => {
                     const nextStreak = prev + 1;
+                    setBestStreak(best => Math.max(best, nextStreak));
                     setScore(scorePrev => scorePrev + 10);
                     return nextStreak;
                 });
@@ -409,8 +475,11 @@ const GameRhythm = () => {
         setSessionTime(0);
         setScore(0);
         setStreak(0);
+        setBestStreak(0);
         setBeatCount(0);
         setCadence(0);
+        setDetectedSteps(0);
+        setSessionMetrics({});
         setNextBeatCountdownMs(Math.round(60000 / bpmRef.current));
         setBeatProgress(0);
         setTimingHint('ฟังจังหวะแล้วค่อยลงเท้า');
@@ -456,8 +525,11 @@ const GameRhythm = () => {
         setSessionTime(0);
         setScore(0);
         setStreak(0);
+        setBestStreak(0);
         setBeatCount(0);
         setCadence(0);
+        setDetectedSteps(0);
+        setSessionMetrics({});
         setNextBeatCountdownMs(0);
         setBeatProgress(0);
         setTimingHint('กด Start เพื่อเริ่ม');
