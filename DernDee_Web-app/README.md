@@ -47,7 +47,7 @@ npm install
    - สร้าง Firebase project ใหม่
    - เปิดใช้งาน Authentication และ Firestore
    - เปิดใช้งาน Google Sign-in ใน Authentication
-   - แก้ไขไฟล์ `src/firebase.js` ด้วย Firebase config ของคุณ
+   - แก้ไขไฟล์ `shared/firebase.js` ด้วย Firebase config ของคุณ
 
 4. **รันโปรเจค**
 ```bash
@@ -134,7 +134,7 @@ apps/
         ├── styles/
         └── ui/
 
-src/
+shared/
 ├── assets/                     # Shared images, avatars, and voice assets
 ├── context/
 │   └── UserAuthContext.jsx     # Shared auth/session context

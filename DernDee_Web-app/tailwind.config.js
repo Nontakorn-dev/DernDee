@@ -2,7 +2,7 @@
 export default {
   content: [
     "./apps/**/*.{html,js,ts,jsx,tsx}",
-    "./src/**/*.{js,ts,jsx,tsx}",
+    "./shared/**/*.{js,ts,jsx,tsx}",
   ],
   theme: {
     extend: {},

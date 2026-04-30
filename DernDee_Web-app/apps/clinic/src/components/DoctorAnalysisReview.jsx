@@ -1,8 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { useUserAuth } from '../../../../src/context/UserAuthContext';
+import { useUserAuth } from '@shared/context/UserAuthContext.jsx';
 import { doc, getDoc, updateDoc } from 'firebase/firestore';
-import { db } from '../../../../src/firebase';
+import { db } from '@shared/firebase.js';
 import { getPatientById, getSessionById } from '../data/mockDoctorData';
 import { 
     ArrowLeft,
@@ -17,7 +17,7 @@ import {
     MessageCircle,
     Save
 } from 'lucide-react';
-import derndeeLogo from '../../../../src/assets/images/derndee-logo.png';
+import derndeeLogo from '@shared/assets/images/derndee-logo.png';
 
 const DoctorAnalysisReview = () => {
     const navigate = useNavigate();

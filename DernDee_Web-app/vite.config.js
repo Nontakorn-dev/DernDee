@@ -51,7 +51,7 @@ function appRouteAliases() {
           pathname === '/'
           || (!isStaticRequest
             && !pathname.startsWith('/apps/')
-            && !pathname.startsWith('/src/')
+            && !pathname.startsWith('/shared/')
             && !pathname.startsWith('/assets/')
             && !pathname.startsWith('/audio/'))
         ) {
@@ -74,7 +74,7 @@ export default defineConfig({
   plugins: [react(), appRouteAliases()],
   resolve: {
     alias: {
-      '@shared': path.resolve(__dirname, 'src'),
+      '@shared': path.resolve(__dirname, 'shared'),
       '@patient': path.resolve(__dirname, 'apps/patient/src'),
       '@clinic': path.resolve(__dirname, 'apps/clinic/src'),
     },

@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useUserAuth } from '../../../../src/context/UserAuthContext';
+import { useUserAuth } from '@shared/context/UserAuthContext.jsx';
 import { 
     ArrowLeft,
     Send,
@@ -10,7 +10,7 @@ import {
     CheckCircle2
 } from 'lucide-react';
 import { mockPatients } from '../data/mockDoctorData';
-import derndeeLogo from '../../../../src/assets/images/derndee-logo.png';
+import derndeeLogo from '@shared/assets/images/derndee-logo.png';
 
 const DoctorChat = () => {
     const navigate = useNavigate();
