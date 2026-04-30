@@ -21,6 +21,7 @@ from gait_estimator import ZUPTGaitEstimator, DualFootAnalyzer  # [v2.0] ZUPT-ba
 from calibration import CalibrationManager
 from feedback_engine import FeedbackEngine
 from shank_event_detector_prototype import ShankEventDetectorComparison
+from session_persistence import SessionPersistenceManager, SupabaseSessionRepository
 
 # ==== Global State ====
 # Per-device instances
@@ -32,6 +33,7 @@ prototype_comparators = {}  # {Name: ShankEventDetectorComparison}
 dual_foot_analyzer = DualFootAnalyzer()
 calibration_manager = CalibrationManager()
 feedback_engine = FeedbackEngine()
+session_persistence = SessionPersistenceManager(SupabaseSessionRepository())
 
 # Tracking
 last_timestamps = {}  # {sender_name: timestamp_ms}
@@ -94,9 +96,81 @@ def reset_runtime_state():
     prototype_comparators.clear()
     dual_foot_analyzer.reset()
     feedback_engine.reset()
+    session_persistence.reset()
     last_timestamps.clear()
     last_seen_times.clear()
     last_walking_flags.clear()
+
+
+async def handle_control_message(message_type, payload):
+    if message_type == "CALIBRATE":
+        reset_runtime_state()
+        calibration_manager.start_calibration()
+        await broadcast({"type": "CALIBRATION_START"})
+        return
+
+    if message_type == "RESET":
+        reset_runtime_state()
+        print("🔄 All systems reset")
+        await broadcast({"type": "SYSTEM_RESET"})
+        return
+
+    if message_type == "START_SESSION":
+        patient_id = payload.get('patient_id')
+        session_type = payload.get('session_type', 'free_walk')
+
+        if not patient_id:
+            await broadcast({
+                "type": "SESSION_START_FAILED",
+                "payload": {"reason": "patient_id is required"},
+            })
+            return
+
+        reset_runtime_state()
+        active_session = session_persistence.start_session(
+            patient_id=patient_id,
+            session_type=session_type,
+            metadata=payload,
+        )
+        print(f"📝 Session started for patient {patient_id} ({session_type})")
+        await broadcast({
+            "type": "SESSION_STARTED",
+            "payload": {
+                "gateway_session_id": active_session.gateway_session_id,
+                "patient_id": patient_id,
+                "session_type": session_type,
+            },
+        })
+        return
+
+    if message_type == "END_SESSION":
+        try:
+            result = session_persistence.end_session(
+                session_metrics=dual_foot_analyzer.get_session_metrics(),
+                summary_overrides=payload.get('summary') or {},
+            )
+        except Exception as error:
+            print(f"❌ Failed to persist session: {error}")
+            await broadcast({
+                "type": "SESSION_SAVE_FAILED",
+                "payload": {"reason": str(error)},
+            })
+            reset_runtime_state()
+            return
+
+        if result:
+            print(f"✅ Session persisted ({result['saved_metrics_count']} gait metrics)")
+            await broadcast({
+                "type": "SESSION_SAVED",
+                "payload": result,
+            })
+        else:
+            await broadcast({
+                "type": "SESSION_SAVE_SKIPPED",
+                "payload": {"reason": "no active session"},
+            })
+
+        reset_runtime_state()
 
 
 async def broadcast(data):
@@ -119,15 +193,15 @@ async def ws_handler(websocket):
     
     try:
         async for message in websocket:
-            if message == "CALIBRATE":
-                reset_runtime_state()
-                calibration_manager.start_calibration()
-                await broadcast({"type": "CALIBRATION_START"})
-                
-            elif message == "RESET":
-                reset_runtime_state()
-                print("🔄 All systems reset")
-                await broadcast({"type": "SYSTEM_RESET"})
+            try:
+                parsed_message = json.loads(message)
+                message_type = parsed_message.get('type')
+                payload = parsed_message.get('payload') or {}
+            except json.JSONDecodeError:
+                message_type = message
+                payload = {}
+
+            await handle_control_message(message_type, payload)
                 
     except websockets.exceptions.ConnectionClosed:
         print("📱 WebSocket client disconnected")
@@ -326,6 +400,8 @@ def data_handler(sender_name, data):
         feedback_result = feedback_engine.analyze_step(gait_result, side=side)
         if feedback_result:
             print(f"🗣️ [{side}] {feedback_result.get('text', '')}")
+
+        session_persistence.register_gait_metric(side, gait_result, current_ts)
 
     state = estimator.get_current_state()
     

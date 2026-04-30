@@ -13,7 +13,7 @@ import { UserAuthContextProvider, useUserAuth } from '@shared/context/UserAuthCo
 import '@shared/index.css'
 
 function ClinicProtectedRoute({ children }) {
-  const { user, loading } = useUserAuth()
+  const { user, profile, loading } = useUserAuth()
 
   if (loading) {
     return (
@@ -27,6 +27,11 @@ function ClinicProtectedRoute({ children }) {
   }
 
   if (!user) {
+    window.location.assign('/login')
+    return null
+  }
+
+  if ((profile?.role || user.role) !== 'doctor') {
     window.location.assign('/login')
     return null
   }

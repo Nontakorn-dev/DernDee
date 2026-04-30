@@ -2,14 +2,12 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ArrowLeft } from 'lucide-react';
 import { useUserAuth } from '@shared/context/UserAuthContext.jsx';
-import { doc, getDoc, updateDoc, setDoc } from 'firebase/firestore';
-import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
-import { db, storage } from '@shared/firebase.js';
+import { updateUserProfile, uploadProfileImage } from '@shared/services/profileService.js';
 import './Profile.css';
 import derndeeLogo from '@shared/assets/images/derndee-logo.png'; // Uncomment this line and add your logo
 
 function Profile() {
-    const { user, logOut } = useUserAuth();
+    const { user, logOut, profile, refreshProfile } = useUserAuth();
     const navigate = useNavigate();
     const [userProfile, setUserProfile] = useState(null);
     const [loading, setLoading] = useState(true);
@@ -47,32 +45,33 @@ function Profile() {
 
     useEffect(() => {
         if (user) {
-            fetchUserProfile();
+            void fetchUserProfile();
         }
-    }, [user]);
+    }, [profile, user]);
 
     const fetchUserProfile = async () => {
         try {
-            const userRef = doc(db, 'users', user.uid);
-            const userSnap = await getDoc(userRef);
+            const data = profile || await refreshProfile();
 
-            if (userSnap.exists()) {
-                const data = userSnap.data();
-                setUserProfile(data);
+            if (data) {
+                const mappedProfile = {
+                    ...data,
+                    photoURL: data.avatar_url || null,
+                };
+                setUserProfile(mappedProfile);
 
-                // Update formData with existing data
                 const newFormData = {
-                    displayName: data.displayName || user.displayName || '',
+                    displayName: data.full_name || user.displayName || '',
                     email: data.email || user.email || '',
                     phone: data.phone || '',
-                    dateOfBirth: data.dateOfBirth || '',
-                    weight: data.weight || '',
-                    height: data.height || '',
-                    bloodType: data.bloodType || '',
+                    dateOfBirth: data.date_of_birth || '',
+                    weight: data.weight_kg?.toString() || '',
+                    height: data.height_cm?.toString() || '',
+                    bloodType: data.blood_type || '',
                     allergies: data.allergies || '',
-                    medicalConditions: data.medicalConditions || '',
+                    medicalConditions: data.medical_conditions || '',
                     medications: data.medications || '',
-                    emergencyContact: data.emergencyContact || {
+                    emergencyContact: data.emergency_contact || {
                         name: '',
                         relationship: '',
                         phone: ''
@@ -86,7 +85,6 @@ function Profile() {
 
                 setFormData(newFormData);
             } else {
-                // Use default values if no profile exists
                 const defaultFormData = {
                     displayName: user.displayName || user.email || '',
                     email: user.email || '',
@@ -137,19 +135,10 @@ function Profile() {
                 throw new Error('Image size must be less than 5MB');
             }
 
-            const storageRef = ref(storage, `profile-images/${user.uid}`);
+            const downloadURL = await uploadProfileImage(user.uid, file);
+            await refreshProfile();
 
-            const snapshot = await uploadBytes(storageRef, file);
-            const downloadURL = await getDownloadURL(snapshot.ref);
-
-            // Update user profile with new image URL
-            const userRef = doc(db, 'users', user.uid);
-            await updateDoc(userRef, {
-                photoURL: downloadURL
-            });
-
-            // Update local state
-            setUserProfile(prev => ({ ...prev, photoURL: downloadURL }));
+            setUserProfile(prev => ({ ...prev, photoURL: downloadURL, avatar_url: downloadURL }));
             setSuccess('Profile image updated successfully!');
 
             // Clear success message after 3 seconds
@@ -190,70 +179,15 @@ function Profile() {
                 throw new Error('User not authenticated');
             }
 
-            const userRef = doc(db, 'users', user.uid);
-
             // Calculate BMI if weight and height are provided
-            let bmi = null;
-            if (formData.weight && formData.height) {
-                const weightKg = parseFloat(formData.weight);
-                const heightM = parseFloat(formData.height) / 100;
-                if (weightKg > 0 && heightM > 0) {
-                    bmi = (weightKg / (heightM * heightM)).toFixed(1);
-                }
-            }
+            const updatedProfile = await updateUserProfile(user.uid, formData);
 
-            const updateData = {
-                displayName: formData.displayName || '',
-                phone: formData.phone || '',
-                dateOfBirth: formData.dateOfBirth || '',
-                weight: formData.weight || '',
-                height: formData.height || '',
-                bloodType: formData.bloodType || '',
-                allergies: formData.allergies || '',
-                medicalConditions: formData.medicalConditions || '',
-                medications: formData.medications || '',
-                emergencyContact: {
-                    name: formData.emergencyContact?.name || '',
-                    relationship: formData.emergencyContact?.relationship || '',
-                    phone: formData.emergencyContact?.phone || ''
-                },
-                preferences: {
-                    notifications: formData.preferences?.notifications || false,
-                    dataSharing: formData.preferences?.dataSharing || false,
-                    language: formData.preferences?.language || 'en'
-                },
-                bmi: bmi,
-                updatedAt: new Date()
-            };
-
-            // Add timeout to prevent infinite loading
-            const timeoutPromise = new Promise((_, reject) => {
-                setTimeout(() => reject(new Error('Save operation timed out')), 10000); // 10 seconds timeout
-            });
-
-            // Try updateDoc first, if it fails, use setDoc with merge
-            try {
-                await Promise.race([
-                    updateDoc(userRef, updateData),
-                    timeoutPromise
-                ]);
-                console.log('Profile updated successfully with updateDoc');
-            } catch (updateError) {
-                console.log('updateDoc failed, trying setDoc:', updateError.message);
-                // If updateDoc fails, try setDoc with merge
-                try {
-                    await Promise.race([
-                        setDoc(userRef, updateData, { merge: true }),
-                        timeoutPromise
-                    ]);
-                    console.log('Profile updated successfully with setDoc');
-                } catch (setDocError) {
-                    throw new Error(`Both updateDoc and setDoc failed: ${setDocError.message}`);
-                }
-            }
-
-            // Update local state
-            setUserProfile(prev => ({ ...prev, ...updateData }));
+            setUserProfile(prev => ({
+                ...prev,
+                ...updatedProfile,
+                photoURL: updatedProfile.avatar_url || prev?.photoURL || null,
+            }));
+            await refreshProfile();
             setIsEditing(false);
             setSuccess('Profile updated successfully!');
 

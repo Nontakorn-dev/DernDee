@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useUserAuth } from "@shared/context/UserAuthContext.jsx";
 import './Register.css';
@@ -9,15 +9,31 @@ function Register() {
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [isGoogleLoading, setIsGoogleLoading] = useState(false);
-  const { signUp, signInWithGoogle } = useUserAuth();
+  const [isResendingConfirmation, setIsResendingConfirmation] = useState(false);
+  const { signUp, signInWithGoogle, resendSignUpConfirmation, profile, user, loading, bypassEmailConfirmationInDev } = useUserAuth();
 
   let navigate = useNavigate();
+
+  useEffect(() => {
+    if (loading || !user) {
+      return;
+    }
+
+    if ((profile?.role || user.role) === 'doctor') {
+      window.location.assign('/clinic');
+      return;
+    }
+
+    navigate('/home');
+  }, [loading, navigate, profile?.role, user]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError("");
+    setNotice("");
     
     if (password !== confirmPassword) {
       setError("Passwords do not match");
@@ -31,11 +47,18 @@ function Register() {
     
     setIsLoading(true);
     try {
-        await signUp(email, password);
-        navigate("/home");
+        const result = await signUp(email, password);
+
+        if (result?.uid || result?.id) {
+          navigate("/home");
+          return;
+        }
+
+        if (result?.user && !result?.session) {
+          setNotice('Registration successful. Check your email to confirm your account before signing in.');
+        }
     } catch(err) {
         setError(err.message);
-        console.log(err);
     } finally {
         setIsLoading(false);
     }
@@ -43,14 +66,13 @@ function Register() {
 
   const handleGoogleSignUp = async () => {
     setError("");
+    setNotice("");
     setIsGoogleLoading(true);
     
     try {
         await signInWithGoogle();
-        navigate("/home");
     } catch(err) {
         setError(err.message);
-        console.log(err);
     } finally {
         setIsGoogleLoading(false);
     }
@@ -58,11 +80,35 @@ function Register() {
 
   const handleFacebookSignUp = () => {
     setError("Facebook sign-up will be available soon!");
+    setNotice("");
   };
 
   const handleAppleSignUp = () => {
     setError("Apple sign-up will be available soon!");
+    setNotice("");
   };
+
+  const handleResendConfirmation = async () => {
+    if (!email) {
+      setError('Enter your email address first.');
+      return;
+    }
+
+    setError("");
+    setNotice("");
+    setIsResendingConfirmation(true);
+
+    try {
+      await resendSignUpConfirmation(email);
+      setNotice('A new confirmation email has been sent. Open the newest email and use that link.');
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setIsResendingConfirmation(false);
+    }
+  };
+
+  const canResendConfirmation = Boolean(email);
 
   return (
     <div className="register-container">
@@ -123,10 +169,36 @@ function Register() {
           </button>
         </div>
 
-        {/* Error Display */}
+        {/* Status Display */}
+        {notice && (
+          <div className="error-alert" style={{ backgroundColor: '#eefbf0', color: '#1f7a36', borderColor: '#b9e7c3' }}>
+            {notice}
+          </div>
+        )}
+
+        {bypassEmailConfirmationInDev && (
+          <div className="error-alert" style={{ backgroundColor: '#eef7ff', color: '#1d4ed8', borderColor: '#bfdbfe' }}>
+            Local dev signup is auto-confirming email for this machine.
+          </div>
+        )}
+
         {error && (
           <div className="error-alert">
             {error}
+          </div>
+        )}
+
+        {canResendConfirmation && (
+          <div style={{ marginBottom: '20px' }}>
+            <button
+              type="button"
+              onClick={handleResendConfirmation}
+              disabled={isResendingConfirmation}
+              className="social-btn google-btn"
+              style={{ width: '100%' }}
+            >
+              {isResendingConfirmation ? 'Sending...' : 'Resend confirmation email'}
+            </button>
           </div>
         )}
 

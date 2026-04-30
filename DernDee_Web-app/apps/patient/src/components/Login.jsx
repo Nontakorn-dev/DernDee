@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React, { useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useUserAuth } from '@shared/context/UserAuthContext.jsx'
 import './Login.css'
@@ -8,23 +8,44 @@ function Login() {
     const [email, setEmail] = useState("");
     const [password, setPassword] = useState("");
     const [error, setError] = useState("");
+    const [notice, setNotice] = useState("");
     const [isLoading, setIsLoading] = useState(false);
     const [isGoogleLoading, setIsGoogleLoading] = useState(false);
-    const { logIn, signInWithGoogle } = useUserAuth();
+    const [isResendingConfirmation, setIsResendingConfirmation] = useState(false);
+    const { logIn, profile, resendSignUpConfirmation, signInWithGoogle, user, loading } = useUserAuth();
   
     let navigate = useNavigate();
+
+    useEffect(() => {
+        if (loading || !user) {
+            return;
+        }
+
+        if ((profile?.role || user.role) === 'doctor') {
+            window.location.assign('/clinic');
+            return;
+        }
+
+        navigate('/home');
+    }, [loading, navigate, profile?.role, user]);
 
     const handleSubmit = async (e) => {
         e.preventDefault();
         setError("");
+        setNotice("");
         setIsLoading(true);
         
         try {
-            await logIn(email, password);
+            const authenticatedUser = await logIn(email, password);
+
+            if (authenticatedUser?.role === 'doctor') {
+                window.location.assign('/clinic');
+                return;
+            }
+
             navigate("/home");
         } catch(err) {
             setError(err.message);
-            console.log(err);
         } finally {
             setIsLoading(false);
         }
@@ -32,16 +53,12 @@ function Login() {
 
     const handleGoogleSignIn = async () => {
         setError("");
+        setNotice("");
         setIsGoogleLoading(true);
-        
-        console.log("Login - Starting Google sign-in...");
-        
+
         try {
-            const result = await signInWithGoogle();
-            console.log("Login - Google sign-in successful:", result);
-            navigate("/home");
+            await signInWithGoogle();
         } catch(err) {
-            console.error("Login - Google sign-in error:", err);
             setError(err.message);
         } finally {
             setIsGoogleLoading(false);
@@ -50,11 +67,35 @@ function Login() {
 
     const handleFacebookSignIn = () => {
         setError("Facebook sign-in will be available soon!");
+        setNotice("");
     };
 
     const handleAppleSignIn = () => {
         setError("Apple sign-in will be available soon!");
+        setNotice("");
     };
+
+    const handleResendConfirmation = async () => {
+        if (!email) {
+            setError('Enter your email address first.');
+            return;
+        }
+
+        setError("");
+        setNotice("");
+        setIsResendingConfirmation(true);
+
+        try {
+            await resendSignUpConfirmation(email);
+            setNotice('A new confirmation email has been sent. Open the newest email and use that link.');
+        } catch (err) {
+            setError(err.message);
+        } finally {
+            setIsResendingConfirmation(false);
+        }
+    };
+
+    const canResendConfirmation = Boolean(email);
 
     return (
         <div className="login-container">
@@ -117,10 +158,29 @@ function Login() {
                     </button>
                 </div>
 
-                {/* Error Display */}
+                {/* Status Display */}
+                {notice && (
+                    <div className="error-alert" style={{ backgroundColor: '#eefbf0', color: '#1f7a36', borderColor: '#b9e7c3' }}>
+                        {notice}
+                    </div>
+                )}
+
                 {error && (
                     <div className="error-alert">
                         {error}
+                    </div>
+                )}
+
+                {canResendConfirmation && (
+                    <div style={{ marginBottom: '20px' }}>
+                        <button
+                            type="button"
+                            className="social-btn google-btn"
+                            onClick={handleResendConfirmation}
+                            disabled={isResendingConfirmation}
+                        >
+                            {isResendingConfirmation ? 'Sending...' : 'Resend confirmation email'}
+                        </button>
                     </div>
                 )}
 

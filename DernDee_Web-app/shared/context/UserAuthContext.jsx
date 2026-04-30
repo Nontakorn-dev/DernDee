@@ -1,141 +1,266 @@
 import React, { createContext, useContext, useEffect, useState } from 'react'
-import {
-    createUserWithEmailAndPassword,
-    signInWithEmailAndPassword,
-    onAuthStateChanged,
-    signOut,
-    signInWithPopup,
-    GoogleAuthProvider
-} from "firebase/auth"
-import { doc, setDoc, getDoc, serverTimestamp } from 'firebase/firestore'
 
-import { auth, db, googleProvider } from '../firebase'
+import { getAuthRedirectUrl, getSupabaseClient, isSupabaseConfigured } from '@shared/supabase/client.js'
+import {
+    fetchProfileById,
+    markPatientOffline,
+    normalizeAuthenticatedUser,
+    upsertAuthProfile,
+    upsertPatientPresence,
+} from '@shared/services/profileService.js'
 
 const userAuthContext = createContext();
+const bypassEmailConfirmationInDev = import.meta.env.DEV && import.meta.env.VITE_SUPABASE_SKIP_EMAIL_CONFIRMATION === 'true';
 
 export function UserAuthContextProvider({ children }) {
 
     const [user, setUser] = useState(null);
+    const [profile, setProfile] = useState(null);
     const [loading, setLoading] = useState(true);
 
-    console.log("UserAuthContext - current state - user:", user, "loading:", loading);
-
-    // Create or update user profile in Firestore
-    const createUserProfile = async (user, additionalData = {}) => {
-        if (!user) return;
-
-        const userRef = doc(db, 'users', user.uid);
-        const userSnap = await getDoc(userRef);
-
-        if (!userSnap.exists()) {
-            // New user - create profile
-            const userProfile = {
-                uid: user.uid,
-                email: user.email,
-                displayName: user.displayName || user.email,
-                photoURL: user.photoURL || null,
-                createdAt: serverTimestamp(),
-                lastLoginAt: serverTimestamp(),
-                isNewUser: true,
-                // Physical therapy specific fields
-                physicalTherapyData: {
-                    sessions: [],
-                    progress: {},
-                    goals: [],
-                    therapistId: null
-                },
-                ...additionalData
-            };
-
-            try {
-                await setDoc(userRef, userProfile);
-                console.log("New user profile created successfully");
-            } catch (error) {
-                console.error("Error creating user profile:", error);
-            }
-        } else {
-            // Existing user - update last login
-            try {
-                await setDoc(userRef, {
-                    lastLoginAt: serverTimestamp(),
-                    isNewUser: false
-                }, { merge: true });
-                console.log("User profile updated successfully");
-            } catch (error) {
-                console.error("Error updating user profile:", error);
-            }
+    const syncAuthenticatedUser = async (authUser) => {
+        if (!authUser) {
+            setUser(null);
+            setProfile(null);
+            setLoading(false);
+            return null;
         }
+
+        const profileRow = await upsertAuthProfile(authUser);
+        const normalizedUser = normalizeAuthenticatedUser(authUser, profileRow);
+        setProfile(profileRow);
+        setUser(normalizedUser);
+        setLoading(false);
+        return normalizedUser;
     };
 
-    function logIn(email, password) {
-        return signInWithEmailAndPassword(auth, email, password);
+    async function refreshProfile() {
+        if (!user?.uid) {
+            return null;
+        }
+
+        const profileRow = await fetchProfileById(user.uid);
+        setProfile(profileRow);
+        setUser((currentUser) => normalizeAuthenticatedUser({
+            id: currentUser?.uid,
+            email: currentUser?.email,
+            user_metadata: {
+                full_name: currentUser?.displayName,
+                avatar_url: currentUser?.photoURL,
+                role: profileRow?.role,
+            },
+        }, profileRow));
+        return profileRow;
     }
 
-    function signUp(email, password) {
-        return createUserWithEmailAndPassword(auth, email, password);
+    async function logIn(email, password) {
+        const supabase = getSupabaseClient();
+        const { data, error } = await supabase.auth.signInWithPassword({
+            email,
+            password,
+        });
+
+        if (error) {
+            throw error;
+        }
+
+        return syncAuthenticatedUser(data.user);
+    }
+
+    async function signUp(email, password) {
+        if (bypassEmailConfirmationInDev) {
+            const response = await fetch('/__dev/supabase/local-signup', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    email,
+                    password,
+                    metadata: {
+                        full_name: email.split('@')[0],
+                        role: 'patient',
+                    },
+                }),
+            });
+
+            const payload = await response.json().catch(() => ({}));
+
+            if (!response.ok) {
+                throw new Error(payload.error || 'Local signup helper failed');
+            }
+
+            return logIn(email, password);
+        }
+
+        const supabase = getSupabaseClient();
+        const { data, error } = await supabase.auth.signUp({
+            email,
+            password,
+            options: {
+                emailRedirectTo: getAuthRedirectUrl('/login'),
+                data: {
+                    full_name: email.split('@')[0],
+                    role: 'patient',
+                },
+            },
+        });
+
+        if (error) {
+            throw error;
+        }
+
+        if (data.session?.user) {
+            return syncAuthenticatedUser(data.session.user);
+        }
+
+        return data;
     }
 
     async function signInWithGoogle() {
-        console.log("UserAuthContext - signInWithGoogle - starting...");
-        
-        try {
-            const result = await signInWithPopup(auth, googleProvider);
-            console.log("UserAuthContext - signInWithGoogle - popup result:", result);
-            
-            const credential = GoogleAuthProvider.credentialFromResult(result);
-            const user = result.user;
-            
-            console.log("UserAuthContext - signInWithGoogle - user:", user);
-            
-            // Create or update user profile
-            await createUserProfile(user);
-            
-            return result;
-        } catch (error) {
-            console.error("UserAuthContext - signInWithGoogle - error:", error);
+        const supabase = getSupabaseClient();
+        const { data, error } = await supabase.auth.signInWithOAuth({
+            provider: 'google',
+            options: {
+                redirectTo: getAuthRedirectUrl('/login'),
+            },
+        });
+
+        if (error) {
             throw error;
         }
+
+        return data;
     }
 
-    function logOut() {
-        return signOut(auth);
+    async function resendSignUpConfirmation(email) {
+        const supabase = getSupabaseClient();
+        const { data, error } = await supabase.auth.resend({
+            type: 'signup',
+            email,
+            options: {
+                emailRedirectTo: getAuthRedirectUrl('/login'),
+            },
+        });
+
+        if (error) {
+            throw error;
+        }
+
+        return data;
+    }
+
+    async function logOut() {
+        const supabase = getSupabaseClient();
+
+        if (user?.role === 'patient') {
+            await markPatientOffline(user.uid).catch(() => null);
+        }
+
+        const { error } = await supabase.auth.signOut();
+        if (error) {
+            throw error;
+        }
+
+        setUser(null);
+        setProfile(null);
     }
 
     useEffect(() => {
-        console.log("UserAuthContext - useEffect - setting up auth listener");
-        
-        const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
-            console.log("Auth state changed:", currentUser);
-            setUser(currentUser);
-            
-            if (currentUser) {
-                // Update user profile on auth state change
-                try {
-                    await createUserProfile(currentUser);
-                } catch (error) {
-                    console.error("Error updating user profile:", error);
+        if (!isSupabaseConfigured) {
+            console.warn('Supabase is not configured. Authentication is disabled until VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY are set.');
+            setLoading(false);
+            return undefined;
+        }
+
+        const supabase = getSupabaseClient();
+        let isMounted = true;
+
+        const applyAuthState = async (authUser) => {
+            try {
+                await syncAuthenticatedUser(authUser);
+            } catch (error) {
+                console.error('Failed to sync authenticated user:', error);
+                if (isMounted) {
+                    setLoading(false);
                 }
             }
-            
-            // Always set loading to false after auth check
-            console.log("UserAuthContext - setting loading to false");
-            setLoading(false);
+        };
+
+        const bootstrap = async () => {
+            const { data, error } = await supabase.auth.getSession();
+            if (error) {
+                console.error('Failed to get Supabase session:', error);
+                setLoading(false);
+                return;
+            }
+
+            await applyAuthState(data.session?.user || null);
+        };
+
+        bootstrap();
+
+        const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+            void applyAuthState(session?.user || null);
         });
 
         return () => {
-            console.log("UserAuthContext - cleanup - removing auth listener");
-            unsubscribe();
+            isMounted = false;
+            subscription.unsubscribe();
         };
     }, []);
+
+    useEffect(() => {
+        if (!user?.uid || profile?.role !== 'patient') {
+            return undefined;
+        }
+
+        const heartbeat = () => {
+            void upsertPatientPresence(user.uid).catch((error) => {
+                console.error('Failed to update patient presence:', error);
+            });
+        };
+
+        heartbeat();
+        const intervalId = window.setInterval(heartbeat, 30000);
+
+        const handleVisibilityChange = () => {
+            if (document.visibilityState === 'hidden') {
+                void markPatientOffline(user.uid).catch(() => null);
+                return;
+            }
+
+            heartbeat();
+        };
+
+        const handleBeforeUnload = () => {
+            void markPatientOffline(user.uid).catch(() => null);
+        };
+
+        document.addEventListener('visibilitychange', handleVisibilityChange);
+        window.addEventListener('beforeunload', handleBeforeUnload);
+
+        return () => {
+            window.clearInterval(intervalId);
+            document.removeEventListener('visibilitychange', handleVisibilityChange);
+            window.removeEventListener('beforeunload', handleBeforeUnload);
+            void markPatientOffline(user.uid).catch(() => null);
+        };
+    }, [profile?.role, user?.uid]);
 
     return (
         <userAuthContext.Provider value={{ 
             user, 
+            profile,
+            refreshProfile,
             logIn, 
             signUp, 
             logOut, 
             signInWithGoogle,
-            loading 
+            resendSignUpConfirmation,
+            loading,
+            isConfigured: isSupabaseConfigured,
+            bypassEmailConfirmationInDev,
         }}>
             {children}
         </userAuthContext.Provider>

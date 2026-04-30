@@ -1,8 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useUserAuth } from '@shared/context/UserAuthContext.jsx';
-import { collection, query, where, orderBy, limit, getDocs } from 'firebase/firestore';
-import { db } from '@shared/firebase.js';
+import { fetchLatestPatientSession } from '@shared/services/sessionService.js';
 import { ArrowLeft, Footprints, Gauge, TrendingUp, Clock, Zap, Calendar, Inbox } from 'lucide-react';
 import derndeeLogo from '@shared/assets/images/derndee-logo.png';
 
@@ -14,61 +13,19 @@ const AnalysisResult = () => {
 
     useEffect(() => {
         const fetchLatestSession = async () => {
-            if (user) {
-                try {
-                    // Query the latest walk session for this user
-                    const sessionsRef = collection(db, 'walkSessions');
-                    const q = query(
-                        sessionsRef,
-                        where('userId', '==', user.uid),
-                        orderBy('createdAt', 'desc'),
-                        limit(1)
-                    );
-                    const querySnapshot = await getDocs(q);
+            if (!user) {
+                setLoading(false);
+                return;
+            }
 
-                    if (!querySnapshot.empty) {
-                        const sessionData = querySnapshot.docs[0].data();
-                        setLatestSession({
-                            id: querySnapshot.docs[0].id,
-                            ...sessionData
-                        });
-                    } else {
-                        // Use mock data if no session found
-                        setLatestSession({
-                            id: 'mock-1',
-                            cadence: 110,
-                            stepLength: 0.75,
-                            strideLength: 1.5,
-                            walkingSpeed: 1.2,
-                            doubleSupportTime: 25,
-                            singleSupportTime: 40,
-                            duration: '05:00',
-                            totalSteps: 280,
-                            steps: 280,
-                            createdAt: new Date(),
-                            date: new Date()
-                        });
-                    }
-                } catch (error) {
-                    console.error("Error fetching latest session:", error);
-                    // Use mock data on error
-                    setLatestSession({
-                        id: 'mock-1',
-                        cadence: 110,
-                        stepLength: 0.75,
-                        strideLength: 1.5,
-                        walkingSpeed: 1.2,
-                        doubleSupportTime: 25,
-                        singleSupportTime: 40,
-                        duration: '05:00',
-                        totalSteps: 280,
-                        steps: 280,
-                        createdAt: new Date(),
-                        date: new Date()
-                    });
-                } finally {
-                    setLoading(false);
-                }
+            try {
+                const session = await fetchLatestPatientSession(user.uid);
+                setLatestSession(session);
+            } catch (error) {
+                console.error("Error fetching latest session:", error);
+                setLatestSession(null);
+            } finally {
+                setLoading(false);
             }
         };
 

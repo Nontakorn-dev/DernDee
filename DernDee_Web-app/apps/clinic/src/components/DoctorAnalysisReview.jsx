@@ -1,9 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useUserAuth } from '@shared/context/UserAuthContext.jsx';
-import { doc, getDoc, updateDoc } from 'firebase/firestore';
-import { db } from '@shared/firebase.js';
-import { getPatientById, getSessionById } from '../data/mockDoctorData';
+import {
+    downloadSessionMetricsCsv,
+    fetchDoctorSessionReview,
+    saveDoctorSessionReview,
+} from '@shared/services/sessionService.js';
 import { 
     ArrowLeft,
     CheckCircle2,
@@ -32,45 +34,33 @@ const DoctorAnalysisReview = () => {
 
     useEffect(() => {
         const fetchData = async () => {
-            if (user && patientId && sessionId) {
-                try {
-                    // Fetch session and patient data
-                    // In real implementation, fetch from Firebase
-                    
-                    // Use mock data
-                    const patientData = getPatientById(patientId);
-                    const sessionData = getSessionById(patientId, sessionId);
-                    
-                    if (patientData && sessionData) {
-                        setPatient(patientData);
-                        setSession(sessionData);
-                        setReviewNotes(sessionData.reviewNotes || '');
-                        setReviewStatus(sessionData.status || 'pending');
-                    }
-                } catch (error) {
-                    console.error("Error fetching data:", error);
-                } finally {
-                    setLoading(false);
-                }
+            if (!user?.uid || !patientId || !sessionId) {
+                setLoading(false);
+                return;
+            }
+
+            try {
+                const reviewData = await fetchDoctorSessionReview(user.uid, patientId, sessionId);
+                setPatient(reviewData.patient);
+                setSession(reviewData.session);
+                setReviewNotes(reviewData.session.reviewNotes || '');
+                setReviewStatus(reviewData.session.status || 'pending');
+            } catch (error) {
+                console.error("Error fetching data:", error);
+                setPatient(null);
+                setSession(null);
+            } finally {
+                setLoading(false);
             }
         };
 
         fetchData();
-    }, [user, patientId, sessionId]);
+    }, [user?.uid, patientId, sessionId]);
 
     const handleSaveReview = async () => {
         setSaving(true);
         try {
-            // In real implementation, save to Firebase
-            // await updateDoc(doc(db, 'walkSessions', sessionId), {
-            //     status: reviewStatus,
-            //     reviewNotes: reviewNotes,
-            //     reviewedBy: user.uid,
-            //     reviewedAt: serverTimestamp()
-            // });
-            
-            // Simulate save
-            await new Promise(resolve => setTimeout(resolve, 1000));
+            await saveDoctorSessionReview(sessionId, user.uid, reviewStatus, reviewNotes);
             
             alert('Review saved successfully!');
             navigate(`/patients/${patientId}`);
@@ -79,6 +69,15 @@ const DoctorAnalysisReview = () => {
             alert('Error saving review. Please try again.');
         } finally {
             setSaving(false);
+        }
+    };
+
+    const handleExportMetrics = async () => {
+        try {
+            await downloadSessionMetricsCsv(sessionId);
+        } catch (error) {
+            console.error('Error exporting gait metrics:', error);
+            alert('Error exporting gait metrics. Please try again.');
         }
     };
 
@@ -281,15 +280,24 @@ const DoctorAnalysisReview = () => {
                         />
                     </div>
 
-                    {/* Save Button */}
-                    <button
-                        onClick={handleSaveReview}
-                        disabled={saving}
-                        className="w-full sm:w-auto px-8 py-3 bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 text-white rounded-xl font-extrabold text-sm sm:text-base transition-all duration-300 shadow-lg hover:shadow-2xl disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
-                    >
-                        <Save className="w-5 h-5" />
-                        <span>{saving ? 'Saving...' : 'Save Review'}</span>
-                    </button>
+                    <div className="flex flex-col sm:flex-row gap-3">
+                        <button
+                            onClick={handleExportMetrics}
+                            className="w-full sm:w-auto px-8 py-3 bg-white hover:bg-gray-50 text-gray-800 rounded-xl font-extrabold text-sm sm:text-base transition-all duration-300 shadow-lg border-2 border-gray-200 flex items-center justify-center gap-2"
+                        >
+                            <FileText className="w-5 h-5" />
+                            <span>Export CSV</span>
+                        </button>
+
+                        <button
+                            onClick={handleSaveReview}
+                            disabled={saving}
+                            className="w-full sm:w-auto px-8 py-3 bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 text-white rounded-xl font-extrabold text-sm sm:text-base transition-all duration-300 shadow-lg hover:shadow-2xl disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                        >
+                            <Save className="w-5 h-5" />
+                            <span>{saving ? 'Saving...' : 'Save Review'}</span>
+                        </button>
+                    </div>
                 </div>
             </main>
         </div>

@@ -1,15 +1,13 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useUserAuth } from '@shared/context/UserAuthContext.jsx';
-import { doc, getDoc } from 'firebase/firestore';
-import { db } from '@shared/firebase.js';
 // Import Home icon as HomeIcon to avoid naming conflict with component
 import { Home as HomeIcon, User, Settings, Bluetooth, Clock, TrendingUp, Video, Menu, Bell, LogOut, Upload } from 'lucide-react';
 import derndeeLogo from '@shared/assets/images/derndee-logo.png';
 import doctorImageSrc from '@shared/assets/images/doctor.png';
 
 const Home = () => {
-    const { logOut, user } = useUserAuth();
+    const { logOut, profile, refreshProfile, user } = useUserAuth();
     const navigate = useNavigate();
     const [userProfile, setUserProfile] = useState(null);
     const [loading, setLoading] = useState(true);
@@ -23,28 +21,27 @@ const Home = () => {
 
     useEffect(() => {
         const fetchUserProfile = async () => {
-            if (user) {
-                try {
-                    const userRef = doc(db, 'users', user.uid);
-                    const userSnap = await getDoc(userRef);
-                    if (userSnap.exists()) {
-                        const data = userSnap.data();
-                        setUserProfile(data);
-                        // If profile has steps data, use it
-                        if (data.steps) {
-                            setStepsProgress({ current: data.steps.current || 400, target: data.steps.target || 500 });
-                        }
-                    }
-                } catch (error) {
-                    console.error("Error fetching user profile:", error);
-                } finally {
-                    setLoading(false);
+            if (!user) {
+                setLoading(false);
+                return;
+            }
+
+            try {
+                const data = profile || await refreshProfile();
+                setUserProfile(data);
+
+                if (data?.steps) {
+                    setStepsProgress({ current: data.steps.current || 400, target: data.steps.target || 500 });
                 }
+            } catch (error) {
+                console.error("Error fetching user profile:", error);
+            } finally {
+                setLoading(false);
             }
         };
 
         fetchUserProfile();
-    }, [user]);
+    }, [profile, refreshProfile, user]);
 
     // Update connection status when connectedDevices changes
     useEffect(() => {

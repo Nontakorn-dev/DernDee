@@ -4,6 +4,10 @@ DernDee_Web-app/node_modules/
 
 # Ignore local environments
 .venv/
+DernDee_Web-app/.env
+DernDee_Web-app/.env.local
+DernDee_Web-app/.env.*.local
+gateway_v2/.env
 
 # Ignore Mac OS files
 .DS_Store

@@ -1,9 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useUserAuth } from '@shared/context/UserAuthContext.jsx';
-import { collection, query, where, getDocs, orderBy, limit } from 'firebase/firestore';
-import { db } from '@shared/firebase.js';
-import { getPatientById, getSessionsByPatientId } from '../data/mockDoctorData';
+import { fetchDoctorPatientDetail } from '@shared/services/sessionService.js';
 import { 
     ArrowLeft,
     Calendar,
@@ -28,32 +26,26 @@ const DoctorPatientDetail = () => {
 
     useEffect(() => {
         const fetchPatientData = async () => {
-            if (user && patientId) {
-                try {
-                    // Fetch patient data
-                    // In real implementation, fetch from Firebase
-                    
-                    // Use mock data
-                    const patientData = getPatientById(patientId);
-                    const sessionsData = getSessionsByPatientId(patientId);
-                    
-                    if (patientData) {
-                        setPatient(patientData);
-                        setSessions(sessionsData || []);
-                    } else {
-                        // If patient not found, set loading to false
-                        setLoading(false);
-                    }
-                } catch (error) {
-                    console.error("Error fetching patient data:", error);
-                } finally {
-                    setLoading(false);
-                }
+            if (!user?.uid || !patientId) {
+                setLoading(false);
+                return;
+            }
+
+            try {
+                const patientDetail = await fetchDoctorPatientDetail(user.uid, patientId);
+                setPatient(patientDetail.patient);
+                setSessions(patientDetail.sessions);
+            } catch (error) {
+                console.error("Error fetching patient data:", error);
+                setPatient(null);
+                setSessions([]);
+            } finally {
+                setLoading(false);
             }
         };
 
         fetchPatientData();
-    }, [user, patientId]);
+    }, [user?.uid, patientId]);
 
     if (loading) {
         return (

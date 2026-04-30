@@ -1,8 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useUserAuth } from '@shared/context/UserAuthContext.jsx';
-import { collection, query, where, orderBy, getDocs } from 'firebase/firestore';
-import { db } from '@shared/firebase.js';
+import { fetchPatientHistorySessions } from '@shared/services/sessionService.js';
 import {
     ArrowLeft,
     Search,
@@ -35,119 +34,23 @@ const History = () => {
     const [filterTimeFrom, setFilterTimeFrom] = useState('');
     const [filterTimeTo, setFilterTimeTo] = useState('');
 
-    // Mock data structure - in real implementation, fetch from Firebase
     useEffect(() => {
         const fetchHistory = async () => {
-            if (user) {
-                try {
-                    const sessionsRef = collection(db, 'walkSessions');
-                    const q = query(
-                        sessionsRef,
-                        where('userId', '==', user.uid),
-                        orderBy('createdAt', 'desc')
-                    );
-                    const querySnapshot = await getDocs(q);
+            if (!user) {
+                setLoading(false);
+                return;
+            }
 
-                    const sessions = [];
-                    querySnapshot.forEach((doc) => {
-                        sessions.push({
-                            id: doc.id,
-                            ...doc.data()
-                        });
-                    });
-
-                    // If no data, use mock data
-                    if (sessions.length === 0) {
-                        const mockSessions = [
-                            {
-                                id: '1',
-                                cadence: 110,
-                                stepLength: 0.75,
-                                strideLength: 1.5,
-                                walkingSpeed: 1.2,
-                                duration: '05:00',
-                                totalSteps: 280,
-                                createdAt: new Date('2024-01-15T10:30:00'),
-                                date: new Date('2024-01-15T10:30:00')
-                            },
-                            {
-                                id: '2',
-                                cadence: 105,
-                                stepLength: 0.72,
-                                strideLength: 1.45,
-                                walkingSpeed: 1.15,
-                                duration: '05:30',
-                                totalSteps: 290,
-                                createdAt: new Date('2024-01-14T14:20:00'),
-                                date: new Date('2024-01-14T14:20:00')
-                            },
-                            {
-                                id: '3',
-                                cadence: 108,
-                                stepLength: 0.73,
-                                strideLength: 1.48,
-                                walkingSpeed: 1.18,
-                                duration: '04:45',
-                                totalSteps: 265,
-                                createdAt: new Date('2024-01-13T09:15:00'),
-                                date: new Date('2024-01-13T09:15:00')
-                            },
-                            {
-                                id: '4',
-                                cadence: 112,
-                                stepLength: 0.77,
-                                strideLength: 1.52,
-                                walkingSpeed: 1.25,
-                                duration: '06:00',
-                                totalSteps: 300,
-                                createdAt: new Date('2024-01-12T16:45:00'),
-                                date: new Date('2024-01-12T16:45:00')
-                            },
-                            {
-                                id: '5',
-                                cadence: 107,
-                                stepLength: 0.71,
-                                strideLength: 1.43,
-                                walkingSpeed: 1.16,
-                                duration: '05:15',
-                                totalSteps: 275,
-                                createdAt: new Date('2024-01-11T11:00:00'),
-                                date: new Date('2024-01-11T11:00:00')
-                            }
-                        ];
-                        setHistoryData(mockSessions);
-                        setFilteredData(mockSessions);
-                    } else {
-                        // Convert Firestore timestamps
-                        const processedSessions = sessions.map(session => ({
-                            ...session,
-                            createdAt: session.createdAt?.toDate ? session.createdAt.toDate() : new Date(session.createdAt),
-                            date: session.date?.toDate ? session.date.toDate() : new Date(session.date || session.createdAt)
-                        }));
-                        setHistoryData(processedSessions);
-                        setFilteredData(processedSessions);
-                    }
-                } catch (error) {
-                    console.error("Error fetching history:", error);
-                    // Use mock data on error
-                    const mockSessions = [
-                        {
-                            id: '1',
-                            cadence: 110,
-                            stepLength: 0.75,
-                            strideLength: 1.5,
-                            walkingSpeed: 1.2,
-                            duration: '05:00',
-                            totalSteps: 280,
-                            createdAt: new Date('2024-01-15T10:30:00'),
-                            date: new Date('2024-01-15T10:30:00')
-                        }
-                    ];
-                    setHistoryData(mockSessions);
-                    setFilteredData(mockSessions);
-                } finally {
-                    setLoading(false);
-                }
+            try {
+                const sessions = await fetchPatientHistorySessions(user.uid);
+                setHistoryData(sessions);
+                setFilteredData(sessions);
+            } catch (error) {
+                console.error("Error fetching history:", error);
+                setHistoryData([]);
+                setFilteredData([]);
+            } finally {
+                setLoading(false);
             }
         };
 

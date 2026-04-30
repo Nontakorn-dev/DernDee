@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ArrowLeft, Footprints, Gauge, Wifi, WifiOff, Pause, Play, Square } from 'lucide-react';
+import { useUserAuth } from '@shared/context/UserAuthContext.jsx';
 import derndeeLogo from '@shared/assets/images/derndee-logo.png';
 
 // Avatar Images (PNG)
@@ -27,6 +28,7 @@ const AVATAR_VOICE_MESSAGES = {
 
 const WalkSession = () => {
     const navigate = useNavigate();
+    const { user } = useUserAuth();
     const [timeElapsed, setTimeElapsed] = useState(0);
     const [isActive, setIsActive] = useState(true);
     const targetTime = 300; // 5 minutes
@@ -59,6 +61,8 @@ const WalkSession = () => {
     const idleTimerRef = useRef(null);
     const lastStepCountRef = useRef(0);
     const lastStepTimeRef = useRef(Date.now());
+    const sessionStartedRef = useRef(false);
+    const manualDisconnectRef = useRef(false);
 
     // === TTS Helper Function ===
     const speakWithTTS = (text, onEnd) => {
@@ -72,8 +76,18 @@ const WalkSession = () => {
         window.speechSynthesis.speak(utterance);
     };
 
+    const sendControlMessage = (type, payload = {}) => {
+        if (wsRef.current?.readyState !== WebSocket.OPEN) {
+            return;
+        }
+
+        wsRef.current.send(JSON.stringify({ type, payload }));
+    };
+
     // === WebSocket Connection ===
     useEffect(() => {
+        manualDisconnectRef.current = false;
+
         const connectWebSocket = () => {
             const ws = new WebSocket(WS_URL);
             wsRef.current = ws;
@@ -86,6 +100,11 @@ const WalkSession = () => {
             ws.onclose = () => {
                 console.log('❌ Disconnected from Backend');
                 setIsConnected(false);
+
+                if (manualDisconnectRef.current) {
+                    return;
+                }
+
                 setTimeout(connectWebSocket, 2000);
             };
 
@@ -106,11 +125,24 @@ const WalkSession = () => {
         connectWebSocket();
 
         return () => {
+            manualDisconnectRef.current = true;
             if (wsRef.current) {
                 wsRef.current.close();
             }
         };
     }, []);
+
+    useEffect(() => {
+        if (!isConnected || !user?.uid || sessionStartedRef.current) {
+            return;
+        }
+
+        sendControlMessage('START_SESSION', {
+            patient_id: user.uid,
+            session_type: 'free_walk',
+        });
+        sessionStartedRef.current = true;
+    }, [isConnected, user?.uid]);
 
     // === Welcome Effect (Play TTS on first load, then transition to general) ===
     useEffect(() => {
@@ -288,9 +320,6 @@ const WalkSession = () => {
 
     const handleEndWalk = () => {
         setIsActive(false);
-        if (wsRef.current) {
-            wsRef.current.close();
-        }
 
         // === Compute Summary Statistics ===
         const avg = arr => arr.length > 0 ? arr.reduce((a, b) => a + b, 0) / arr.length : 0;
@@ -322,6 +351,23 @@ const WalkSession = () => {
 
         // Walking time in minutes
         const walkingTimeMinutes = timeElapsed / 60;
+
+        sendControlMessage('END_SESSION', {
+            summary: {
+                total_steps: summarySteps,
+                avg_speed_mps: summarySpeed,
+                cadence_spm: cadence,
+                avg_step_length_m: summaryStepLength,
+                avg_stride_length_m: summaryStrideLength,
+                avg_clearance_m: summaryClearance,
+            },
+        });
+
+        sessionStartedRef.current = false;
+        manualDisconnectRef.current = true;
+        if (wsRef.current) {
+            wsRef.current.close();
+        }
 
         navigate('/walk-summary', {
             state: {

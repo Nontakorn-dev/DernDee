@@ -17,18 +17,19 @@ Derndee เป็นแพลตฟอร์ม Health Tech ที่ปฏิ�
 - **การวินิจฉัย**: แยกแยะท่าที่ "ถูก" (Golden Template) และ "ผิด" (Error Templates)
 
 ### 3. ฝ่ายซอฟต์แวร์ (Software & Technology Stack)
-- **Frontend**: React Native (JavaScript/TypeScript)
-- **Backend**: Firebase
+- **Frontend**: React + Vite (JavaScript/JSX)
+- **Backend**: Supabase + Python WebSocket Gateway (`gateway_v2`)
 - **สถาปัตยกรรม**: Hybrid Processing
   - **On-Device**: ประมวลผล Real-time (Avatar, AI)
-  - **Server-Side**: คลังข้อมูล, จัดการบัญชี, รายงานสำหรับนักกายภาพบำบัด
+   - **Server-Side**: Supabase Auth/Data Layer, คลังข้อมูล, รายงานสำหรับนักกายภาพบำบัด
 
 ## 🛠️ การติดตั้งและรันโปรเจค
 
 ### Prerequisites
 - Node.js (v16 หรือสูงกว่า)
 - npm หรือ yarn
-- Firebase project
+- Supabase project
+- Python environment สำหรับ `gateway_v2`
 
 ### ขั้นตอนการติดตั้ง
 
@@ -43,11 +44,11 @@ cd Database
 npm install
 ```
 
-3. **ตั้งค่า Firebase**
-   - สร้าง Firebase project ใหม่
-   - เปิดใช้งาน Authentication และ Firestore
-   - เปิดใช้งาน Google Sign-in ใน Authentication
-   - แก้ไขไฟล์ `shared/firebase.js` ด้วย Firebase config ของคุณ
+3. **ตั้งค่า Supabase และ Gateway**
+   - ดูรายละเอียด schema และ data flow ที่ `../docs/supabase-cloud-data-layer.md`
+   - คัดลอก `.env.example` เป็น `.env` ใน `DernDee_Web-app/` และ `gateway_v2/`
+   - ใส่ค่า `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`
+   - apply SQL migration ใน `../supabase/migrations/20260430000100_initial_cloud_data_layer.sql`
 
 4. **รันโปรเจค**
 ```bash
@@ -62,10 +63,10 @@ npm run dev
 ## 🔐 ระบบ Authentication
 
 ### Google Sign-in
-- ใช้ Firebase Authentication
+- ใช้ Supabase Authentication
 - รองรับ Google Sign-in
-- สร้างโปรไฟล์ผู้ใช้ใหม่ใน Firestore อัตโนมัติ
-- จัดเก็บข้อมูลกายภาพบำบัดสำหรับผู้ใช้แต่ละคน
+- สร้างโปรไฟล์ผู้ใช้ใหม่ใน `profiles` อัตโนมัติ
+- จัดเก็บข้อมูลกายภาพบำบัดและ session data ใน Supabase
 
 ### การจัดการผู้ใช้
 - **ผู้ใช้ใหม่**: สร้างโปรไฟล์พร้อมข้อมูลกายภาพบำบัด

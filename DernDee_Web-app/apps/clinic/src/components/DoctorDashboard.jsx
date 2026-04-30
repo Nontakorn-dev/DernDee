@@ -1,9 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useUserAuth } from '@shared/context/UserAuthContext.jsx';
-import { collection, query, where, getDocs, orderBy, limit } from 'firebase/firestore';
-import { db } from '@shared/firebase.js';
-import { mockDashboardStats, mockRecentPatients, getPendingReviewsCount } from '../data/mockDoctorData';
+import {
+    createDoctorRealtimeSubscription,
+    fetchDoctorDashboardData,
+    removeRealtimeSubscription,
+} from '@shared/services/sessionService.js';
 import { 
     Users, 
     Activity, 
@@ -31,53 +33,64 @@ const DoctorDashboard = () => {
     const [loading, setLoading] = useState(true);
 
     useEffect(() => {
-        const fetchDashboardData = async () => {
-            if (user) {
-                try {
-                    // Fetch patients assigned to this doctor
-                    const usersRef = collection(db, 'users');
-                    const patientsQuery = query(
-                        usersRef,
-                        where('physicalTherapyData.therapistId', '==', user.uid)
-                    );
-                    const patientsSnapshot = await getDocs(patientsQuery);
-                    
-                    const totalPatients = patientsSnapshot.size;
-                    
-                    // Fetch recent sessions
-                    const sessionsRef = collection(db, 'walkSessions');
-                    const recentSessionsQuery = query(
-                        sessionsRef,
-                        orderBy('createdAt', 'desc'),
-                        limit(10)
-                    );
-                    const sessionsSnapshot = await getDocs(recentSessionsQuery);
-                    
-                    // Use mock data
-                    const stats = {
-                        ...mockDashboardStats,
-                        totalPatients: totalPatients || mockDashboardStats.totalPatients,
-                        pendingReviews: getPendingReviewsCount()
-                    };
-                    
-                    setStats(stats);
-                    setRecentPatients(mockRecentPatients);
-                } catch (error) {
-                    console.error("Error fetching dashboard data:", error);
-                    // Use mock data on error
-                    setStats({
-                        ...mockDashboardStats,
-                        pendingReviews: getPendingReviewsCount()
-                    });
-                    setRecentPatients(mockRecentPatients);
-                } finally {
+        let isMounted = true;
+        let realtimeChannel = null;
+
+        const loadDashboard = async () => {
+            if (!user?.uid) {
+                if (isMounted) {
+                    setLoading(false);
+                }
+                return;
+            }
+
+            try {
+                const dashboardData = await fetchDoctorDashboardData(user.uid);
+
+                if (!isMounted) {
+                    return;
+                }
+
+                setStats(dashboardData.stats);
+                setRecentPatients(dashboardData.recentPatients);
+            } catch (error) {
+                console.error("Error fetching dashboard data:", error);
+
+                if (!isMounted) {
+                    return;
+                }
+
+                setStats({
+                    totalPatients: 0,
+                    activeSessions: 0,
+                    pendingReviews: 0,
+                    completedToday: 0,
+                });
+                setRecentPatients([]);
+            } finally {
+                if (isMounted) {
                     setLoading(false);
                 }
             }
         };
 
-        fetchDashboardData();
-    }, [user]);
+        void loadDashboard();
+
+        if (user?.uid) {
+            try {
+                realtimeChannel = createDoctorRealtimeSubscription(() => {
+                    void loadDashboard();
+                });
+            } catch (error) {
+                console.error('Error subscribing to dashboard updates:', error);
+            }
+        }
+
+        return () => {
+            isMounted = false;
+            void removeRealtimeSubscription(realtimeChannel);
+        };
+    }, [user?.uid]);
 
     const handleLogout = async () => {
         try {
