@@ -55,7 +55,9 @@ npm run dev
 ```
 
 5. **เปิดเบราว์เซอร์**
-   - ไปที่ `http://localhost:5173`
+   - Patient app: `http://localhost:5174`
+   - Clinic app: `http://localhost:5174/clinic/`
+   - Gait dashboard: `http://localhost:5174/clinic/gait-dashboard/`
 
 ## 🔐 ระบบ Authentication
 
@@ -112,21 +114,35 @@ npm run dev
 
 ### Project Structure
 ```
+clinic/
+├── index.html                  # Clinic React entry for clinician dashboard
+└── gait-dashboard/
+    ├── index.html              # Live gait visualization entry
+    ├── main.js
+    ├── data/
+    ├── dsp/
+    ├── styles/
+    └── ui/
+
 src/
-├── components/          # React components
-│   ├── Login.jsx       # Login page
-│   ├── Register.jsx    # Register page
-│   ├── Home.jsx        # Home dashboard
-│   └── *.css           # Component styles
-├── context/            # React Context
-│   └── UserAuthContext.jsx  # Authentication context
-├── auth/               # Authentication utilities
-│   └── ProtectedRoute.jsx   # Route protection
-├── firebase.js         # Firebase configuration
-├── App.jsx             # Main app component
-├── App.css             # App styles
-├── main.jsx            # App entry point
-└── index.css           # Global styles
+├── apps/
+│   ├── patient/
+│   │   └── main.jsx            # Patient app route entry
+│   └── clinic/
+│       ├── main.jsx            # Clinic app route entry
+│       ├── components/         # Doctor dashboard screens
+│       └── data/               # Clinic mock data, to be replaced by Supabase
+├── components/                 # Patient pages, games, and shared legacy screens
+│   ├── Login.jsx
+│   ├── Register.jsx
+│   ├── Home.jsx
+│   └── games/
+├── context/
+│   └── UserAuthContext.jsx
+├── auth/
+│   └── ProtectedRoute.jsx
+├── firebase.js
+└── index.css
 ```
 
 ### Key Features
@@ -143,13 +159,12 @@ src/
 npm run build
 ```
 
-### Deploy บน Firebase Hosting
+### Deploy บน Vercel
 ```bash
-npm install -g firebase-tools
-firebase login
-firebase init hosting
-firebase deploy
+npm run build
 ```
+
+The current Vite build emits separate entries for the patient app, clinic app, and clinic gait dashboard. This is the first step toward mapping them to `app.derndee.com` and `clinic.derndee.com`.
 
 ## 🔮 Roadmap
 

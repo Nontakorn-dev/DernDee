@@ -1,9 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useUserAuth } from '../../context/UserAuthContext';
+import { useUserAuth } from '../../../context/UserAuthContext';
 import { collection, query, where, getDocs, orderBy, limit } from 'firebase/firestore';
-import { db } from '../../firebase';
-import { mockDashboardStats, mockRecentPatients, getPendingReviewsCount } from '../../data/mockDoctorData';
+import { db } from '../../../firebase';
+import { mockDashboardStats, mockRecentPatients, getPendingReviewsCount } from '../data/mockDoctorData';
 import { 
     Users, 
     Activity, 
@@ -16,7 +16,7 @@ import {
     LogOut,
     MessageCircle
 } from 'lucide-react';
-import derndeeLogo from '../../assets/images/derndee-logo.png';
+import derndeeLogo from '../../../assets/images/derndee-logo.png';
 
 const DoctorDashboard = () => {
     const navigate = useNavigate();
@@ -82,7 +82,7 @@ const DoctorDashboard = () => {
     const handleLogout = async () => {
         try {
             await logOut();
-            navigate('/login');
+            window.location.assign('/login');
         } catch (error) {
             console.error("Error logging out:", error);
         }
@@ -205,19 +205,28 @@ const DoctorDashboard = () => {
                                 Monitor and review patient therapy progress
                             </p>
                         </div>
-                        <button
-                            onClick={() => navigate('/doctor/chat')}
-                            className="px-4 sm:px-6 py-2 sm:py-3 bg-blue-500 hover:bg-blue-600 text-white rounded-xl font-bold text-sm sm:text-base transition-all duration-300 shadow-lg hover:shadow-xl flex items-center gap-2"
-                        >
-                            <MessageCircle className="w-4 h-4 sm:w-5 sm:h-5" />
-                            <span>Messages</span>
-                        </button>
+                        <div className="flex flex-col sm:flex-row gap-2 sm:gap-3">
+                            <button
+                                onClick={() => window.location.assign('/clinic/gait-dashboard/')}
+                                className="px-4 sm:px-6 py-2 sm:py-3 bg-indigo-500 hover:bg-indigo-600 text-white rounded-xl font-bold text-sm sm:text-base transition-all duration-300 shadow-lg hover:shadow-xl flex items-center gap-2"
+                            >
+                                <Activity className="w-4 h-4 sm:w-5 sm:h-5" />
+                                <span>Gait Dashboard</span>
+                            </button>
+                            <button
+                                onClick={() => navigate('/chat')}
+                                className="px-4 sm:px-6 py-2 sm:py-3 bg-blue-500 hover:bg-blue-600 text-white rounded-xl font-bold text-sm sm:text-base transition-all duration-300 shadow-lg hover:shadow-xl flex items-center gap-2"
+                            >
+                                <MessageCircle className="w-4 h-4 sm:w-5 sm:h-5" />
+                                <span>Messages</span>
+                            </button>
+                        </div>
                     </div>
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-5">
                         {recentPatients.map((patient) => (
                             <div
                                 key={patient.id}
-                                onClick={() => navigate(`/doctor/patients/${patient.id}`)}
+                                onClick={() => navigate(`/patients/${patient.id}`)}
                                 className="bg-white rounded-2xl shadow-xl p-5 sm:p-6 border-2 border-gray-200 hover:border-blue-400 hover:shadow-2xl transition-all duration-300 cursor-pointer transform hover:scale-[1.02]"
                             >
                                 <div className="flex items-start justify-between mb-4">
@@ -280,4 +289,3 @@ const DoctorDashboard = () => {
 };
 
 export default DoctorDashboard;
-

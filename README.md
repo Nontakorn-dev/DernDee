@@ -129,23 +129,29 @@ flowchart TD
 |   |-- package.json
 |   |-- vite.config.js
 |   |-- index.html
-|   |-- dashboard_Therapy/
-|   |   |-- gait-dashboard.html
-|   |   |-- main.js
-|   |   |-- data/
-|   |   |-- dsp/
-|   |   |-- styles/
-|   |   `-- ui/
+|   |-- clinic/
+|   |   |-- index.html
+|   |   `-- gait-dashboard/
+|   |       |-- index.html
+|   |       |-- main.js
+|   |       |-- data/
+|   |       |-- dsp/
+|   |       |-- styles/
+|   |       `-- ui/
 |   |-- public/
 |   `-- src/
-|       |-- main.jsx
+|       |-- apps/
+|       |   |-- patient/
+|       |   |   `-- main.jsx
+|       |   `-- clinic/
+|       |       |-- main.jsx
+|       |       |-- components/
+|       |       `-- data/
 |       |-- firebase.js
 |       |-- auth/
 |       |-- components/
-|       |   |-- doctor/
 |       |   `-- games/
-|       |-- context/
-|       `-- data/
+|       `-- context/
 `-- gateway_v2/
     |-- main.py
     |-- connection.py
@@ -210,7 +216,8 @@ The frontend runs at:
 ### 4. Open the application
 
 - Patient app: `http://localhost:5174`
-- Gait dashboard: `http://localhost:5174/dashboard_Therapy/gait-dashboard.html`
+- Clinic app: `http://localhost:5174/clinic/`
+- Gait dashboard: `http://localhost:5174/clinic/gait-dashboard/`
 
 ### 5. Power on compatible IMU nodes
 

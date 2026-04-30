@@ -8,8 +8,9 @@ export default defineConfig({
   build: {
     rollupOptions: {
       input: {
-        main: path.resolve(__dirname, 'index.html'),
-        gaitDashboard: path.resolve(__dirname, 'dashboard_Therapy/gait-dashboard.html'),
+        patient: path.resolve(__dirname, 'index.html'),
+        clinic: path.resolve(__dirname, 'clinic/index.html'),
+        clinicGaitDashboard: path.resolve(__dirname, 'clinic/gait-dashboard/index.html'),
       },
     },
   },

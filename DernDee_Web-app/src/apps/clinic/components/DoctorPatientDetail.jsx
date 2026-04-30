@@ -1,9 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { useUserAuth } from '../../context/UserAuthContext';
+import { useUserAuth } from '../../../context/UserAuthContext';
 import { collection, query, where, getDocs, orderBy, limit } from 'firebase/firestore';
-import { db } from '../../firebase';
-import { getPatientById, getSessionsByPatientId } from '../../data/mockDoctorData';
+import { db } from '../../../firebase';
+import { getPatientById, getSessionsByPatientId } from '../data/mockDoctorData';
 import { 
     ArrowLeft,
     Calendar,
@@ -16,7 +16,7 @@ import {
     CheckCircle2,
     AlertCircle
 } from 'lucide-react';
-import derndeeLogo from '../../assets/images/derndee-logo.png';
+import derndeeLogo from '../../../assets/images/derndee-logo.png';
 
 const DoctorPatientDetail = () => {
     const navigate = useNavigate();
@@ -96,7 +96,7 @@ const DoctorPatientDetail = () => {
                 <div className="mb-4 sm:mb-6">
                     <div className="flex items-center gap-2 sm:gap-3 mb-4">
                         <button
-                            onClick={() => navigate('/doctor/patients')}
+                            onClick={() => navigate('/')}
                             className="p-2 hover:bg-gray-100 rounded-full transition-colors flex-shrink-0"
                         >
                             <ArrowLeft className="w-5 h-5 sm:w-6 sm:h-6 text-gray-700" />
@@ -176,7 +176,7 @@ const DoctorPatientDetail = () => {
                             {sessions.map((session) => (
                             <div
                                 key={session.id}
-                                onClick={() => navigate(`/doctor/patients/${patientId}/analysis/${session.id}`)}
+                                onClick={() => navigate(`/patients/${patientId}/analysis/${session.id}`)}
                                 className="p-4 bg-gray-50 rounded-2xl border-2 border-gray-200 hover:border-blue-300 transition-all duration-300 cursor-pointer"
                             >
                                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
@@ -234,4 +234,3 @@ const DoctorPatientDetail = () => {
 };
 
 export default DoctorPatientDetail;
-

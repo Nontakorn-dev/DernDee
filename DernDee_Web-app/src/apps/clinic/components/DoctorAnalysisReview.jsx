@@ -1,9 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { useUserAuth } from '../../context/UserAuthContext';
+import { useUserAuth } from '../../../context/UserAuthContext';
 import { doc, getDoc, updateDoc } from 'firebase/firestore';
-import { db } from '../../firebase';
-import { getPatientById, getSessionById } from '../../data/mockDoctorData';
+import { db } from '../../../firebase';
+import { getPatientById, getSessionById } from '../data/mockDoctorData';
 import { 
     ArrowLeft,
     CheckCircle2,
@@ -17,7 +17,7 @@ import {
     MessageCircle,
     Save
 } from 'lucide-react';
-import derndeeLogo from '../../assets/images/derndee-logo.png';
+import derndeeLogo from '../../../assets/images/derndee-logo.png';
 
 const DoctorAnalysisReview = () => {
     const navigate = useNavigate();
@@ -73,7 +73,7 @@ const DoctorAnalysisReview = () => {
             await new Promise(resolve => setTimeout(resolve, 1000));
             
             alert('Review saved successfully!');
-            navigate(`/doctor/patients/${patientId}`);
+            navigate(`/patients/${patientId}`);
         } catch (error) {
             console.error("Error saving review:", error);
             alert('Error saving review. Please try again.');
@@ -123,7 +123,7 @@ const DoctorAnalysisReview = () => {
                 <div className="mb-4 sm:mb-6">
                     <div className="flex items-center gap-2 sm:gap-3 mb-4">
                         <button
-                            onClick={() => navigate(`/doctor/patients/${patientId}`)}
+                            onClick={() => navigate(`/patients/${patientId}`)}
                             className="p-2 hover:bg-gray-100 rounded-full transition-colors flex-shrink-0"
                         >
                             <ArrowLeft className="w-5 h-5 sm:w-6 sm:h-6 text-gray-700" />
@@ -297,4 +297,3 @@ const DoctorAnalysisReview = () => {
 };
 
 export default DoctorAnalysisReview;
-

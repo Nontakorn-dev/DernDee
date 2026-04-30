@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useUserAuth } from '../../context/UserAuthContext';
+import { useUserAuth } from '../../../context/UserAuthContext';
 import { 
     ArrowLeft,
     Send,
@@ -9,8 +9,8 @@ import {
     Clock,
     CheckCircle2
 } from 'lucide-react';
-import { mockPatients } from '../../data/mockDoctorData';
-import derndeeLogo from '../../assets/images/derndee-logo.png';
+import { mockPatients } from '../data/mockDoctorData';
+import derndeeLogo from '../../../assets/images/derndee-logo.png';
 
 const DoctorChat = () => {
     const navigate = useNavigate();
@@ -135,7 +135,7 @@ const DoctorChat = () => {
                 <div className="mb-3 sm:mb-4 flex-shrink-0">
                     <div className="flex items-center gap-2 sm:gap-3">
                         <button
-                            onClick={() => navigate('/doctor')}
+                            onClick={() => navigate('/')}
                             className="p-2 hover:bg-gray-100 rounded-full transition-colors flex-shrink-0"
                         >
                             <ArrowLeft className="w-5 h-5 sm:w-6 sm:h-6 text-gray-700" />
@@ -236,7 +236,7 @@ const DoctorChat = () => {
                                         </p>
                                     </div>
                                     <button
-                                        onClick={() => navigate(`/doctor/patients/${selectedPatient.id}`)}
+                                        onClick={() => navigate(`/patients/${selectedPatient.id}`)}
                                         className="px-4 py-2 bg-blue-500 hover:bg-blue-600 text-white rounded-xl font-bold text-sm transition-all duration-300"
                                     >
                                         View Profile
@@ -312,4 +312,3 @@ const DoctorChat = () => {
 };
 
 export default DoctorChat;
-
