@@ -10,6 +10,12 @@ const MAX_SCALE_HEIGHT = 30; // Max display height in cm
 const DEFAULT_TARGET_HEIGHT = 5; // Default target in cm
 const BASELINE_HEIGHT = 5; // Standard baseline in cm
 const REP_RESET_THRESHOLD = 3; // Must go below 3cm to count next rep
+const SWING_SETTLE_MS = 120;
+const SWING_INTEGRATION_ALPHA = 0.35;
+const HEIGHT_DISAGREEMENT_TOLERANCE_CM = 4;
+const STILLNESS_RESET_MS = 280;
+const STILLNESS_GYRO_THRESHOLD = 0.08;
+const STILLNESS_HEIGHT_THRESHOLD_CM = 1.2;
 
 const GAME_STATES = {
     READY: 'READY',
@@ -22,6 +28,23 @@ function quatToPitchDeg(q) {
     const [w, x, y, z] = q;
     const sinPitch = Math.max(-1, Math.min(1, 2 * (w * y - z * x)));
     return Math.asin(sinPitch) * 180 / Math.PI;
+}
+
+function resolvePhaseAwareHeightCm(estimatorHeightCm, liveLiftHeightCm) {
+    const estimatorActive = estimatorHeightCm > 0.25;
+    const fallbackActive = liveLiftHeightCm > 0.25;
+
+    if (estimatorActive && fallbackActive) {
+        const lower = Math.min(estimatorHeightCm, liveLiftHeightCm);
+        const upper = Math.max(estimatorHeightCm, liveLiftHeightCm);
+        return Math.min(upper, lower + HEIGHT_DISAGREEMENT_TOLERANCE_CM);
+    }
+
+    if (fallbackActive) {
+        return liveLiftHeightCm;
+    }
+
+    return estimatorActive ? estimatorHeightCm : 0;
 }
 
 const GameClearance = () => {
@@ -54,6 +77,13 @@ const GameClearance = () => {
     const liftBaselinePitchRef = useRef(null);
     const liftStableSinceRef = useRef(null);
     const manualDisconnectRef = useRef(false);
+    const activeSensorNameRef = useRef(null);
+    const activeSensorMountRef = useRef(null);
+    const swingStartedAtRef = useRef(null);
+    const swingHeightFloorRef = useRef(0);
+    const swingIntegratedHeightRef = useRef(0);
+    const stillnessStartedAtRef = useRef(null);
+    const wasInSwingRef = useRef(false);
 
     // === Audio ===
     const successSoundRef = useRef(null);
@@ -70,6 +100,19 @@ const GameClearance = () => {
     };
 
     const gaugeState = getGaugeState();
+
+    const resetSwingPhaseTracking = useCallback(() => {
+        swingStartedAtRef.current = null;
+        swingHeightFloorRef.current = 0;
+        swingIntegratedHeightRef.current = 0;
+        stillnessStartedAtRef.current = null;
+        wasInSwingRef.current = false;
+    }, []);
+
+    const resetActiveSensorSelection = useCallback(() => {
+        activeSensorNameRef.current = null;
+        activeSensorMountRef.current = null;
+    }, []);
 
     const buildSessionSummary = useCallback(() => {
         const cadenceFromReps = sessionTime > 0 ? Math.round((reps / sessionTime) * 60) : 0;
@@ -137,6 +180,7 @@ const GameClearance = () => {
 
                 wsRef.current.onclose = () => {
                     setIsConnected(false);
+                    resetActiveSensorSelection();
 
                     if (manualDisconnectRef.current) {
                         return;
@@ -163,17 +207,36 @@ const GameClearance = () => {
                 wsRef.current.close();
             }
         };
-    }, [endSessionIfActive]);
+    }, [endSessionIfActive, resetActiveSensorSelection]);
 
     // === Handle Sensor Data ===
     const handleSensorData = useCallback((msg) => {
         if (msg.type !== 'DATA') return;
 
         const payload = msg.payload;
+        const now = Date.now();
         let estimatorHeightCm = 0;
+
+        const isPreferredSensor = payload?.sensor_mount === 'shank';
+        if (!activeSensorNameRef.current) {
+            activeSensorNameRef.current = payload?.name ?? null;
+            activeSensorMountRef.current = payload?.sensor_mount ?? 'unknown';
+        } else if (
+            isPreferredSensor
+            && activeSensorMountRef.current !== 'shank'
+            && payload?.name
+            && payload.name !== activeSensorNameRef.current
+        ) {
+            activeSensorNameRef.current = payload.name;
+            activeSensorMountRef.current = 'shank';
+        }
 
         if (payload.session_metrics) {
             setSessionMetrics(payload.session_metrics);
+        }
+
+        if (!payload?.name || payload.name !== activeSensorNameRef.current) {
+            return;
         }
 
         // === Use Position Z from ZUPT estimator ===
@@ -184,11 +247,10 @@ const GameClearance = () => {
 
         let liveLiftHeightCm = 0;
         const quaternion = payload.quaternion;
+        const gyroNorm = typeof payload.gyro_norm === 'number' ? payload.gyro_norm : null;
         let effectiveStance = payload.is_stance === true;
 
         if (quaternion && Array.isArray(quaternion) && quaternion.length === 4) {
-            const now = Date.now();
-            const gyroNorm = typeof payload.gyro_norm === 'number' ? payload.gyro_norm : null;
             const currentPitchDeg = quatToPitchDeg(quaternion);
             const pitchCloseToBaseline = liftBaselinePitchRef.current === null
                 || Math.abs(currentPitchDeg - liftBaselinePitchRef.current) < 3.0;
@@ -224,23 +286,57 @@ const GameClearance = () => {
             estimatorHeightCm = 0;
         }
 
-        const adjustedHeight = effectiveStance ? 0 : Math.max(estimatorHeightCm, liveLiftHeightCm);
+        const rawPhaseHeightCm = resolvePhaseAwareHeightCm(estimatorHeightCm, liveLiftHeightCm);
+        const stillnessCandidate = !effectiveStance
+            && gyroNorm !== null
+            && gyroNorm < STILLNESS_GYRO_THRESHOLD
+            && rawPhaseHeightCm < STILLNESS_HEIGHT_THRESHOLD_CM;
 
-        // Light low-pass filter: responsive both up and down.
-        // Use the best available live signal so the gauge responds from step 1.
-        setCurrentHeight(prev => {
-            if (effectiveStance) {
-                return 0;
+        if (stillnessCandidate) {
+            if (!stillnessStartedAtRef.current) {
+                stillnessStartedAtRef.current = now;
             }
-            const ALPHA = 0.6;
-            return ALPHA * adjustedHeight + (1 - ALPHA) * prev;
-        });
+
+            if (now - stillnessStartedAtRef.current >= STILLNESS_RESET_MS) {
+                effectiveStance = true;
+            }
+        } else {
+            stillnessStartedAtRef.current = null;
+        }
+
+        if (effectiveStance) {
+            resetSwingPhaseTracking();
+            setCurrentHeight(0);
+        } else {
+            if (!wasInSwingRef.current) {
+                wasInSwingRef.current = true;
+                swingStartedAtRef.current = now;
+                swingHeightFloorRef.current = rawPhaseHeightCm;
+                swingIntegratedHeightRef.current = 0;
+                stillnessStartedAtRef.current = null;
+            }
+
+            // Only accumulate lift once the phase is clearly in swing.
+            const swingAgeMs = swingStartedAtRef.current ? now - swingStartedAtRef.current : 0;
+            const settleFactor = Math.max(0, Math.min(1, swingAgeMs / SWING_SETTLE_MS));
+            swingHeightFloorRef.current = Math.min(swingHeightFloorRef.current, rawPhaseHeightCm);
+            const relativePhaseHeightCm = Math.max(0, rawPhaseHeightCm - swingHeightFloorRef.current);
+            const phaseHeightCm = relativePhaseHeightCm * settleFactor;
+
+            swingIntegratedHeightRef.current += (phaseHeightCm - swingIntegratedHeightRef.current) * SWING_INTEGRATION_ALPHA;
+
+            const integratedHeightCm = Math.max(0, Math.min(MAX_SCALE_HEIGHT, swingIntegratedHeightRef.current));
+            setCurrentHeight(prev => {
+                const alpha = integratedHeightCm >= prev ? 0.65 : 0.35;
+                return Math.max(0, Math.min(MAX_SCALE_HEIGHT, (alpha * integratedHeightCm) + ((1 - alpha) * prev)));
+            });
+        }
 
         // Update stability score from feedback if available
         if (payload.gait_metrics?.stability_score !== undefined) {
             setStabilityScore(Math.round(payload.gait_metrics.stability_score));
         }
-    }, [sensitivity]);
+    }, [resetSwingPhaseTracking, sensitivity]);
 
     // === Rep Counting Logic (State Machine) ===
     useEffect(() => {
@@ -307,10 +403,15 @@ const GameClearance = () => {
     // === Game Controls ===
     const startSession = () => {
         setGameState(GAME_STATES.PLAYING);
+        setCurrentHeight(0);
         setReps(0);
         setSessionTime(0);
         setRepState('READY');
         setSessionMetrics({});
+        resetActiveSensorSelection();
+        resetSwingPhaseTracking();
+        liftBaselinePitchRef.current = null;
+        liftStableSinceRef.current = null;
     };
 
     const pauseSession = () => {
@@ -339,6 +440,8 @@ const GameClearance = () => {
         setCurrentHeight(0);
         setRepState('READY');
         setSessionMetrics({});
+        resetActiveSensorSelection();
+        resetSwingPhaseTracking();
         liftBaselinePitchRef.current = null;
         liftStableSinceRef.current = null;
     };
