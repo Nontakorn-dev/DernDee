@@ -1,81 +1,207 @@
 # Supabase Cloud Data Layer
 
+อัปเดตตามโค้ดใน repository นี้ ณ วันที่ 2026-05-01
+
 ## Goal
 
-Replace the old Firebase-centric data path with Supabase while keeping `gateway_v2` as the single realtime gait ingestion service.
+Supabase เป็น data layer กลางของระบบสำหรับ:
 
-This repo now uses two persistence paths:
+- authentication
+- profile data
+- patient presence
+- session history
+- doctor review workflow
+- doctor-patient assignment
 
-- The web apps use `@supabase/supabase-js` with the anon key for auth, profiles, history, doctor dashboard, and review flows.
-- `gateway_v2` uses the Supabase service role to persist session summaries and per-step gait metrics after the patient app sends explicit `START_SESSION` and `END_SESSION` messages.
+หลักการสำคัญของโปรเจกต์นี้คือ:
 
-## Project-Specific Architecture
+- browser ไม่ใช่ source of truth สำหรับ gait persistence
+- `gateway_v2` เป็น service เดียวที่รู้ว่ามี gait events จริงเกิดขึ้นเมื่อไร
+- frontend มีหน้าที่ส่ง session lifecycle commands และอ่านผลที่ถูก persist แล้วกลับมาแสดง
 
-This project cannot persist walking sessions correctly from the frontend alone because raw gait events are produced inside `gateway_v2`. The adapted design is:
+## Persistence split ปัจจุบัน
 
-1. Patient logs in with Supabase Auth.
-2. Patient app opens WebSocket to `gateway_v2`.
-3. `WalkSession.jsx` sends `START_SESSION` with `patient_id` and `session_type`.
-4. `gateway_v2/main.py` creates an in-memory active session and starts collecting gait metrics.
-5. During the walk, the gateway emits live `DATA` payloads to the browser and accumulates metrics server-side.
-6. When the walk ends, the patient app sends `END_SESSION` with summary overrides from the current UI state.
-7. `gateway_v2/session_persistence.py` writes the final row into `sessions` and all step-level rows into `gait_metrics`.
-8. Patient history, latest analysis, doctor dashboard, patient detail, and doctor review pages read from Supabase using RLS-protected queries.
+ระบบนี้ใช้ 2 เส้นทาง persistence พร้อมกัน:
 
-## Delivered In This Repo
+### 1. Browser-side Supabase access
+
+ใช้ `@supabase/supabase-js` สำหรับ:
+
+- login / signup / OAuth
+- profile reads and updates
+- patient presence heartbeat
+- history reads
+- clinic dashboard and patient detail reads
+- doctor review updates
+
+### 2. Gateway-side Supabase access
+
+ใช้ service role key ใน `gateway_v2` สำหรับ:
+
+- persist completed `sessions`
+- persist `gait_metrics` รายก้าวสำหรับ `free_walk`
+- persist `sessions.details` สำหรับ game-specific summaries
+
+## Current schema
+
+table หลักที่ใช้งานจริง:
+
+- `profiles`
+- `doctor_patient_assignments`
+- `patient_presence`
+- `sessions`
+- `gait_metrics`
+
+### `sessions`
+
+เก็บข้อมูลระดับ session เช่น:
+
+- `patient_id`
+- `session_type`
+- `start_time`, `end_time`, `duration_seconds`
+- `total_steps`
+- `avg_speed_mps`, `cadence_spm`
+- `avg_step_length_m`, `avg_stride_length_m`, `avg_clearance_m`
+- `symmetry_score`
+- `status`, `review_notes`, `reviewed_by`, `reviewed_at`
+- `details` สำหรับ game-specific summary fields
+
+### `gait_metrics`
+
+เก็บข้อมูลต่อก้าวเมื่อ session type อนุญาต เช่น:
+
+- `recorded_at`
+- `side`
+- `step_index`
+- `step_length_m`, `stride_length_m`
+- `step_time_s`, `swing_time_s`, `stance_time_s`, `stride_time_s`
+- `max_clearance_m`, `speed_mps`, `symmetry_percent`
+- `push_off_velocity_mps`, `touchdown_pitch_deg`
+
+## Current migration set
+
+### `20260430000100_initial_cloud_data_layer.sql`
+
+สร้าง schema หลัก:
+
+- `profiles`
+- `doctor_patient_assignments`
+- `patient_presence`
+- `sessions`
+- `gait_metrics`
+- profile bootstrap trigger จาก `auth.users`
+- storage bucket สำหรับ profile images
+- RLS policies และ indexes ชุดแรก
+
+### `20260430000200_enable_doctor_patient_linking.sql`
+
+เพิ่มความพร้อมสำหรับ doctor workflow:
+
+- backfill `profiles` จาก auth users เดิม
+- policy สำหรับให้ doctor insert `doctor_patient_assignments`
+
+### `20260430000300_add_session_details.sql`
+
+เพิ่มคอลัมน์ `sessions.details jsonb` เพื่อเก็บข้อมูลเฉพาะเกม เช่น:
+
+- High Stepper: red line hits, target reps, target height
+- Magic Plate: center hold, time in zones, average deviation
+- Rhythm Drummer: score, best streak, target BPM
+
+## Session model by type
+
+### `free_walk`
+
+- persist `sessions`
+- persist `gait_metrics`
+- เหมาะกับ analysis เชิง gait รายก้าวและ CSV export
+
+### `high_stepper`
+### `magic_plate`
+### `rhythm_drummer`
+
+- persist `sessions`
+- persist `sessions.details`
+- ไม่ persist `gait_metrics`
+
+เหตุผลคือ game sessions ต้องการ summary เพื่อ review ระดับ session มากกว่าข้อมูลรายก้าว และการตัด per-step rows ออกช่วยลด Supabase write volume ได้มาก
+
+## RLS model
+
+แนวคิดหลักของ RLS ปัจจุบัน:
+
+- patient อ่าน/แก้ข้อมูลตัวเองได้
+- doctor อ่านข้อมูลได้เฉพาะ patient ที่ถูก assign ผ่าน `doctor_patient_assignments`
+- doctor update `sessions` ได้เฉพาะ row ของ patient ที่ตัวเองรับผิดชอบ
+- `gait_metrics` select อิงจาก session ownership/assignment ไม่ได้เปิด public
+
+## Frontend integration points
+
+ไฟล์สำคัญ:
 
 - `DernDee_Web-app/shared/supabase/client.js`
 - `DernDee_Web-app/shared/services/profileService.js`
 - `DernDee_Web-app/shared/services/sessionService.js`
 - `DernDee_Web-app/shared/context/UserAuthContext.jsx`
-- `DernDee_Web-app/apps/patient/src/components/WalkSession.jsx`
+
+บทบาทของแต่ละชิ้น:
+
+- `client.js` สร้าง browser Supabase client และ auth redirect utilities
+- `profileService.js` จัดการ profile normalization, upsert, patient presence
+- `sessionService.js` query history/dashboard/review และ map session rows เป็น UI-friendly model
+- `UserAuthContext.jsx` ถือ auth state กลางของ app ทั้ง patient และ clinic
+
+## Gateway integration points
+
+ไฟล์สำคัญ:
+
+- `gateway_v2/main.py`
 - `gateway_v2/session_persistence.py`
-- `supabase/migrations/20260430000100_initial_cloud_data_layer.sql`
 
-## Database Model
+flow ปัจจุบัน:
 
-The initial migration creates these tables:
+1. frontend ส่ง `START_SESSION`
+2. gateway เปิด active session in memory
+3. gateway broadcast realtime `DATA`
+4. frontend ส่ง `END_SESSION` พร้อม `summary` และ `details`
+5. gateway persist `sessions`
+6. gateway persist `gait_metrics` เฉพาะ session types ที่อนุญาต
 
-- `profiles`: patient/doctor identity and profile metadata.
-- `doctor_patient_assignments`: which doctor can view which patient.
-- `patient_presence`: online state for dashboard activity.
-- `sessions`: one row per completed walking session.
-- `gait_metrics`: step-level metrics linked to a session.
+## Environment files
 
-It also adds:
+### Frontend `.env`
 
-- profile bootstrap trigger from `auth.users`
-- RLS policies for patient self-access and doctor assigned-patient access
-- storage bucket and policies for profile images
-- indexes for dashboard/history queries
+จำเป็น:
 
-## Environment Files
+- `VITE_SUPABASE_URL`
+- `VITE_SUPABASE_ANON_KEY`
 
-Frontend:
+ใช้ในบาง flow:
 
-- `DernDee_Web-app/.env.example`
-- required values: `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`, `VITE_SUPABASE_PROFILE_BUCKET`
-- recommended for email auth and OAuth: `VITE_SUPABASE_AUTH_REDIRECT_URL`
-- optional local-only bypass: `VITE_SUPABASE_SKIP_EMAIL_CONFIRMATION=true` with `SUPABASE_SERVICE_ROLE_KEY` in the same local `.env`
+- `VITE_SUPABASE_PROFILE_BUCKET`
+- `VITE_SUPABASE_AUTH_REDIRECT_URL`
+- `VITE_SUPABASE_SKIP_EMAIL_CONFIRMATION`
+- `SUPABASE_SERVICE_ROLE_KEY` เฉพาะ local dev signup helper ใน Vite middleware
 
-Gateway:
+### Gateway `.env`
 
-- `gateway_v2/.env.example`
-- required values: `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`
+จำเป็น:
 
-## Deployment Checklist
+- `SUPABASE_URL`
+- `SUPABASE_SERVICE_ROLE_KEY`
 
-1. Apply the SQL migration in Supabase.
-2. Copy both `.env.example` files to real `.env` files and fill in project secrets.
-3. In Supabase Auth URL configuration, add the same login callback URL you use in `VITE_SUPABASE_AUTH_REDIRECT_URL`.
-4. For local development, use a URL that opens on the same machine that clicks the email, or a reachable LAN/public URL instead of `127.0.0.1`.
-5. Create or promote doctor users by updating `profiles.role = 'doctor'` in Supabase.
-6. Insert `doctor_patient_assignments` rows for each doctor-patient relationship.
-7. Start the web app and gateway together so the session write path is complete.
+## Deployment checklist
 
-## Notes
+1. Apply migrations ใน `supabase/migrations/` ให้ครบอย่างน้อย 001, 002, และ 003
+2. กำหนด frontend env vars ให้ถูกต้อง
+3. กำหนด gateway env vars ให้ถูกต้อง และเก็บ service role ไว้เฉพาะ gateway
+4. ตั้งค่า Supabase Auth redirect URLs ให้ตรงกับ deployment target
+5. promote doctor users โดย update `profiles.role = 'doctor'`
+6. สร้าง `doctor_patient_assignments` สำหรับคู่ doctor/patient ที่ต้องใช้งาน
+7. รัน frontend และ gateway พร้อมกันเพื่อให้ session write path สมบูรณ์
 
-- The doctor UI assumes assigned patients already exist in `doctor_patient_assignments`.
-- The patient app updates `patient_presence` from the browser heartbeat and marks itself offline on logout/unload.
-- Session writes happen in the gateway, not in the browser, so the service role must only be configured inside `gateway_v2`.
-- The local signup bypass is implemented in the Vite dev server only and is restricted to loopback requests. It is meant for local development, not public deployment.
+## Operational notes
+
+- patient presence ถูก update จาก browser heartbeat ทุก 30 วินาที
+- ถ้า `sessions.details` ยังไม่มีในฐานบาง environment, frontend query layer มี fallback ไป schema เก่า
+- local signup bypass ถูกจำกัดให้ใช้เฉพาะ loopback request ใน dev server เท่านั้น

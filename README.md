@@ -13,6 +13,8 @@
 DernDee is an end-to-end rehabilitation prototype for gait training and real-time movement analysis.
 It combines wearable BLE IMU sensors, a Python gait-analysis gateway, and a React web application for patient training, calibration, feedback, and clinician-facing review workflows.
 
+Current repository documentation now lives in `docs/README.md` and the files linked from there.
+
 The current repository centers around three main layers:
 
 - **Wearable firmware** for ESP32 IMU nodes that stream raw motion data over BLE
@@ -119,12 +121,12 @@ flowchart TD
 ```text
 .
 |-- README.md
-|-- PROJECT_SUMMARY.md
-|-- master_template.json
-|-- esp32_imu_node.ino
-|-- esp32_IMU_Ver2.ino
-|-- Avatar_DernDee/
-|-- Gamification/
+|-- docs/
+|   |-- README.md
+|   |-- system-overview.md
+|   |-- frontend-apps.md
+|   |-- realtime-gateway.md
+|   `-- supabase-cloud-data-layer.md
 |-- DernDee_Web-app/
 |   |-- package.json
 |   |-- vite.config.js
@@ -148,12 +150,9 @@ flowchart TD
 |   |           |-- styles/
 |   |           `-- ui/
 |   |-- public/
-|   `-- src/
-|       |-- firebase.js
-|       |-- auth/
-|       |-- components/
-|       |   `-- games/
-|       `-- context/
+|   |-- shared/
+|   `-- public/
+|-- Hardware/
 `-- gateway_v2/
     |-- main.py
     |-- connection.py
@@ -163,7 +162,8 @@ flowchart TD
     |-- shoe_detector.py
     |-- gait_estimator.py
     |-- feedback_engine.py
-    `-- requirements.txt
+  |-- session_persistence.py
+  `-- requirements.txt
 ```
 
 ---
