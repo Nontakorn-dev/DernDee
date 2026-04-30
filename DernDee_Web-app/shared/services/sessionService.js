@@ -1,5 +1,7 @@
 import { getSupabaseClient } from '@shared/supabase/client.js'
 
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
+
 const SESSION_COLUMNS = `
   id,
   patient_id,
@@ -151,6 +153,80 @@ async function assertDoctorAssignment(doctorId, patientId) {
   if (!patientIds.includes(patientId)) {
     throw new Error('Patient is not assigned to the current doctor')
   }
+}
+
+async function fetchDoctorPatientAssignment(doctorId, patientId) {
+  const supabase = getSupabaseClient()
+  const { data, error } = await supabase
+    .from('doctor_patient_assignments')
+    .select('doctor_id, patient_id')
+    .eq('doctor_id', doctorId)
+    .eq('patient_id', patientId)
+    .maybeSingle()
+
+  if (error) {
+    throw error
+  }
+
+  return data
+}
+
+export async function addDoctorPatientAssignment(doctorId, rawPatientId) {
+  const patientId = String(rawPatientId || '').trim()
+
+  if (!doctorId) {
+    throw new Error('Doctor account is not available yet')
+  }
+
+  if (!patientId) {
+    throw new Error('Enter a patient user ID before adding a patient')
+  }
+
+  if (!UUID_PATTERN.test(patientId)) {
+    throw new Error('Enter the full patient user ID in UUID format')
+  }
+
+  if (patientId === doctorId) {
+    throw new Error('Doctor and patient IDs must be different')
+  }
+
+  const supabase = getSupabaseClient()
+  const existingAssignment = await fetchDoctorPatientAssignment(doctorId, patientId)
+
+  if (existingAssignment) {
+    return existingAssignment
+  }
+
+  const { data, error } = await supabase
+    .from('doctor_patient_assignments')
+    .insert({
+      doctor_id: doctorId,
+      patient_id: patientId,
+      notes: 'Added from doctor dashboard',
+    })
+    .select('doctor_id, patient_id')
+    .single()
+
+  if (error) {
+    if (error.code === '23503') {
+      throw new Error('Patient ID was not found. Ask the patient to sign in once and verify the full user ID.')
+    }
+
+    if (error.code === '42501') {
+      throw new Error('Doctor assignments are not enabled in Supabase yet. Apply the latest migration and try again.')
+    }
+
+    if (error.code === '23505') {
+      const duplicateAssignment = await fetchDoctorPatientAssignment(doctorId, patientId)
+      if (duplicateAssignment) {
+        return duplicateAssignment
+      }
+    }
+
+    throw error
+  }
+
+  return data
 }
 
 export async function fetchPatientHistorySessions(patientId) {

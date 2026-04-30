@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ArrowLeft } from 'lucide-react';
+import { ArrowLeft, Copy, Check } from 'lucide-react';
 import { useUserAuth } from '@shared/context/UserAuthContext.jsx';
 import { updateUserProfile, uploadProfileImage } from '@shared/services/profileService.js';
 import './Profile.css';
@@ -16,6 +16,7 @@ function Profile() {
     const [saving, setSaving] = useState(false);
     const [error, setError] = useState('');
     const [success, setSuccess] = useState('');
+    const [copiedPatientId, setCopiedPatientId] = useState(false);
 
     // Initialize formData with complete structure
     const [formData, setFormData] = useState({
@@ -224,6 +225,35 @@ function Profile() {
         return null;
     };
 
+    const patientUserId = user?.uid || userProfile?.id || '';
+
+    const handleCopyPatientId = async () => {
+        if (!patientUserId) {
+            return;
+        }
+
+        try {
+            if (navigator.clipboard?.writeText) {
+                await navigator.clipboard.writeText(patientUserId);
+            } else {
+                const temporaryInput = document.createElement('textarea');
+                temporaryInput.value = patientUserId;
+                temporaryInput.setAttribute('readonly', '');
+                temporaryInput.style.position = 'absolute';
+                temporaryInput.style.left = '-9999px';
+                document.body.appendChild(temporaryInput);
+                temporaryInput.select();
+                document.execCommand('copy');
+                document.body.removeChild(temporaryInput);
+            }
+
+            setCopiedPatientId(true);
+            window.setTimeout(() => setCopiedPatientId(false), 2000);
+        } catch (copyError) {
+            console.error('Failed to copy patient ID:', copyError);
+        }
+    };
+
     if (loading) {
         return (
             <div className="min-h-screen bg-gradient-to-b from-blue-50 via-blue-100 to-blue-200 flex items-center justify-center">
@@ -333,6 +363,20 @@ function Profile() {
                         />
                         <h2 className="text-xl sm:text-2xl md:text-3xl lg:text-4xl font-bold text-gray-800 mb-2">{formData.displayName || 'User Name'}</h2>
                         <p className="text-base sm:text-lg md:text-xl text-gray-700">{formData.email}</p>
+                        <div className="mt-4 w-full max-w-2xl rounded-2xl bg-white/80 px-4 py-4 text-left shadow-lg ring-1 ring-blue-100 backdrop-blur">
+                            <p className="text-[11px] font-bold uppercase tracking-[0.2em] text-blue-600 sm:text-xs">Patient User ID</p>
+                            <div className="mt-3 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                                <p className="break-all font-mono text-sm text-gray-800 sm:text-base">{patientUserId || '-'}</p>
+                                <button
+                                    type="button"
+                                    onClick={handleCopyPatientId}
+                                    className="inline-flex w-fit items-center gap-2 rounded-full border border-blue-200 bg-white px-4 py-2 text-sm font-semibold text-blue-700 transition-colors hover:bg-blue-50"
+                                >
+                                    {copiedPatientId ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
+                                    <span>{copiedPatientId ? 'Copied' : 'Copy ID'}</span>
+                                </button>
+                            </div>
+                        </div>
 
                         {/* Edit/Save Buttons */}
                         <div className="mt-4 flex gap-3">
