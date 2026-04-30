@@ -1,5 +1,4 @@
 import math
-import time
 
 # MPU9250 Scales (Optimized for Gait Analysis)
 # ⚠️ MUST MATCH ESP32 FIRMWARE SETTINGS!

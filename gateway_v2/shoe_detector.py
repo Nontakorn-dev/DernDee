@@ -16,7 +16,6 @@ Architecture:
 import numpy as np
 from collections import deque
 from scipy import signal
-from scipy.signal import find_peaks
 
 
 class CWTWalkingDetector:

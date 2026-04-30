@@ -50,7 +50,7 @@ const TherapySelect = () => {
     };
 
     const openGaitDashboard = () => {
-        window.location.assign('/gait-dashboard.html');
+        window.location.assign('/dashboard_Therapy/gait-dashboard.html');
     };
 
     return (

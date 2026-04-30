@@ -11,8 +11,6 @@ Simplified from v1.0:
 
 import asyncio
 import json
-import time
-from pathlib import Path
 import websockets
 import numpy as np
 from connection import MultiBLEManager
@@ -22,7 +20,6 @@ from shoe_detector import CWTWalkingDetector  # [v2.0] CWT-based
 from gait_estimator import ZUPTGaitEstimator, DualFootAnalyzer  # [v2.0] ZUPT-based
 from calibration import CalibrationManager
 from feedback_engine import FeedbackEngine
-from sample_export import LiveSampleExporter
 from shank_event_detector_prototype import ShankEventDetectorComparison
 
 # ==== Global State ====
@@ -35,7 +32,6 @@ prototype_comparators = {}  # {Name: ShankEventDetectorComparison}
 dual_foot_analyzer = DualFootAnalyzer()
 calibration_manager = CalibrationManager()
 feedback_engine = FeedbackEngine()
-sample_exporter = LiveSampleExporter(Path(__file__).resolve().parent / "recordings")
 
 # Tracking
 last_timestamps = {}  # {sender_name: timestamp_ms}
@@ -120,7 +116,6 @@ async def ws_handler(websocket):
     """WebSocket handler for client connections."""
     connected_clients.add(websocket)
     print(f"📱 WebSocket client connected (Total: {len(connected_clients)})")
-    await websocket.send(json.dumps({"type": "RECORDING_STATUS", "payload": sample_exporter.get_status()}))
     
     try:
         async for message in websocket:
@@ -133,16 +128,6 @@ async def ws_handler(websocket):
                 reset_runtime_state()
                 print("🔄 All systems reset")
                 await broadcast({"type": "SYSTEM_RESET"})
-
-            elif message == "START_RECORD":
-                status = sample_exporter.start()
-                print(f"🎙️ Sample export started: {status.get('session_dir')}")
-                await broadcast({"type": "RECORDING_STATUS", "payload": status})
-
-            elif message == "STOP_RECORD":
-                status = sample_exporter.stop()
-                print(f"🧾 Sample export stopped: {status.get('session_dir')}")
-                await broadcast({"type": "RECORDING_STATUS", "payload": status})
                 
     except websockets.exceptions.ConnectionClosed:
         print("📱 WebSocket client disconnected")
@@ -279,18 +264,6 @@ def data_handler(sender_name, data):
     
     accel_scale = calibration_manager.get_accel_scale(sender_name)
     accel = accel * accel_scale
-
-    sample_exporter.record_sample(
-        sensor_name=sender_name,
-        side=side,
-        sensor_mount=sensor_mount,
-        timestamp_ms=current_ts,
-        accel=accel,
-        gyro=gyro,
-        raw_accel=raw["raw_accel"],
-        raw_gyro=raw["raw_gyro"],
-        dt_sec=dt_sec,
-    )
 
     prototype_compare = None
     if sensor_mount == "shank":

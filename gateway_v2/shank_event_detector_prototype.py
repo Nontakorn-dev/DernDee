@@ -1,5 +1,5 @@
 """
-Prototype comparison for shank-mounted gait event detection.
+Live comparison for shank-mounted gait event detection.
 
 This file does NOT modify the production gateway pipeline. It gives us a
 side-by-side sandbox to compare:
@@ -14,23 +14,13 @@ Assumptions:
 - Samples are already remapped into the gateway body frame:
   X = forward, Y = left, Z = up
 - For the shank prototype, sagittal rotation is approximated by gyro Y.
-
-Example:
-    python3 shank_event_detector_prototype.py \
-        --input samples.csv \
-        --side L \
-        --event-only
 """
 
 from __future__ import annotations
 
-import argparse
-import csv
-import json
 from collections import deque
 from dataclasses import dataclass
-from pathlib import Path
-from typing import Dict, Iterable, Iterator, List, Optional
+from typing import Dict, Optional
 
 import numpy as np
 
@@ -324,7 +314,7 @@ class ShankEventDetectorComparison:
         self.norm_detector = NormBasedShankDetectorPrototype()
         self.fsm_detector = SagittalGyroFSMPrototype(side=side, sagittal_sign=sagittal_sign)
 
-    def update(self, accel: List[float], gyro: List[float], timestamp_ms: float) -> Dict[str, object]:
+    def update(self, accel: list[float], gyro: list[float], timestamp_ms: float) -> Dict[str, object]:
         accel_np = np.asarray(accel, dtype=float)
         gyro_np = np.asarray(gyro, dtype=float)
         norm_result = self.norm_detector.update(accel_np, gyro_np, timestamp_ms)
@@ -334,128 +324,3 @@ class ShankEventDetectorComparison:
             "norm": norm_result,
             "fsm": fsm_result,
         }
-
-
-def _read_csv_samples(path: Path) -> Iterator[Dict[str, float]]:
-    with path.open("r", newline="") as handle:
-        reader = csv.DictReader(handle)
-        for row in reader:
-            yield {
-                "timestamp_ms": float(row.get("timestamp_ms", row.get("timestamp", 0.0))),
-                "ax": float(row["ax"]),
-                "ay": float(row["ay"]),
-                "az": float(row["az"]),
-                "gx": float(row["gx"]),
-                "gy": float(row["gy"]),
-                "gz": float(row["gz"]),
-            }
-
-
-def _read_jsonl_samples(path: Path) -> Iterator[Dict[str, float]]:
-    with path.open("r") as handle:
-        for line in handle:
-            if not line.strip():
-                continue
-            obj = json.loads(line)
-            accel = obj.get("accel") or obj.get("payload", {}).get("accel")
-            gyro = obj.get("gyro") or obj.get("payload", {}).get("gyro")
-            timestamp_ms = obj.get("timestamp_ms", obj.get("timestamp"))
-            if accel is None or gyro is None or timestamp_ms is None:
-                continue
-            yield {
-                "timestamp_ms": float(timestamp_ms),
-                "ax": float(accel[0]),
-                "ay": float(accel[1]),
-                "az": float(accel[2]),
-                "gx": float(gyro[0]),
-                "gy": float(gyro[1]),
-                "gz": float(gyro[2]),
-            }
-
-
-def load_samples(path: Path) -> Iterator[Dict[str, float]]:
-    suffix = path.suffix.lower()
-    if suffix == ".csv":
-        return _read_csv_samples(path)
-    if suffix in {".jsonl", ".json"}:
-        return _read_jsonl_samples(path)
-    raise ValueError(f"Unsupported input format: {suffix}")
-
-
-def _format_event(label: str, result: DetectorResult) -> str:
-    event = result.event or "-"
-    return f"{label}: phase={result.phase:<15} event={event:<12}"
-
-
-def run_replay(
-    samples: Iterable[Dict[str, float]],
-    side: str = "L",
-    sagittal_sign: Optional[float] = None,
-    event_only: bool = False,
-    print_every: int = 50,
-) -> None:
-    comparator = ShankEventDetectorComparison(side=side, sagittal_sign=sagittal_sign)
-
-    for index, sample in enumerate(samples, start=1):
-        accel = [sample["ax"], sample["ay"], sample["az"]]
-        gyro = [sample["gx"], sample["gy"], sample["gz"]]
-        result = comparator.update(accel, gyro, sample["timestamp_ms"])
-
-        norm_result: DetectorResult = result["norm"]
-        fsm_result: DetectorResult = result["fsm"]
-        should_print = bool(norm_result.event or fsm_result.event)
-        if not event_only and index % max(1, print_every) == 0:
-            should_print = True
-
-        if should_print:
-            print(
-                f"t={sample['timestamp_ms']:.0f} | "
-                f"{_format_event('norm', norm_result)} | "
-                f"{_format_event('fsm', fsm_result)} | "
-                f"gyro_norm={norm_result.debug['gyro_norm']:.2f} | "
-                f"sag={fsm_result.debug['sagittal_gyro']:.2f} | "
-                f"jerk={fsm_result.debug['jerk_norm']:.2f}"
-            )
-
-
-def build_arg_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(
-        description="Compare gyro-norm phase detection vs sagittal-gyro FSM for shank IMUs."
-    )
-    parser.add_argument("--input", required=True, help="CSV or JSONL file with remapped IMU samples.")
-    parser.add_argument("--side", default="L", choices=["L", "R"], help="Sensor side for sagittal sign defaults.")
-    parser.add_argument(
-        "--sagittal-sign",
-        type=float,
-        default=None,
-        help="Override sign applied to gyro Y before FSM logic (default: auto from side).",
-    )
-    parser.add_argument(
-        "--event-only",
-        action="store_true",
-        help="Only print when either detector emits TOE_OFF or HEEL_STRIKE.",
-    )
-    parser.add_argument(
-        "--print-every",
-        type=int,
-        default=50,
-        help="When not event-only, print every N samples.",
-    )
-    return parser
-
-
-def main() -> None:
-    parser = build_arg_parser()
-    args = parser.parse_args()
-    samples = load_samples(Path(args.input))
-    run_replay(
-        samples=samples,
-        side=args.side,
-        sagittal_sign=args.sagittal_sign,
-        event_only=args.event_only,
-        print_every=args.print_every,
-    )
-
-
-if __name__ == "__main__":
-    main()

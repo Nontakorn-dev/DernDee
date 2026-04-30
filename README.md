@@ -24,7 +24,6 @@ The system currently supports these main usage paths:
 - **Free Walk therapy** with realtime gait metrics and avatar-style coaching
 - **Rehab games** including High Stepper, Magic Plate, and Rhythm Drummer
 - **Live gait dashboard** for signal inspection and parameter monitoring
-- **Sample recording/export** for offline replay and analysis
 
 > DernDee is a research and rehabilitation prototype. It is not a certified medical device and should not be used as a substitute for professional clinical judgment.
 
@@ -52,10 +51,8 @@ The system currently supports these main usage paths:
   - **Magic Plate** for balance control using quaternion-derived tilt
   - **Rhythm Drummer** for cadence and timing practice against a target beat
 
-- **Live dashboard and recording tools**
+- **Live dashboard tools**
   - Secondary gait dashboard entry served by Vite for signal-level monitoring
-  - Realtime sample export into CSV and JSONL for offline replay
-  - Additional standalone HTML prototypes under `gateway_v2/web/`
 
 - **Doctor workflow prototype**
   - Doctor dashboard, patient detail, review screen, and chat UI
@@ -90,7 +87,6 @@ flowchart TD
     N --> S[History and analysis screens]
 
     M --> T[Gait Dashboard]
-    M --> U[Optional sample export recording]
 ```
 
 ---
@@ -105,7 +101,6 @@ flowchart TD
 | Magic Plate | Quaternion stream | Roll/pitch balance cursor, zone statistics, average deviation |
 | Rhythm Drummer | Step timing against BPM target | Score, streak, cadence estimate, timing feedback |
 | Gait Dashboard | Raw accel and gyro samples | Live charts, detected gait events, derived gait parameters |
-| Recording export | Realtime processed stream | Per-sensor CSV and JSONL files for replay and analysis |
 
 ### Therapy Modes
 
@@ -134,7 +129,13 @@ flowchart TD
 |   |-- package.json
 |   |-- vite.config.js
 |   |-- index.html
-|   |-- gait-dashboard.html
+|   |-- dashboard_Therapy/
+|   |   |-- gait-dashboard.html
+|   |   |-- main.js
+|   |   |-- data/
+|   |   |-- dsp/
+|   |   |-- styles/
+|   |   `-- ui/
 |   |-- public/
 |   `-- src/
 |       |-- main.jsx
@@ -144,8 +145,7 @@ flowchart TD
 |       |   |-- doctor/
 |       |   `-- games/
 |       |-- context/
-|       |-- data/
-|       `-- gaitDashboard/
+|       `-- data/
 `-- gateway_v2/
     |-- main.py
     |-- connection.py
@@ -155,11 +155,7 @@ flowchart TD
     |-- shoe_detector.py
     |-- gait_estimator.py
     |-- feedback_engine.py
-    |-- sample_export.py
-    |-- requirements.txt
-    |-- web/
-    |-- recordings/
-    `-- _archive/
+    `-- requirements.txt
 ```
 
 ---
@@ -172,8 +168,7 @@ flowchart TD
 | Realtime Gateway | Python, asyncio, websockets, bleak, NumPy, SciPy |
 | Gait Analytics | CWT walking detection, Madgwick AHRS, ZUPT gait estimation, dual-foot session analysis |
 | Firmware | ESP32, Arduino C++, BLE, MPU9250-style IMU register access |
-| Visualization | Custom React dashboards, browser-based rehab game UIs, standalone HTML monitoring pages |
-| Data Export | CSV, JSONL, recorded session folders under `gateway_v2/recordings/` |
+| Visualization | Custom React dashboards and browser-based rehab game UIs |
 
 ---
 
@@ -215,7 +210,7 @@ The frontend runs at:
 ### 4. Open the application
 
 - Patient app: `http://localhost:5174`
-- Gait dashboard: `http://localhost:5174/gait-dashboard.html`
+- Gait dashboard: `http://localhost:5174/dashboard_Therapy/gait-dashboard.html`
 
 ### 5. Power on compatible IMU nodes
 
@@ -283,8 +278,6 @@ Current notes:
 | --- | --- |
 | `CALIBRATE` | Start static calibration flow |
 | `RESET` | Reset runtime detector and estimator state |
-| `START_RECORD` | Start recording live samples to disk |
-| `STOP_RECORD` | Stop recording and write session metadata |
 
 ### Server Events
 
@@ -294,7 +287,6 @@ Current notes:
 | `CALIBRATION_DONE` | Calibration completed successfully |
 | `CALIBRATION_FAILED` | Calibration failed, usually due to motion or instability |
 | `SYSTEM_RESET` | Runtime state has been reset |
-| `RECORDING_STATUS` | Recording session state and output paths |
 | `DATA` | Main realtime payload used by the web app and dashboard |
 
 ### Important `DATA` Payload Fields
@@ -324,7 +316,6 @@ Current notes:
 7. Start a Free Walk session or one of the rehab games.
 8. Receive realtime metrics and therapist-style feedback.
 9. Open the gait dashboard for live signal inspection if needed.
-10. Optionally record raw and processed data for offline analysis.
 
 ---
 
@@ -335,7 +326,6 @@ Current notes:
 - History and analysis screens try to read from `walkSessions`, but currently fall back to mock data when no persisted session data exists.
 - Doctor pages are still prototype-grade and depend heavily on mock datasets.
 - Before public deployment, replace hardcoded local URLs and review Firebase project configuration carefully.
-- If you distribute firmware and recordings publicly, consider Git LFS or a separate artifact storage strategy for large binary files.
 
 ---
 
@@ -346,7 +336,7 @@ Current repo status at a high level:
 - Realtime gateway, calibration, gait estimation, and game input loops are implemented
 - Patient-facing web flows for login, therapy selection, calibration, and sessions are available
 - Doctor and telemedicine experiences are present as prototypes and still need backend completion
-- Legacy and experimental files remain in the repository for reference under `_archive/`, `gateway_v2/web/`, and older firmware files
+- Older firmware files remain in the repository for reference
 
 ---
 

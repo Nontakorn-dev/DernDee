@@ -5,10 +5,5 @@ DernDee_Web-app/node_modules/
 # Ignore local environments
 .venv/
 
-# Ignore session recordings
-gateway_v2/recordings/
-*.csv
-*.jsonl
-
 # Ignore Mac OS files
 .DS_Store
