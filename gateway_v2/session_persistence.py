@@ -31,6 +31,13 @@ def _is_missing_column_error(error: Exception, column_name: str) -> bool:
     return normalized_column in message and ('column' in message or 'schema cache' in message or 'pgrst' in message)
 
 
+SUMMARY_ONLY_SESSION_TYPES = {
+    'high_stepper',
+    'magic_plate',
+    'rhythm_drummer',
+}
+
+
 class SupabaseSessionRepository:
     def __init__(self) -> None:
         load_dotenv(Path(__file__).with_name('.env'))
@@ -139,8 +146,14 @@ class SessionPersistenceManager:
         )
         return self.active_session
 
+    def _should_persist_gait_metrics(self, session_type: str | None) -> bool:
+        return session_type not in SUMMARY_ONLY_SESSION_TYPES
+
     def register_gait_metric(self, side: str, gait_metrics: dict[str, Any], timestamp_ms: int | float | None) -> None:
         if not self.active_session or not gait_metrics:
+            return
+
+        if not self._should_persist_gait_metrics(self.active_session.session_type):
             return
 
         step_index = len(self.active_session.gait_metrics_rows) + 1
@@ -198,6 +211,10 @@ class SessionPersistenceManager:
         if game_label and 'game_label' not in details_payload:
             details_payload['game_label'] = game_label
 
+        gait_metrics_rows = active_session.gait_metrics_rows
+        if not self._should_persist_gait_metrics(active_session.session_type):
+            gait_metrics_rows = []
+
         session_row = {
             'patient_id': active_session.patient_id,
             'gateway_session_id': active_session.gateway_session_id,
@@ -216,11 +233,11 @@ class SessionPersistenceManager:
             'details': details_payload,
         }
 
-        session_id = self.repository.save_session(session_row, active_session.gait_metrics_rows)
+        session_id = self.repository.save_session(session_row, gait_metrics_rows)
 
         return {
             'session_id': session_id,
             'gateway_session_id': active_session.gateway_session_id,
-            'saved_metrics_count': len(active_session.gait_metrics_rows),
+            'saved_metrics_count': len(gait_metrics_rows),
             'session_row': session_row,
         }
