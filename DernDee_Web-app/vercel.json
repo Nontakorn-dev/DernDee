@@ -1,0 +1,16 @@
+{
+  "rewrites": [
+    {
+      "source": "/clinic/gait-dashboard/:path*",
+      "destination": "/clinic/gait-dashboard/index.html"
+    },
+    {
+      "source": "/clinic/:path*",
+      "destination": "/clinic/index.html"
+    },
+    {
+      "source": "/:path*",
+      "destination": "/index.html"
+    }
+  ]
+}

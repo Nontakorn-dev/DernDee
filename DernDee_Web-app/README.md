@@ -114,35 +114,36 @@ npm run dev
 
 ### Project Structure
 ```
-clinic/
-├── index.html                  # Clinic React entry for clinician dashboard
-└── gait-dashboard/
-    ├── index.html              # Live gait visualization entry
-    ├── main.js
-    ├── data/
-    ├── dsp/
-    ├── styles/
-    └── ui/
+apps/
+├── patient/
+│   ├── index.html              # Patient React entry
+│   └── src/
+│       ├── main.jsx            # Patient app route entry
+│       └── components/         # Patient pages and games
+└── clinic/
+    ├── index.html              # Clinic React entry
+    ├── src/
+    │   ├── main.jsx            # Clinic app route entry
+    │   ├── components/         # Doctor dashboard screens
+    │   └── data/               # Clinic mock data, to be replaced by Supabase
+    └── gait-dashboard/
+        ├── index.html          # Live gait visualization entry
+        ├── main.js
+        ├── data/
+        ├── dsp/
+        ├── styles/
+        └── ui/
 
 src/
-├── apps/
-│   ├── patient/
-│   │   └── main.jsx            # Patient app route entry
-│   └── clinic/
-│       ├── main.jsx            # Clinic app route entry
-│       ├── components/         # Doctor dashboard screens
-│       └── data/               # Clinic mock data, to be replaced by Supabase
-├── components/                 # Patient pages, games, and shared legacy screens
-│   ├── Login.jsx
-│   ├── Register.jsx
-│   ├── Home.jsx
-│   └── games/
+├── assets/                     # Shared images, avatars, and voice assets
 ├── context/
-│   └── UserAuthContext.jsx
+│   └── UserAuthContext.jsx     # Shared auth/session context
 ├── auth/
-│   └── ProtectedRoute.jsx
-├── firebase.js
-└── index.css
+│   └── ProtectedRoute.jsx      # Shared route guard
+├── firebase.js                 # Shared Firebase bootstrap
+└── index.css                   # Shared global styles
+
+vercel.json                     # Production route rewrites for BrowserRouter apps
 ```
 
 ### Key Features

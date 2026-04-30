@@ -128,25 +128,27 @@ flowchart TD
 |-- DernDee_Web-app/
 |   |-- package.json
 |   |-- vite.config.js
-|   |-- index.html
-|   |-- clinic/
-|   |   |-- index.html
-|   |   `-- gait-dashboard/
+|   |-- vercel.json
+|   |-- apps/
+|   |   |-- patient/
+|   |   |   |-- index.html
+|   |   |   `-- src/
+|   |   |       `-- main.jsx
+|   |   `-- clinic/
 |   |       |-- index.html
-|   |       |-- main.js
-|   |       |-- data/
-|   |       |-- dsp/
-|   |       |-- styles/
-|   |       `-- ui/
+|   |       |-- src/
+|   |       |   |-- main.jsx
+|   |       |   |-- components/
+|   |       |   `-- data/
+|   |       `-- gait-dashboard/
+|   |           |-- index.html
+|   |           |-- main.js
+|   |           |-- data/
+|   |           |-- dsp/
+|   |           |-- styles/
+|   |           `-- ui/
 |   |-- public/
 |   `-- src/
-|       |-- apps/
-|       |   |-- patient/
-|       |   |   `-- main.jsx
-|       |   `-- clinic/
-|       |       |-- main.jsx
-|       |       |-- components/
-|       |       `-- data/
 |       |-- firebase.js
 |       |-- auth/
 |       |-- components/
