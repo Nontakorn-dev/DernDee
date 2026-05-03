@@ -14,6 +14,7 @@ import DeviceConnection from '@patient/components/DeviceConnection.jsx'
 import Telemedicine from '@patient/components/Telemedicine.jsx'
 import History from '@patient/components/History.jsx'
 import TherapySelect from '@patient/components/TherapySelect.jsx'
+import GaitDashboard from '@patient/components/GaitDashboard.jsx'
 import GameClearance from '@patient/components/games/GameClearance.jsx'
 import GameBalance from '@patient/components/games/GameBalance.jsx'
 import GameRhythm from '@patient/components/games/GameRhythm.jsx'
@@ -82,6 +83,10 @@ const router = createBrowserRouter([
   {
     path: "/history",
     element: <ProtectedRoute><History /></ProtectedRoute>
+  },
+  {
+    path: "/gait-dashboard",
+    element: <ProtectedRoute><GaitDashboard /></ProtectedRoute>
   },
   {
     path: "/game/clearance",

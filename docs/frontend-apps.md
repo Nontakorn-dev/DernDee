@@ -159,12 +159,17 @@ clinic app ใช้ `basename = '/clinic'` และมี doctor role guard �
 
 ## 7. Gait Dashboard
 
-dashboard อยู่ที่ `apps/clinic/gait-dashboard/` และเป็นอีก entry point ที่แยกจาก React apps หลัก
+dashboard logic หลักอยู่ที่ `apps/clinic/gait-dashboard/app.js`
+
+ตอนนี้มี 2 ทางในการ mount dashboard ตัวเดียวกัน:
+
+- patient route ` /gait-dashboard ` ผ่าน `apps/patient/src/components/GaitDashboard.jsx` เพื่อให้ใช้ Browser BLE session เดียวกับ patient app ได้โดยไม่ต้องข้าม document
+- standalone clinic entry `apps/clinic/gait-dashboard/` สำหรับเปิด dashboard แบบแยกหน้าโดยตรง
 
 หน้าที่หลัก:
 
 - แสดง signal-level view ของ raw/processed gait data
-- ใช้ gateway เป็น realtime source เดียวกับ patient app
+- ใช้ realtime transport เดียวกับ patient app และสามารถ reuse Browser BLE connection เดิมได้เมื่อ dashboard ถูกเปิดจาก patient app route
 - ไม่ใช่ source of truth สำหรับ persistence; persistence ยังอยู่ที่ Supabase + gateway
 
 ## 8. Frontend data presentation model

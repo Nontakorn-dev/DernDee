@@ -4,6 +4,7 @@ import { GaitProcessor } from '@shared/gait/gaitProcessor.js';
 import { RealtimeStepDetector } from '@shared/gait/realtimeStepDetector.js';
 import { GaitSessionAnalyzer } from '@shared/gait/sessionAnalyzer.js';
 import { useUserAuth } from '@shared/context/UserAuthContext.jsx';
+import { createRealtimeConnection } from '@shared/gateway/realtimeTransport.js';
 import { usePersistedGatewaySession } from '@shared/hooks/usePersistedGatewaySession.js';
 import { ArrowLeft, Settings, Music, Play, Pause, Square, X, Volume2, VolumeX, Activity } from 'lucide-react';
 import derndeeLogo from '@shared/assets/images/derndee-logo.png';
@@ -381,7 +382,7 @@ const GameRhythm = () => {
 
         const connectWebSocket = () => {
             try {
-                wsRef.current = new WebSocket(`ws://${window.location.hostname}:8765`);
+                wsRef.current = createRealtimeConnection();
 
                 wsRef.current.onopen = () => {
                     console.log('🎵 Rhythm Game connected to WebSocket');

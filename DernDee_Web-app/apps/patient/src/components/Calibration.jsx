@@ -3,9 +3,7 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import { ArrowLeft, AlertCircle } from 'lucide-react';
 import derndeeLogo from '@shared/assets/images/derndee-logo.png';
 import devicePositionImageSrc from '@shared/assets/images/devicePositionImage.png';
-
-
-const WS_URL = `ws://${window.location.hostname}:8765`;
+import { createRealtimeConnection } from '@shared/gateway/realtimeTransport.js';
 
 const Calibration = () => {
     const navigate = useNavigate();
@@ -34,7 +32,7 @@ const Calibration = () => {
     // === WebSocket Connection ===
     useEffect(() => {
         const connectWebSocket = () => {
-            const ws = new WebSocket(WS_URL);
+            const ws = createRealtimeConnection();
             wsRef.current = ws;
             console.log("VERSION 2 ACTIVE - CUSTOM MODALS");
 

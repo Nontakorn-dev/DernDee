@@ -1,0 +1,400 @@
+import { generateWalkingData, streamDemoData } from './data/demoDataGenerator.js';
+import { GaitProcessor } from './data/gaitProcessor.js';
+import { Dashboard } from './ui/dashboard.js';
+import { ChartsManager } from './ui/charts.js';
+import {
+  TRANSPORT_MODE_GATEWAY,
+  TRANSPORT_MODE_WEB_BLUETOOTH,
+  connectBrowserBleDevice,
+  createRealtimeConnection,
+  getBrowserBleDevicesSnapshot,
+  getRealtimeTransportMode,
+  resetBrowserBleDevices,
+  setRealtimeTransportMode,
+  supportsRememberedBrowserBleDevices,
+} from '../../../shared/gateway/realtimeTransport.js';
+
+const ANALYSIS_INTERVAL_MS = 1000;
+const MIN_ANALYSIS_SAMPLES = 300;
+const DEMO_PREFILL_SAMPLES = 400;
+const DASHBOARD_BLE_SLOT = 'RIGHT_SHANK';
+
+class GatewayStreamClient {
+  constructor() {
+    this.ws = null;
+    this.connected = false;
+    this.activeSensorName = null;
+    this.activeSensorMount = null;
+    this.listeners = [];
+    this.statusListeners = [];
+  }
+
+  onData(callback) {
+    this.listeners.push(callback);
+  }
+
+  onStatus(callback) {
+    this.statusListeners.push(callback);
+  }
+
+  async connect() {
+    if (this.connected && this.ws?.readyState === WebSocket.OPEN) {
+      return;
+    }
+
+    this.disconnect();
+    this._emitStatus('connecting');
+
+    await new Promise((resolve, reject) => {
+      this.ws = createRealtimeConnection();
+
+      this.ws.onopen = () => {
+        this.connected = true;
+        this._emitStatus('connected');
+        resolve();
+      };
+
+      this.ws.onmessage = (event) => {
+        this._handleMessage(event);
+      };
+
+      this.ws.onerror = (error) => {
+        this.connected = false;
+        this._emitStatus('error');
+        reject(error);
+      };
+
+      this.ws.onclose = () => {
+        this.connected = false;
+        this.activeSensorName = null;
+        this.activeSensorMount = null;
+        this._emitStatus('disconnected');
+      };
+    });
+  }
+
+  disconnect() {
+    if (this.ws) {
+      this.ws.onopen = null;
+      this.ws.onmessage = null;
+      this.ws.onerror = null;
+      this.ws.onclose = null;
+    }
+
+    if (this.ws?.readyState === WebSocket.OPEN || this.ws?.readyState === WebSocket.CONNECTING) {
+      this.ws.close();
+    }
+
+    this.ws = null;
+    this.connected = false;
+    this.activeSensorName = null;
+    this.activeSensorMount = null;
+    this._emitStatus('disconnected');
+  }
+
+  _handleMessage(event) {
+    try {
+      const message = JSON.parse(event.data);
+      if (message.type !== 'DATA') {
+        return;
+      }
+
+      const payload = message.payload || {};
+      if (!Array.isArray(payload.raw_accel) || !Array.isArray(payload.raw_gyro)) {
+        return;
+      }
+
+      const isPreferredSensor = payload.sensor_mount === 'shank';
+      if (!this.activeSensorName) {
+        this.activeSensorName = payload.name;
+        this.activeSensorMount = payload.sensor_mount || 'unknown';
+      } else if (isPreferredSensor && this.activeSensorMount !== 'shank' && payload.name !== this.activeSensorName) {
+        this.activeSensorName = payload.name;
+        this.activeSensorMount = 'shank';
+      }
+
+      if (payload.name !== this.activeSensorName) {
+        return;
+      }
+
+      const [ax, ay, az] = payload.raw_accel;
+      const [gx, gy, gz] = payload.raw_gyro;
+
+      this.listeners.forEach((callback) => callback({
+        ax,
+        ay,
+        az,
+        gx,
+        gy,
+        gz,
+      }));
+    } catch {
+      this._emitStatus('error');
+    }
+  }
+
+  _emitStatus(status) {
+    this.statusListeners.forEach((callback) => callback(status));
+  }
+}
+
+export class GaitLabDashboardApp {
+  constructor(options = {}) {
+    this.options = {
+      teardownTransportOnDestroy: true,
+      ...options,
+    };
+
+    this.stream = new GatewayStreamClient();
+    this.processor = new GaitProcessor();
+    this.dashboard = new Dashboard();
+    this.charts = new ChartsManager();
+
+    this.mode = 'demo';
+    this.demoStream = null;
+    this.analysisTimer = null;
+    this.loadingTimer = null;
+    this.sampleCount = 0;
+  }
+
+  init() {
+    this.dashboard.init();
+    this.charts.init();
+
+    this.processor.onParams(({ params, processedData }) => {
+      if (params) {
+        this.dashboard.updateParams(params);
+      }
+      this.dashboard.updateEvents(processedData.events);
+      this.charts.update(processedData, params);
+    });
+
+    this.stream.onStatus((status) => {
+      this.dashboard.updateStatus(status);
+    });
+
+    this.stream.onData((sample) => {
+      this.processor.addSample(sample);
+      this.sampleCount += 1;
+    });
+
+    this._bindEvents();
+    this._startInitialMode();
+
+    if (this.loadingTimer) {
+      window.clearTimeout(this.loadingTimer);
+    }
+    this.loadingTimer = window.setTimeout(() => {
+      document.getElementById('loading-overlay')?.classList.add('hidden');
+      this.loadingTimer = null;
+    }, 800);
+  }
+
+  async startDemo() {
+    this.stopAll();
+    await resetBrowserBleDevices();
+    setRealtimeTransportMode(TRANSPORT_MODE_GATEWAY);
+    this.mode = 'demo';
+    this.dashboard.setMode('demo');
+    this.dashboard.updateStatus('demo');
+    this.sampleCount = 0;
+
+    const { samples } = generateWalkingData({ numStrides: 8 });
+    const prefillSamples = samples.slice(0, DEMO_PREFILL_SAMPLES);
+    prefillSamples.forEach((sample) => {
+      this.processor.addSample(sample);
+    });
+    this.sampleCount = prefillSamples.length;
+    this.processor.analyze();
+
+    this.demoStream = streamDemoData((sample) => {
+      this.processor.addSample(sample);
+      this.sampleCount += 1;
+    });
+
+    this.analysisTimer = window.setInterval(() => {
+      if (this.sampleCount >= MIN_ANALYSIS_SAMPLES) {
+        this.processor.analyze();
+      }
+    }, ANALYSIS_INTERVAL_MS);
+  }
+
+  async startLive(options = {}) {
+    const {
+      fallbackToDemo = true,
+      suppressErrorLog = false,
+      transportMode = TRANSPORT_MODE_GATEWAY,
+      pairBrowserBle = false,
+      preferKnownDevice = false,
+      pickerFallback = true,
+    } = options;
+
+    try {
+      this.stopAll();
+      if (transportMode === TRANSPORT_MODE_GATEWAY) {
+        await resetBrowserBleDevices();
+      }
+
+      setRealtimeTransportMode(transportMode);
+
+      this.mode = transportMode === TRANSPORT_MODE_WEB_BLUETOOTH ? 'browser-ble' : 'gateway';
+      this.dashboard.setMode(this.mode);
+      this.sampleCount = 0;
+
+      await this.stream.connect();
+
+      if (pairBrowserBle) {
+        if (transportMode === TRANSPORT_MODE_WEB_BLUETOOTH && this._hasConnectedDashboardSensor()) {
+          this.dashboard.updateStatus('connected');
+        } else {
+          this.dashboard.updateStatus('pairing');
+          await connectBrowserBleDevice(DASHBOARD_BLE_SLOT, {
+            preferKnownDevice,
+            pickerFallback,
+          });
+          this.dashboard.updateStatus('connected');
+        }
+      }
+
+      this.analysisTimer = window.setInterval(() => {
+        if (this.sampleCount >= MIN_ANALYSIS_SAMPLES) {
+          this.processor.analyze();
+        }
+      }, ANALYSIS_INTERVAL_MS);
+    } catch (error) {
+      if (!suppressErrorLog) {
+        console.error('Realtime stream failed:', error);
+      }
+      this.dashboard.updateStatus('error');
+
+      if (fallbackToDemo) {
+        window.setTimeout(() => {
+          void this.startDemo();
+        }, 500);
+      }
+    }
+  }
+
+  async startGatewayLive(options = {}) {
+    await this.startLive({
+      ...options,
+      transportMode: TRANSPORT_MODE_GATEWAY,
+      pairBrowserBle: false,
+    });
+  }
+
+  async startBrowserBle(options = {}) {
+    const {
+      fallbackToDemo = false,
+      suppressErrorLog = false,
+      preferKnownDevice = true,
+      pickerFallback = true,
+    } = options;
+
+    await this.startLive({
+      fallbackToDemo,
+      suppressErrorLog,
+      transportMode: TRANSPORT_MODE_WEB_BLUETOOTH,
+      pairBrowserBle: true,
+      preferKnownDevice,
+      pickerFallback,
+    });
+  }
+
+  stopAll() {
+    if (this.demoStream) {
+      this.demoStream.stop();
+      this.demoStream = null;
+    }
+
+    if (this.analysisTimer) {
+      window.clearInterval(this.analysisTimer);
+      this.analysisTimer = null;
+    }
+
+    if (this.stream.connected) {
+      this.stream.disconnect();
+    }
+
+    this.processor.reset();
+  }
+
+  destroy() {
+    this.stopAll();
+    if (this.loadingTimer) {
+      window.clearTimeout(this.loadingTimer);
+      this.loadingTimer = null;
+    }
+    if (this.options.teardownTransportOnDestroy) {
+      void resetBrowserBleDevices();
+      setRealtimeTransportMode(TRANSPORT_MODE_GATEWAY);
+    }
+    this.charts.destroy();
+  }
+
+  _startInitialMode() {
+    if (getRealtimeTransportMode() === TRANSPORT_MODE_WEB_BLUETOOTH) {
+      if (this._hasConnectedDashboardSensor()) {
+        void this.startLive({
+          fallbackToDemo: true,
+          suppressErrorLog: true,
+          transportMode: TRANSPORT_MODE_WEB_BLUETOOTH,
+          pairBrowserBle: false,
+        });
+        return;
+      }
+
+      if (supportsRememberedBrowserBleDevices()) {
+        void this.startBrowserBle({
+          fallbackToDemo: true,
+          suppressErrorLog: true,
+          preferKnownDevice: true,
+          pickerFallback: false,
+        });
+        return;
+      }
+    }
+
+    void this.startGatewayLive({ fallbackToDemo: true, suppressErrorLog: true });
+  }
+
+  _hasConnectedDashboardSensor() {
+    return getBrowserBleDevicesSnapshot().some((device) => (
+      device.positionId === DASHBOARD_BLE_SLOT && device.status === 'connected'
+    ));
+  }
+
+  _bindEvents() {
+    document.getElementById('mode-toggle')?.addEventListener('click', () => {
+      if (this.mode === 'demo') {
+        void this.startGatewayLive();
+      } else {
+        void this.startDemo();
+      }
+    });
+
+    document.getElementById('btn-connect')?.addEventListener('click', () => {
+      if (this.mode === 'gateway') {
+        void this.startDemo();
+      } else {
+        void this.startGatewayLive();
+      }
+    });
+
+    document.getElementById('btn-demo')?.addEventListener('click', () => {
+      void this.startDemo();
+    });
+
+    document.getElementById('btn-browser-ble')?.addEventListener('click', () => {
+      if (this.mode === 'browser-ble') {
+        void this.startDemo();
+      } else {
+        void this.startBrowserBle();
+      }
+    });
+  }
+}
+
+export function createGaitLabDashboardApp(options) {
+  return new GaitLabDashboardApp(options);
+}

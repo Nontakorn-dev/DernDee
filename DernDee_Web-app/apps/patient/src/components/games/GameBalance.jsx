@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { OrientationTracker } from '@shared/sensor/orientationTracker.js';
 import { useUserAuth } from '@shared/context/UserAuthContext.jsx';
+import { createRealtimeConnection } from '@shared/gateway/realtimeTransport.js';
 import { usePersistedGatewaySession } from '@shared/hooks/usePersistedGatewaySession.js';
 import { ArrowLeft, ArrowRight, Settings, Target, Play, Pause, Square, X, ChevronLeft, ChevronRight, ChevronUp, ChevronDown } from 'lucide-react';
 import derndeeLogo from '@shared/assets/images/derndee-logo.png';
@@ -185,7 +186,7 @@ const GameBalance = () => {
 
         const connectWebSocket = () => {
             try {
-                wsRef.current = new WebSocket(`ws://${window.location.hostname}:8765`);
+                wsRef.current = createRealtimeConnection();
 
                 wsRef.current.onopen = () => {
                     console.log('🎯 Balance Game connected to WebSocket');

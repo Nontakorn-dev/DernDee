@@ -98,6 +98,7 @@ export class Dashboard {
       disconnected: 'Disconnected',
       scanning: 'Scanning...',
       connecting: 'Connecting...',
+      pairing: 'Choose Sensor...',
       error: 'Error',
     };
 
@@ -115,7 +116,12 @@ export class Dashboard {
   setMode(mode) {
     this.currentMode = mode;
     if (this.modeLabel) {
-      this.modeLabel.textContent = mode === 'demo' ? 'Demo' : 'Live';
+      const labels = {
+        demo: 'Demo',
+        gateway: 'Gateway',
+        'browser-ble': 'Browser BLE',
+      };
+      this.modeLabel.textContent = labels[mode] || 'Live';
     }
   }
 

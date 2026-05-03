@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { OrientationTracker } from '@shared/sensor/orientationTracker.js';
 import { useUserAuth } from '@shared/context/UserAuthContext.jsx';
+import { createRealtimeConnection } from '@shared/gateway/realtimeTransport.js';
 import { usePersistedGatewaySession } from '@shared/hooks/usePersistedGatewaySession.js';
 import { ArrowLeft, ArrowRight, Settings, Pause, Play, Square, X, Volume2, VolumeX, Vibrate } from 'lucide-react';
 import derndeeLogo from '@shared/assets/images/derndee-logo.png';
@@ -171,7 +172,7 @@ const GameClearance = () => {
 
         const connectWebSocket = () => {
             try {
-                wsRef.current = new WebSocket(`ws://${window.location.hostname}:8765`);
+                wsRef.current = createRealtimeConnection();
 
                 wsRef.current.onopen = () => {
                     console.log('🎮 High Stepper connected to WebSocket');

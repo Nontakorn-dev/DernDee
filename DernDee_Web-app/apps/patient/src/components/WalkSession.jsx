@@ -5,6 +5,7 @@ import { GaitFeedbackAdvisor } from '@shared/gait/feedbackAdvisor.js';
 import { GaitProcessor } from '@shared/gait/gaitProcessor.js';
 import { GaitSessionAnalyzer } from '@shared/gait/sessionAnalyzer.js';
 import { useUserAuth } from '@shared/context/UserAuthContext.jsx';
+import { createRealtimeConnection } from '@shared/gateway/realtimeTransport.js';
 import derndeeLogo from '@shared/assets/images/derndee-logo.png';
 
 // Avatar Images (PNG)
@@ -15,7 +16,6 @@ import avatarClearance from '@shared/assets/Avatar/clearance.png';
 import avatarShortStep from '@shared/assets/Avatar/short_step.png';
 import avatarWelcome from '@shared/assets/Avatar/welcome.png';
 
-const WS_URL = `ws://${window.location.hostname}:8765`;
 const ANALYSIS_INTERVAL_MS = 1000;
 const MIN_ANALYSIS_SAMPLES = 300;
 
@@ -238,7 +238,7 @@ const WalkSession = () => {
         resetDerivedAnalysis();
 
         const connectWebSocket = () => {
-            const ws = new WebSocket(WS_URL);
+            const ws = createRealtimeConnection();
             wsRef.current = ws;
 
             ws.onopen = () => {
