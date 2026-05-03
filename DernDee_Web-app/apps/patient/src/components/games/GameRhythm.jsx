@@ -1,5 +1,8 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { GaitProcessor } from '@shared/gait/gaitProcessor.js';
+import { RealtimeStepDetector } from '@shared/gait/realtimeStepDetector.js';
+import { GaitSessionAnalyzer } from '@shared/gait/sessionAnalyzer.js';
 import { useUserAuth } from '@shared/context/UserAuthContext.jsx';
 import { usePersistedGatewaySession } from '@shared/hooks/usePersistedGatewaySession.js';
 import { ArrowLeft, Settings, Music, Play, Pause, Square, X, Volume2, VolumeX, Activity } from 'lucide-react';
@@ -15,6 +18,20 @@ const GAME_STATES = {
 
 const DEFAULT_BPM = 50;
 const TARGET_SCORE = 1000;
+const ANALYSIS_INTERVAL_MS = 1000;
+const MIN_ANALYSIS_SAMPLES = 300;
+const RHYTHM_JUDGMENT_OFFSET_MS = 200;
+
+function toSessionMetrics(summary) {
+    return {
+        total_steps: summary.totalSteps || 0,
+        cadence_spm: summary.cadenceSpm || 0,
+        avg_step_length_m: summary.avgStepLengthM || 0,
+        avg_stride_length_m: summary.avgStrideLengthM || 0,
+        avg_clearance_m: summary.avgClearanceM || 0,
+        avg_speed_mps: summary.avgSpeedMps || 0,
+    };
+}
 
 function getTimingThresholds(bpm) {
     const beatInterval = 60000 / bpm;
@@ -23,6 +40,14 @@ function getTimingThresholds(bpm) {
         good: Math.min(300, beatInterval * 0.32),
         assist: Math.min(420, beatInterval * 0.42)
     };
+}
+
+function getRhythmJudgmentOffsetMs(audioContext) {
+    const measuredLatencyMs = (((audioContext?.baseLatency ?? 0) + (audioContext?.outputLatency ?? 0)) * 1000);
+    if (Number.isFinite(measuredLatencyMs) && measuredLatencyMs > 0) {
+        return Math.max(RHYTHM_JUDGMENT_OFFSET_MS, measuredLatencyMs);
+    }
+    return RHYTHM_JUDGMENT_OFFSET_MS;
 }
 
 const GameRhythm = () => {
@@ -71,9 +96,36 @@ const GameRhythm = () => {
     const audioContextRef = useRef(null);
     const feedbackTimerRef = useRef(null);
     const manualDisconnectRef = useRef(false);
+    const analysisTimerRef = useRef(null);
+    const sampleCountRef = useRef(0);
+    const activeSensorNameRef = useRef(null);
+    const activeSensorMountRef = useRef(null);
+    const processorRef = useRef(null);
+    const stepDetectorRef = useRef(null);
+    const sessionAnalyzerRef = useRef(null);
 
     // === WebSocket ===
     const wsRef = useRef(null);
+
+    if (!processorRef.current) {
+        processorRef.current = new GaitProcessor();
+    }
+    if (!stepDetectorRef.current) {
+        stepDetectorRef.current = new RealtimeStepDetector({ sensorMount: 'shank' });
+    }
+    if (!sessionAnalyzerRef.current) {
+        sessionAnalyzerRef.current = new GaitSessionAnalyzer();
+    }
+
+    const resetDerivedAnalysis = useCallback(() => {
+        processorRef.current?.reset();
+        stepDetectorRef.current?.reset();
+        sessionAnalyzerRef.current?.reset();
+        sampleCountRef.current = 0;
+        activeSensorNameRef.current = null;
+        activeSensorMountRef.current = null;
+        setSessionMetrics({});
+    }, []);
 
     const buildSessionSummary = useCallback(() => {
         const rhythmProgress = Math.round(Math.max(0, Math.min(100, (score / TARGET_SCORE) * 100)));
@@ -146,34 +198,138 @@ const GameRhythm = () => {
     }, [soundEnabled]);
 
     // === Play Success Sound ===
-    const playSuccessSound = useCallback(() => {
+    const playSuccessSound = useCallback((targetBeatTimeMs = null) => {
         if (!soundEnabled || !audioContextRef.current) return;
 
         const ctx = audioContextRef.current;
-        const oscillator = ctx.createOscillator();
+        const startTime = targetBeatTimeMs !== null
+            ? Math.max(ctx.currentTime, ctx.currentTime + Math.max(0, (targetBeatTimeMs - performance.now()) / 1000))
+            : ctx.currentTime;
+
+        const fundamental = ctx.createOscillator();
+        const harmonic = ctx.createOscillator();
         const gainNode = ctx.createGain();
 
-        oscillator.connect(gainNode);
+        fundamental.connect(gainNode);
+        harmonic.connect(gainNode);
         gainNode.connect(ctx.destination);
 
-        oscillator.frequency.value = 523.25; // C5
-        oscillator.type = 'sine';
+        fundamental.frequency.value = 659.25; // E5
+        fundamental.type = 'triangle';
+        harmonic.frequency.value = 987.77; // B5
+        harmonic.type = 'sine';
 
-        gainNode.gain.setValueAtTime(0.4, ctx.currentTime);
-        gainNode.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.15);
+        gainNode.gain.setValueAtTime(0.001, startTime);
+        gainNode.gain.exponentialRampToValueAtTime(0.7, startTime + 0.01);
+        gainNode.gain.exponentialRampToValueAtTime(0.01, startTime + 0.18);
 
-        oscillator.start(ctx.currentTime);
-        oscillator.stop(ctx.currentTime + 0.15);
+        fundamental.start(startTime);
+        harmonic.start(startTime);
+        fundamental.stop(startTime + 0.18);
+        harmonic.stop(startTime + 0.18);
     }, [soundEnabled]);
+
+    const registerDetectedStep = useCallback((stepTimeMs = performance.now()) => {
+        const now = stepTimeMs;
+        if (now - lastStepTimeRef.current < 300) {
+            return;
+        }
+
+        lastStepTimeRef.current = now;
+        setDetectedSteps(prev => prev + 1);
+
+        stepTimesRef.current.push(now);
+        if (stepTimesRef.current.length > 10) {
+            stepTimesRef.current.shift();
+        }
+
+        const beatInterval = 60000 / bpmRef.current;
+        const lastBeatTime = nextBeatTimeRef.current - beatInterval;
+        const nextBeat = nextBeatTimeRef.current;
+        const thresholds = getTimingThresholds(bpmRef.current);
+        const errorToLast = Math.abs(now - lastBeatTime);
+        const errorToNext = Math.abs(now - nextBeat);
+        const error = Math.min(errorToLast, errorToNext);
+        const targetBeatTime = errorToLast <= errorToNext ? lastBeatTime : nextBeat;
+        const signedError = Math.round(now - targetBeatTime);
+
+        if (
+            lastJudgedBeatTimeRef.current !== null
+            && Math.abs(targetBeatTime - lastJudgedBeatTimeRef.current) < beatInterval * 0.5
+        ) {
+            return;
+        }
+
+        lastJudgedBeatTimeRef.current = targetBeatTime;
+        setLastTimingOffsetMs(signedError);
+
+        if (feedbackTimerRef.current) {
+            clearTimeout(feedbackTimerRef.current);
+        }
+
+        if (error <= thresholds.perfect) {
+            setFeedbackState('perfect');
+            setFeedbackText('Perfect!');
+            setLastTimingLabel(`ลงเท้าตรงจังหวะแล้ว (${Math.round(error)} ms)`);
+            setStreak(prev => {
+                const nextStreak = prev + 1;
+                setBestStreak(best => Math.max(best, nextStreak));
+                setScore(scorePrev => scorePrev + 30);
+                return nextStreak;
+            });
+            playSuccessSound(targetBeatTime);
+        } else if (error <= thresholds.good) {
+            setFeedbackState('good');
+            setFeedbackText('Good!');
+            setLastTimingLabel(`ตามจังหวะดีแล้ว (${Math.round(error)} ms)`);
+            setStreak(prev => {
+                const nextStreak = prev + 1;
+                setBestStreak(best => Math.max(best, nextStreak));
+                setScore(scorePrev => scorePrev + 20);
+                return nextStreak;
+            });
+        } else if (error <= thresholds.assist) {
+            setFeedbackState('close');
+            setFeedbackText('On Beat');
+            setLastTimingLabel(`ทันจังหวะแล้ว (${Math.round(error)} ms)`);
+            setStreak(prev => {
+                const nextStreak = prev + 1;
+                setBestStreak(best => Math.max(best, nextStreak));
+                setScore(scorePrev => scorePrev + 10);
+                return nextStreak;
+            });
+        } else {
+            const isEarly = signedError < 0;
+            setFeedbackState('miss');
+            setFeedbackText(isEarly ? 'เร็วไป' : 'ช้าไป');
+            setLastTimingLabel(`${isEarly ? 'เร็วไป' : 'ช้าไป'} ${Math.abs(signedError)} ms`);
+            setStreak(0);
+        }
+
+        feedbackTimerRef.current = setTimeout(() => {
+            setFeedbackState('waiting');
+            setFeedbackText('');
+        }, 500);
+
+        if (stepTimesRef.current.length >= 2) {
+            const intervals = [];
+            for (let i = 1; i < stepTimesRef.current.length; i++) {
+                intervals.push(stepTimesRef.current[i] - stepTimesRef.current[i - 1]);
+            }
+            const avgInterval = intervals.reduce((total, interval) => total + interval, 0) / intervals.length;
+            setCadence(Math.round(60000 / avgInterval));
+        }
+    }, [playSuccessSound]);
 
     // === Metronome Beat ===
     const triggerBeat = useCallback(() => {
         const now = performance.now();
         const beatInterval = 60000 / bpmRef.current;
+        const judgmentOffsetMs = getRhythmJudgmentOffsetMs(audioContextRef.current);
 
         // Schedule next beat
-        nextBeatTimeRef.current = now + beatInterval;
-        setNextBeatCountdownMs(Math.round(beatInterval));
+        nextBeatTimeRef.current = now + beatInterval + judgmentOffsetMs;
+        setNextBeatCountdownMs(Math.round(beatInterval + judgmentOffsetMs));
         setBeatProgress(0);
 
         // Visual pulse
@@ -221,6 +377,7 @@ const GameRhythm = () => {
     // === WebSocket Connection ===
     useEffect(() => {
         manualDisconnectRef.current = false;
+        resetDerivedAnalysis();
 
         const connectWebSocket = () => {
             try {
@@ -268,125 +425,102 @@ const GameRhythm = () => {
                 wsRef.current.close();
             }
         };
-    }, [endSessionIfActive]);
+    }, [endSessionIfActive, resetDerivedAnalysis]);
+
+    useEffect(() => {
+        analysisTimerRef.current = setInterval(() => {
+            if (sampleCountRef.current >= MIN_ANALYSIS_SAMPLES) {
+                processorRef.current?.analyze();
+            }
+        }, ANALYSIS_INTERVAL_MS);
+
+        return () => {
+            if (analysisTimerRef.current) {
+                clearInterval(analysisTimerRef.current);
+                analysisTimerRef.current = null;
+            }
+        };
+    }, []);
+
+    useEffect(() => {
+        const processor = processorRef.current;
+
+        const onParams = ({ params }) => {
+            if (!params || gameStateRef.current !== GAME_STATES.PLAYING) {
+                return;
+            }
+
+            sessionAnalyzerRef.current.record(params);
+            const nextSessionMetrics = toSessionMetrics(sessionAnalyzerRef.current.getSummary());
+            setSessionMetrics(nextSessionMetrics);
+        };
+
+        processor.onParams(onParams);
+        return () => {
+            processor.paramListeners = processor.paramListeners.filter((callback) => callback !== onParams);
+        };
+    }, []);
 
     // === Handle Sensor Data (Step Detection) ===
     const handleSensorData = useCallback((msg) => {
         if (msg.type !== 'DATA') return;
         if (gameStateRef.current !== GAME_STATES.PLAYING) return;
 
-        const payload = msg.payload;
-
-        if (payload.session_metrics) {
-            setSessionMetrics(payload.session_metrics);
+        const payload = msg.payload || {};
+        if (!Array.isArray(payload.raw_accel) || !Array.isArray(payload.raw_gyro)) {
+            return;
         }
 
-        // Detect step from total_steps change or step_detected flag
-        const stepDetected = payload.step_detected ||
-            (payload.gait_metrics && payload.gait_metrics.step_count > 0);
-
-        if (stepDetected && payload.step_detected) {
-            const now = performance.now();
-
-            // Debounce: ignore steps within 300ms of last step
-            if (now - lastStepTimeRef.current < 300) return;
-            lastStepTimeRef.current = now;
-            setDetectedSteps(prev => prev + 1);
-
-            // Record step time for cadence calculation
-            stepTimesRef.current.push(now);
-            // Keep only last 10 steps
-            if (stepTimesRef.current.length > 10) {
-                stepTimesRef.current.shift();
-            }
-
-            // Calculate timing error
-            const beatInterval = 60000 / bpmRef.current;
-            const lastBeatTime = nextBeatTimeRef.current - beatInterval;
-            const nextBeat = nextBeatTimeRef.current;
-            const thresholds = getTimingThresholds(bpmRef.current);
-
-            // Find closest beat
-            const errorToLast = Math.abs(now - lastBeatTime);
-            const errorToNext = Math.abs(now - nextBeat);
-            const error = Math.min(errorToLast, errorToNext);
-            const targetBeatTime = errorToLast <= errorToNext ? lastBeatTime : nextBeat;
-            const signedError = Math.round(now - targetBeatTime);
-
-            if (
-                lastJudgedBeatTimeRef.current !== null &&
-                Math.abs(targetBeatTime - lastJudgedBeatTimeRef.current) < beatInterval * 0.5
-            ) {
-                return;
-            }
-
-            lastJudgedBeatTimeRef.current = targetBeatTime;
-
-            setLastTimingOffsetMs(signedError);
-
-            if (feedbackTimerRef.current) {
-                clearTimeout(feedbackTimerRef.current);
-            }
-
-            // Determine feedback
-            if (error <= thresholds.perfect) {
-                setFeedbackState('perfect');
-                setFeedbackText('Perfect!');
-                setLastTimingLabel(`ลงเท้าตรงจังหวะแล้ว (${Math.round(error)} ms)`);
-                setStreak(prev => {
-                    const nextStreak = prev + 1;
-                    setBestStreak(best => Math.max(best, nextStreak));
-                    setScore(scorePrev => scorePrev + 30);
-                    return nextStreak;
-                });
-                playSuccessSound();
-            } else if (error <= thresholds.good) {
-                setFeedbackState('good');
-                setFeedbackText('Good!');
-                setLastTimingLabel(`ตามจังหวะดีแล้ว (${Math.round(error)} ms)`);
-                setStreak(prev => {
-                    const nextStreak = prev + 1;
-                    setBestStreak(best => Math.max(best, nextStreak));
-                    setScore(scorePrev => scorePrev + 20);
-                    return nextStreak;
-                });
-            } else if (error <= thresholds.assist) {
-                setFeedbackState('close');
-                setFeedbackText('On Beat');
-                setLastTimingLabel(`ทันจังหวะแล้ว (${Math.round(error)} ms)`);
-                setStreak(prev => {
-                    const nextStreak = prev + 1;
-                    setBestStreak(best => Math.max(best, nextStreak));
-                    setScore(scorePrev => scorePrev + 10);
-                    return nextStreak;
-                });
-            } else {
-                setFeedbackState('miss');
-                const isEarly = signedError < 0;
-                setFeedbackText(isEarly ? 'เร็วไป' : 'ช้าไป');
-                setLastTimingLabel(`${isEarly ? 'เร็วไป' : 'ช้าไป'} ${Math.abs(signedError)} ms`);
-                setStreak(0);
-            }
-
-            // Clear feedback after 500ms
-            feedbackTimerRef.current = setTimeout(() => {
-                setFeedbackState('waiting');
-                setFeedbackText('');
-            }, 500);
-
-            // Calculate cadence from step times
-            if (stepTimesRef.current.length >= 2) {
-                const times = stepTimesRef.current;
-                const intervals = [];
-                for (let i = 1; i < times.length; i++) {
-                    intervals.push(times[i] - times[i - 1]);
-                }
-                const avgInterval = intervals.reduce((a, b) => a + b, 0) / intervals.length;
-                const calculatedCadence = Math.round(60000 / avgInterval);
-                setCadence(calculatedCadence);
-            }
+        const isPreferredSensor = payload.sensor_mount === 'shank';
+        if (!activeSensorNameRef.current) {
+            activeSensorNameRef.current = payload.name ?? null;
+            activeSensorMountRef.current = payload.sensor_mount ?? 'unknown';
+            stepDetectorRef.current?.setSensorMount(activeSensorMountRef.current);
+        } else if (
+            isPreferredSensor
+            && activeSensorMountRef.current !== 'shank'
+            && payload.name
+            && payload.name !== activeSensorNameRef.current
+        ) {
+            activeSensorNameRef.current = payload.name;
+            activeSensorMountRef.current = 'shank';
+            resetDerivedAnalysis();
+            activeSensorNameRef.current = payload.name;
+            activeSensorMountRef.current = 'shank';
+            stepDetectorRef.current?.setSensorMount('shank');
         }
-    }, [playSuccessSound]);
+
+        if (!payload.name || payload.name !== activeSensorNameRef.current) {
+            return;
+        }
+
+        const [ax, ay, az] = payload.raw_accel;
+        const [gx, gy, gz] = payload.raw_gyro;
+        processorRef.current.addSample({
+            ax,
+            ay,
+            az,
+            gx,
+            gy,
+            gz,
+            timestampMs: payload.timestamp_ms,
+            side: payload.side,
+            sensorName: payload.name,
+            sensorMount: payload.sensor_mount,
+        });
+        sampleCountRef.current += 1;
+
+        const detectorResult = stepDetectorRef.current?.update({
+            gx,
+            gy,
+            gz,
+            timestampMs: payload.timestamp_ms,
+        });
+
+        if (detectorResult?.event === 'HEEL_STRIKE') {
+            registerDetectedStep(performance.now());
+        }
+    }, [registerDetectedStep, resetDerivedAnalysis]);
 
     // === Auto Complete When Score Reaches Goal ===
     useEffect(() => {
@@ -480,6 +614,7 @@ const GameRhythm = () => {
         setCadence(0);
         setDetectedSteps(0);
         setSessionMetrics({});
+        resetDerivedAnalysis();
         setNextBeatCountdownMs(Math.round(60000 / bpmRef.current));
         setBeatProgress(0);
         setTimingHint('ฟังจังหวะแล้วค่อยลงเท้า');
@@ -519,7 +654,7 @@ const GameRhythm = () => {
         stopGuideTimer();
     };
 
-    const resetSession = () => {
+    const resetSession = useCallback(() => {
         setGameState(GAME_STATES.READY);
         gameStateRef.current = GAME_STATES.READY;
         setSessionTime(0);
@@ -530,6 +665,7 @@ const GameRhythm = () => {
         setCadence(0);
         setDetectedSteps(0);
         setSessionMetrics({});
+        resetDerivedAnalysis();
         setNextBeatCountdownMs(0);
         setBeatProgress(0);
         setTimingHint('กด Start เพื่อเริ่ม');
@@ -547,7 +683,7 @@ const GameRhythm = () => {
             clearTimeout(feedbackTimerRef.current);
             feedbackTimerRef.current = null;
         }
-    };
+    }, [resetDerivedAnalysis, stopGuideTimer]);
 
     // === Format Time ===
     const formatTime = (seconds) => {

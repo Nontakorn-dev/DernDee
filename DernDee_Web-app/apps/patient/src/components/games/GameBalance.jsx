@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { OrientationTracker } from '@shared/sensor/orientationTracker.js';
 import { useUserAuth } from '@shared/context/UserAuthContext.jsx';
 import { usePersistedGatewaySession } from '@shared/hooks/usePersistedGatewaySession.js';
 import { ArrowLeft, ArrowRight, Settings, Target, Play, Pause, Square, X, ChevronLeft, ChevronRight, ChevronUp, ChevronDown } from 'lucide-react';
@@ -99,6 +100,13 @@ const GameBalance = () => {
     const timerRef = useRef(null);
     const zoneTimerRef = useRef(null);
     const manualDisconnectRef = useRef(false);
+    const activeSensorNameRef = useRef(null);
+    const activeSensorMountRef = useRef(null);
+    const orientationTrackerRef = useRef(null);
+
+    if (!orientationTrackerRef.current) {
+        orientationTrackerRef.current = new OrientationTracker();
+    }
 
     // === Computed Values ===
     const distanceFromCenter = Math.sqrt(bubbleX * bubbleX + bubbleY * bubbleY);
@@ -171,6 +179,9 @@ const GameBalance = () => {
     // === WebSocket Connection ===
     useEffect(() => {
         manualDisconnectRef.current = false;
+        activeSensorNameRef.current = null;
+        activeSensorMountRef.current = null;
+        orientationTrackerRef.current?.reset();
 
         const connectWebSocket = () => {
             try {
@@ -248,19 +259,47 @@ const GameBalance = () => {
 
         const payload = msg.payload;
 
-        if (payload.session_metrics) {
-            setSessionMetrics(payload.session_metrics);
+        if (!Array.isArray(payload?.raw_accel) || !Array.isArray(payload?.raw_gyro)) {
+            return;
         }
 
-        // === Get quaternion (tracks full 3D orientation including yaw) ===
-        const q = payload.quaternion;
-        if (!q || !Array.isArray(q) || q.length !== 4) return;
+        const isPreferredSensor = payload?.sensor_mount === 'shank';
+        if (!activeSensorNameRef.current) {
+            activeSensorNameRef.current = payload?.name ?? null;
+            activeSensorMountRef.current = payload?.sensor_mount ?? 'unknown';
+        } else if (
+            isPreferredSensor
+            && activeSensorMountRef.current !== 'shank'
+            && payload?.name
+            && payload.name !== activeSensorNameRef.current
+        ) {
+            activeSensorNameRef.current = payload.name;
+            activeSensorMountRef.current = 'shank';
+            orientationTrackerRef.current?.reset();
+        }
+
+        if (!payload?.name || payload.name !== activeSensorNameRef.current) {
+            return;
+        }
+
+        const [ax, ay, az] = payload.raw_accel;
+        const [gx, gy, gz] = payload.raw_gyro;
+        const orientation = orientationTrackerRef.current.update({
+            ax,
+            ay,
+            az,
+            gx,
+            gy,
+            gz,
+            timestampMs: payload.timestamp_ms,
+        });
+        const q = orientation.quaternion;
 
         // Always track latest quaternion
         lastQuaternionRef.current = [...q];
 
         const now = Date.now();
-        const gyroNorm = typeof payload.gyro_norm === 'number' ? payload.gyro_norm : null;
+        const gyroNorm = typeof orientation.gyroNormRad === 'number' ? orientation.gyroNormRad : null;
         const prevQuaternion = autoCenterPrevQuaternionRef.current;
         const quatDeltaDeg = prevQuaternion ? quatAngleDeg(prevQuaternion, q) : 0;
         const prePlayState = gameStateRef.current === GAME_STATES.CALIBRATING || gameStateRef.current === GAME_STATES.READY;
@@ -575,6 +614,9 @@ const GameBalance = () => {
     const resetSession = () => {
         setGameState(GAME_STATES.READY);
         gameStateRef.current = GAME_STATES.READY;
+        activeSensorNameRef.current = null;
+        activeSensorMountRef.current = null;
+        orientationTrackerRef.current?.reset();
         setTimeInZone(0);
         setZoneStats({ A: 0, B: 0, C: 0 });
         setSessionTime(0);

@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { OrientationTracker } from '@shared/sensor/orientationTracker.js';
 import { useUserAuth } from '@shared/context/UserAuthContext.jsx';
 import { usePersistedGatewaySession } from '@shared/hooks/usePersistedGatewaySession.js';
 import { ArrowLeft, ArrowRight, Settings, Pause, Play, Square, X, Volume2, VolumeX, Vibrate } from 'lucide-react';
@@ -16,6 +17,8 @@ const HEIGHT_DISAGREEMENT_TOLERANCE_CM = 4;
 const STILLNESS_RESET_MS = 280;
 const STILLNESS_GYRO_THRESHOLD = 0.08;
 const STILLNESS_HEIGHT_THRESHOLD_CM = 1.2;
+const LIFT_DEAD_ZONE_DEG = 4;
+const LIFT_CM_PER_DEG = 0.25;
 
 const GAME_STATES = {
     READY: 'READY',
@@ -84,9 +87,14 @@ const GameClearance = () => {
     const swingIntegratedHeightRef = useRef(0);
     const stillnessStartedAtRef = useRef(null);
     const wasInSwingRef = useRef(false);
+    const orientationTrackerRef = useRef(null);
 
     // === Audio ===
     const successSoundRef = useRef(null);
+
+    if (!orientationTrackerRef.current) {
+        orientationTrackerRef.current = new OrientationTracker();
+    }
 
     // === Derived State ===
     const displayHeightPercent = Math.min(100, (currentHeight / MAX_SCALE_HEIGHT) * 100);
@@ -112,6 +120,7 @@ const GameClearance = () => {
     const resetActiveSensorSelection = useCallback(() => {
         activeSensorNameRef.current = null;
         activeSensorMountRef.current = null;
+        orientationTrackerRef.current?.reset();
     }, []);
 
     const buildSessionSummary = useCallback(() => {
@@ -217,6 +226,10 @@ const GameClearance = () => {
         const now = Date.now();
         let estimatorHeightCm = 0;
 
+        if (!Array.isArray(payload?.raw_accel) || !Array.isArray(payload?.raw_gyro)) {
+            return;
+        }
+
         const isPreferredSensor = payload?.sensor_mount === 'shank';
         if (!activeSensorNameRef.current) {
             activeSensorNameRef.current = payload?.name ?? null;
@@ -231,24 +244,26 @@ const GameClearance = () => {
             activeSensorMountRef.current = 'shank';
         }
 
-        if (payload.session_metrics) {
-            setSessionMetrics(payload.session_metrics);
-        }
-
         if (!payload?.name || payload.name !== activeSensorNameRef.current) {
             return;
         }
 
-        // === Use Position Z from ZUPT estimator ===
-        if (payload.position && Array.isArray(payload.position)) {
-            const rawHeight = payload.position[2] * 100; // m to cm
-            estimatorHeightCm = Math.min(MAX_SCALE_HEIGHT, Math.max(0, rawHeight * sensitivity));
-        }
+        const [ax, ay, az] = payload.raw_accel;
+        const [gx, gy, gz] = payload.raw_gyro;
+        const orientation = orientationTrackerRef.current.update({
+            ax,
+            ay,
+            az,
+            gx,
+            gy,
+            gz,
+            timestampMs: payload.timestamp_ms,
+        });
 
         let liveLiftHeightCm = 0;
-        const quaternion = payload.quaternion;
-        const gyroNorm = typeof payload.gyro_norm === 'number' ? payload.gyro_norm : null;
-        let effectiveStance = payload.is_stance === true;
+        const quaternion = orientation.quaternion;
+        const gyroNorm = typeof orientation.gyroNormRad === 'number' ? orientation.gyroNormRad : null;
+        let effectiveStance = false;
 
         if (quaternion && Array.isArray(quaternion) && quaternion.length === 4) {
             const currentPitchDeg = quatToPitchDeg(quaternion);
@@ -277,8 +292,8 @@ const GameClearance = () => {
             const fallbackActive = !effectiveStance && ((gyroNorm !== null && gyroNorm > 0.18) || estimatorHeightCm > 0.5);
 
             if (liftBaselinePitchRef.current !== null && fallbackActive) {
-                const forwardLiftDeg = Math.max(0, (liftBaselinePitchRef.current - currentPitchDeg) - 2);
-                liveLiftHeightCm = Math.min(MAX_SCALE_HEIGHT, Math.max(0, forwardLiftDeg * 0.45 * sensitivity));
+                const forwardLiftDeg = Math.max(0, (liftBaselinePitchRef.current - currentPitchDeg) - LIFT_DEAD_ZONE_DEG);
+                liveLiftHeightCm = Math.min(MAX_SCALE_HEIGHT, Math.max(0, forwardLiftDeg * LIFT_CM_PER_DEG * sensitivity));
             }
         }
 
@@ -332,11 +347,9 @@ const GameClearance = () => {
             });
         }
 
-        // Update stability score from feedback if available
-        if (payload.gait_metrics?.stability_score !== undefined) {
-            setStabilityScore(Math.round(payload.gait_metrics.stability_score));
-        }
-    }, [resetSwingPhaseTracking, sensitivity]);
+        const stabilityPenalty = ((gyroNorm ?? 0) * 28) + (Math.abs(rawPhaseHeightCm - targetHeight) * 0.8);
+        setStabilityScore(Math.max(0, Math.min(100, Math.round(100 - stabilityPenalty))));
+    }, [resetSwingPhaseTracking, sensitivity, targetHeight]);
 
     // === Rep Counting Logic (State Machine) ===
     useEffect(() => {

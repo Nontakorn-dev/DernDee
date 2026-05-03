@@ -38,6 +38,34 @@ SUMMARY_ONLY_SESSION_TYPES = {
 }
 
 
+def _normalize_gait_metrics_row(row: dict[str, Any], step_index: int) -> dict[str, Any]:
+    raw_payload = row.get('raw_payload')
+    if not isinstance(raw_payload, dict):
+        raw_payload = {}
+
+    side = row.get('side')
+    if side not in {'left', 'right'}:
+        side = None
+
+    return {
+        'recorded_at': row.get('recorded_at') or _to_iso8601(None),
+        'side': side,
+        'step_index': row.get('step_index') or step_index,
+        'step_length_m': row.get('step_length_m'),
+        'stride_length_m': row.get('stride_length_m'),
+        'step_time_s': row.get('step_time_s'),
+        'swing_time_s': row.get('swing_time_s'),
+        'stance_time_s': row.get('stance_time_s'),
+        'stride_time_s': row.get('stride_time_s'),
+        'max_clearance_m': row.get('max_clearance_m'),
+        'speed_mps': row.get('speed_mps'),
+        'symmetry_percent': row.get('symmetry_percent'),
+        'push_off_velocity_mps': row.get('push_off_velocity_mps'),
+        'touchdown_pitch_deg': row.get('touchdown_pitch_deg'),
+        'raw_payload': raw_payload,
+    }
+
+
 class SupabaseSessionRepository:
     def __init__(self) -> None:
         load_dotenv(Path(__file__).with_name('.env'))
@@ -178,19 +206,43 @@ class SessionPersistenceManager:
 
         self.active_session.gait_metrics_rows.append(row)
 
+    def extend_gait_metrics_rows(self, gait_metrics_rows: list[dict[str, Any]]) -> None:
+        if not self.active_session or not gait_metrics_rows:
+            return
+
+        if not self._should_persist_gait_metrics(self.active_session.session_type):
+            return
+
+        next_step_index = len(self.active_session.gait_metrics_rows) + 1
+        for offset, row in enumerate(gait_metrics_rows):
+            if not isinstance(row, dict):
+                continue
+            normalized_row = _normalize_gait_metrics_row(row, next_step_index + offset)
+            self.active_session.gait_metrics_rows.append(normalized_row)
+
     def end_session(
         self,
         session_metrics: dict[str, Any],
         summary_overrides: dict[str, Any] | None = None,
         session_details: dict[str, Any] | None = None,
+        gait_metrics_rows: list[dict[str, Any]] | None = None,
+        source: str = 'gateway',
     ) -> dict[str, Any] | None:
         if not self.active_session:
             return None
 
         summary_overrides = summary_overrides or {}
         session_details = session_details or {}
+        gait_metrics_rows = gait_metrics_rows or []
         active_session = self.active_session
         self.active_session = None
+
+        if gait_metrics_rows and self._should_persist_gait_metrics(active_session.session_type):
+            for offset, row in enumerate(gait_metrics_rows):
+                if not isinstance(row, dict):
+                    continue
+                normalized_row = _normalize_gait_metrics_row(row, len(active_session.gait_metrics_rows) + 1 + offset)
+                active_session.gait_metrics_rows.append(normalized_row)
 
         ended_at = datetime.now(timezone.utc)
         duration_seconds = int((ended_at - active_session.started_at).total_seconds())
@@ -229,7 +281,7 @@ class SessionPersistenceManager:
             'avg_stride_length_m': avg_stride_length_m,
             'avg_clearance_m': avg_clearance_m,
             'symmetry_score': symmetry_score,
-            'source': 'gateway',
+            'source': source,
             'details': details_payload,
         }
 

@@ -9,11 +9,14 @@ export function usePersistedGatewaySession({
   sessionType,
   buildSummary,
   buildDetails,
+  buildGaitMetricsRows,
   metadata,
+  source = 'frontend',
 }) {
   const sessionStartedRef = useRef(false)
   const summaryBuilderRef = useRef(buildSummary)
   const detailsBuilderRef = useRef(buildDetails)
+  const gaitMetricsRowsBuilderRef = useRef(buildGaitMetricsRows)
   const metadataRef = useRef(metadata || {})
 
   useEffect(() => {
@@ -23,6 +26,10 @@ export function usePersistedGatewaySession({
   useEffect(() => {
     detailsBuilderRef.current = buildDetails
   }, [buildDetails])
+
+  useEffect(() => {
+    gaitMetricsRowsBuilderRef.current = buildGaitMetricsRows
+  }, [buildGaitMetricsRows])
 
   useEffect(() => {
     metadataRef.current = metadata || {}
@@ -63,6 +70,8 @@ export function usePersistedGatewaySession({
     const didSend = sendControlMessage('END_SESSION', {
       summary: summaryBuilderRef.current?.() || {},
       details: detailsBuilderRef.current?.() || {},
+      gait_metrics_rows: gaitMetricsRowsBuilderRef.current?.() || [],
+      source,
     })
 
     if (didSend) {
@@ -70,7 +79,7 @@ export function usePersistedGatewaySession({
     }
 
     return didSend
-  }, [sendControlMessage])
+  }, [sendControlMessage, source])
 
   useEffect(() => {
     if (!shouldComplete || !isConnected) {
