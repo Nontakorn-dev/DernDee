@@ -7,11 +7,11 @@
 DernDee เป็นระบบกายภาพบำบัดการเดินแบบ realtime ที่เชื่อม 4 ชั้นเข้าด้วยกัน:
 
 1. wearable IMU firmware บน ESP32
-2. Python gateway สำหรับ BLE ingestion และ gait analysis
+2. Python gateway สำหรับ BLE ingestion, raw streaming, และ session persistence
 3. React web apps สำหรับ patient และ clinic
 4. Supabase สำหรับ auth, profiles, session history, และ review workflow
 
-เป้าหมายหลักของระบบคือให้ผู้ป่วยฝึกเดินหรือเล่นเกมกายภาพจากข้อมูลเซนเซอร์จริง, รับ feedback ระหว่าง session, และให้ clinician ดูผลย้อนหลังในระดับ session ได้จากฐานข้อมูลกลาง
+เป้าหมายหลักของระบบคือให้ผู้ป่วยฝึกเดินหรือเล่นเกมกายภาพจากข้อมูลเซนเซอร์จริง, ให้ frontend คำนวณ game/gait logic จาก raw stream, และให้ clinician ดูผลย้อนหลังในระดับ session ได้จากฐานข้อมูลกลาง
 
 ## 2. องค์ประกอบหลักของระบบ
 
@@ -32,10 +32,8 @@ DernDee เป็นระบบกายภาพบำบัดการเด
 - ทำหน้าที่:
   - scan/connect BLE devices ที่ขึ้นต้นด้วย `DernDee`
   - decode packet จาก IMU
-  - calibration และ alignment
-  - detect walking bouts
-  - estimate gait metrics
-  - broadcast realtime `DATA` payloads ไป frontend ผ่าน WebSocket
+  - broadcast raw realtime `DATA` payloads ไป frontend ผ่าน WebSocket
+  - handle calibration/session control messages
   - persist completed sessions ไป Supabase
 
 ### Data Layer
@@ -87,17 +85,19 @@ DernDee_Robustness/
 1. patient เข้า `/calibration`
 2. frontend เปิด WebSocket ไป `ws://<host>:8765`
 3. frontend ส่ง `CALIBRATE`
-4. gateway reset runtime state และเก็บ static samples
-5. เมื่อ calibration สำเร็จ gateway ส่ง `CALIBRATION_DONE`
+4. gateway broadcast `CALIBRATION_START`
+5. gateway รอ calibration timer 3 วินาที
+6. gateway ส่ง `CALIBRATION_DONE`
 6. frontend จึงอนุญาตให้เริ่ม therapy target ต่อไป
 
 ### 4.3 Free Walk session
 
 1. `WalkSession.jsx` ส่ง `START_SESSION` พร้อม `patient_id` และ `session_type = free_walk`
 2. gateway เปิด active session ใน memory
-3. ระหว่างเดิน gateway ส่ง `DATA` payloads แบบ realtime ไป browser
+3. ระหว่างเดิน gateway ส่ง `DATA` payloads แบบ raw realtime ไป browser
+4. frontend คำนวณ gait metrics และ feedback จาก raw stream
 4. เมื่อจบ session frontend ส่ง `END_SESSION` พร้อม summary overrides
-5. gateway persist `sessions` row และ `gait_metrics` รายก้าวลง Supabase
+5. gateway persist `sessions` row และ `gait_metrics` รายก้าวที่ frontend ส่งกลับลง Supabase
 
 ### 4.4 Gamification sessions
 
@@ -121,17 +121,14 @@ DernDee_Robustness/
 flowchart TD
     A[ESP32 IMU firmware] --> B[BLE packets]
     B --> C[gateway_v2 connection.py]
-    C --> D[decoder.py + scaling.py]
-    D --> E[calibration.py]
-    E --> F[CWTWalkingDetector]
-    F --> G[ZUPTGaitEstimator + DualFootAnalyzer]
-    G --> H[FeedbackEngine]
-    H --> I[WebSocket DATA payloads]
+  C --> D[decoder.py]
+  D --> I[WebSocket raw DATA payloads]
 
     I --> J[Patient app]
     I --> K[Clinic gait dashboard]
 
-    J --> L[START_SESSION / END_SESSION]
+  J --> J2[Frontend gait and game logic]
+  J2 --> L[START_SESSION / END_SESSION]
     L --> M[session_persistence.py]
     M --> N[Supabase sessions]
     M --> O[Supabase gait_metrics]
@@ -157,7 +154,7 @@ flowchart TD
 
 - raw IMU samples จาก firmware
 - realtime WebSocket `DATA` ทุก frame
-- quaternion/position stream ทุก sample
+- derived orientation/game state ทุก sampleที่ frontend คำนวณเอง
 
 ### Summary-only game sessions
 
@@ -181,7 +178,7 @@ session types ต่อไปนี้เก็บเฉพาะ summary:
 
 ## 8. ข้อจำกัดปัจจุบันที่ควรรู้
 
-- ระบบ realtime ยังต้องพึ่ง `gateway_v2` อยู่ ดังนั้น deployment แบบ Vercel อย่างเดียวไม่ครอบคลุม BLE + gait processing
+- ระบบ realtime ยังต้องพึ่ง `gateway_v2` อยู่ ดังนั้น deployment แบบ Vercel อย่างเดียวไม่ครอบคลุม BLE + raw data bridge
 - `DeviceConnection.jsx` ยังเป็น simulated UI ไม่ใช่ Web Bluetooth production flow
 - game sessions มี session summary ดีแล้ว แต่ analysis เชิงรายก้าวจะต้องใช้ Free Walk หรือออกแบบ summary-based review ใหม่
 - clinic app enforce role doctor ที่ frontend และ rely on Supabase RLS ฝั่ง data layer

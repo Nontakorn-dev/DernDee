@@ -4,6 +4,8 @@ DernDee v3.0 - Raw IMU Streaming Gateway
 Architecture: BLE decoder -> WebSocket raw stream -> frontend analysis
 """
 
+from __future__ import annotations
+
 import asyncio
 import json
 

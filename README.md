@@ -11,14 +11,14 @@
 ## Overview
 
 DernDee is an end-to-end rehabilitation prototype for gait training and real-time movement analysis.
-It combines wearable BLE IMU sensors, a Python gait-analysis gateway, and a React web application for patient training, calibration, feedback, and clinician-facing review workflows.
+It combines wearable BLE IMU sensors, a Python BLE/WebSocket gateway, and a React web application for patient training, calibration, frontend-side gait analysis, and clinician-facing review workflows.
 
 Current repository documentation now lives in `docs/README.md` and the files linked from there.
 
 The current repository centers around three main layers:
 
 - **Wearable firmware** for ESP32 IMU nodes that stream raw motion data over BLE
-- **Realtime gateway** that decodes packets, calibrates sensors, detects walking, estimates gait metrics, and broadcasts results over WebSocket
+- **Realtime gateway** that decodes packets, streams raw IMU data over WebSocket, and persists session summaries
 - **Web application** for authentication, calibration, free walking sessions, rehabilitation games, history screens, and doctor dashboard prototypes
 
 The system currently supports these main usage paths:
@@ -33,18 +33,14 @@ The system currently supports these main usage paths:
 
 ## Key Features
 
-- **Realtime gait analysis pipeline**
+- **Realtime raw streaming pipeline**
   - BLE scanning and multi-device streaming from IMU sensors whose names start with `DernDee`
-  - Packet decoding, physical-unit scaling, static calibration, and orientation initialization
-  - Walking-bout detection using CWT-based signal analysis
-  - Gait estimation using Madgwick orientation tracking and ZUPT-based motion integration
-
-- **Therapist-style feedback engine**
-  - Generates context-aware coaching cues such as clearance, posture, short-step, and cadence guidance
-  - Prioritizes safety and suppresses repeated voice spam with cooldown logic
+  - Packet decoding and raw IMU rebroadcast over WebSocket
+  - Session control and Supabase persistence through the gateway
+  - Frontend-side gait analysis and game input loops shared between patient flows and clinic tools
 
 - **Patient web application**
-  - Firebase authentication and patient profile bootstrapping
+  - Supabase authentication and patient profile bootstrapping
   - Calibration flow over WebSocket before therapy begins
   - Free Walk session summary, history screen, analysis screen, and telemedicine prototype
 
@@ -66,29 +62,25 @@ The system currently supports these main usage paths:
 
 ```mermaid
 flowchart TD
-    A[Power on DernDee IMU nodes] --> B[Gateway scans BLE devices with prefix DernDee]
-    B --> C[Decode Packet V1 and scale accel gyro data]
+  A[Power on DernDee IMU nodes] --> B[Gateway scans BLE devices with prefix DernDee]
+  B --> C[Decode Packet V1 raw accel gyro data]
     C --> D{Client command}
 
-    D -->|CALIBRATE| E[Collect static samples]
-    E --> F[Compute gyro bias and accel scale]
-    F --> G[Initialize orientation from gravity]
-    G --> H[Broadcast CALIBRATION_DONE]
+  D -->|CALIBRATE| E[Broadcast CALIBRATION_START]
+  E --> F[Wait 3 seconds]
+  F --> G[Broadcast CALIBRATION_DONE]
 
-    D -->|DATA stream| I[CWT walking detector]
-    I --> J[ZUPT gait estimator]
-    J --> K[Dual-foot session metrics]
-    K --> L[Feedback engine]
-    L --> M[Broadcast DATA payload over WebSocket]
+  C --> M[Broadcast raw DATA payload over WebSocket]
 
     M --> N[React web app]
-    N --> O[Free Walk session]
-    N --> P[High Stepper]
-    N --> Q[Magic Plate]
-    N --> R[Rhythm Drummer]
-    N --> S[History and analysis screens]
+  N --> O[Free Walk session]
+  N --> P[High Stepper]
+  N --> Q[Magic Plate]
+  N --> R[Rhythm Drummer]
+  N --> S[History and analysis screens]
+  N --> T[Shared gait and orientation logic]
 
-    M --> T[Gait Dashboard]
+  M --> U[Gait Dashboard]
 ```
 
 ---
@@ -97,10 +89,10 @@ flowchart TD
 
 | Workflow | Input | Output |
 | --- | --- | --- |
-| Calibration | Static IMU samples | Gyro bias, accelerometer scale, orientation initialization, calibration status |
-| Free Walk | Realtime IMU stream | Step count, cadence, step length, stride length, walking speed, clearance, avatar feedback |
-| High Stepper | Realtime lift and position signals | Rep count, lift height progress, target-based training feedback |
-| Magic Plate | Quaternion stream | Roll/pitch balance cursor, zone statistics, average deviation |
+| Calibration | WebSocket control flow | Calibration status and readiness gate |
+| Free Walk | Raw IMU stream | Step count, cadence, step length, stride length, walking speed, clearance, avatar feedback |
+| High Stepper | Raw IMU stream | Rep count, lift height progress, target-based training feedback |
+| Magic Plate | Raw IMU stream | Yaw/tilt balance cursor, zone statistics, average deviation |
 | Rhythm Drummer | Step timing against BPM target | Score, streak, cadence estimate, timing feedback |
 | Gait Dashboard | Raw accel and gyro samples | Live charts, detected gait events, derived gait parameters |
 
@@ -157,13 +149,8 @@ flowchart TD
     |-- main.py
     |-- connection.py
     |-- decoder.py
-    |-- scaling.py
-    |-- calibration.py
-    |-- shoe_detector.py
-    |-- gait_estimator.py
-    |-- feedback_engine.py
-  |-- session_persistence.py
-  `-- requirements.txt
+    |-- session_persistence.py
+    `-- requirements.txt
 ```
 
 ---
@@ -173,8 +160,8 @@ flowchart TD
 | Layer | Tools |
 | --- | --- |
 | Frontend | React, Vite, React Router, Firebase, Tailwind CSS, Lucide React, Chart.js |
-| Realtime Gateway | Python, asyncio, websockets, bleak, NumPy, SciPy |
-| Gait Analytics | CWT walking detection, Madgwick AHRS, ZUPT gait estimation, dual-foot session analysis |
+| Realtime Gateway | Python, asyncio, websockets, bleak, httpx |
+| Gait Analytics | Frontend shared gait processing, realtime step detection, orientation tracking |
 | Firmware | ESP32, Arduino C++, BLE, MPU9250-style IMU register access |
 | Visualization | Custom React dashboards and browser-based rehab game UIs |
 
@@ -241,7 +228,7 @@ Notes:
 
 - Vite is configured to serve on port `5174`
 - The app connects to `ws://${window.location.hostname}:8765`
-- Firebase auth and Firestore are used for login and profile data
+- Supabase is used for auth, profile data, and session history
 
 ### Realtime Gateway
 
@@ -256,8 +243,9 @@ python3 main.py
 Installed Python dependencies are currently:
 
 - `bleak`
-- `numpy`
-- `scipy`
+- `httpx`
+- `python-dotenv`
+- `supabase`
 - `websockets`
 
 ### Firmware
@@ -285,17 +273,21 @@ Current notes:
 
 | Message | Description |
 | --- | --- |
-| `CALIBRATE` | Start static calibration flow |
-| `RESET` | Reset runtime detector and estimator state |
+| `CALIBRATE` | Start gateway-side calibration timer |
+| `RESET` | Reset active gateway session state |
+| `START_SESSION` | Open an in-memory session for persistence |
+| `END_SESSION` | Persist summary/details/gait rows to Supabase |
 
 ### Server Events
 
 | Event | Description |
 | --- | --- |
 | `CALIBRATION_START` | Calibration has begun |
-| `CALIBRATION_DONE` | Calibration completed successfully |
-| `CALIBRATION_FAILED` | Calibration failed, usually due to motion or instability |
+| `CALIBRATION_DONE` | Calibration timer completed |
 | `SYSTEM_RESET` | Runtime state has been reset |
+| `SESSION_STARTED` | Session was opened in gateway memory |
+| `SESSION_SAVED` | Session was persisted successfully |
+| `SESSION_SAVE_FAILED` | Session persistence failed |
 | `DATA` | Main realtime payload used by the web app and dashboard |
 
 ### Important `DATA` Payload Fields
@@ -305,12 +297,8 @@ Current notes:
 | `name` | Sensor device name |
 | `side` | Left or right side label |
 | `sensor_mount` | Inferred mount such as `foot` or `shank` |
+| `timestamp_ms` | Firmware timestamp in milliseconds |
 | `raw_accel`, `raw_gyro` | Raw IMU samples from firmware |
-| `is_walking`, `step_detected` | Walking-bout and step flags |
-| `position`, `velocity`, `quaternion` | Current estimator state |
-| `gait_metrics` | Per-step gait metrics when available |
-| `session_metrics` | Aggregated dual-foot session metrics |
-| `feedback` | Therapist-style coaching message payload |
 
 ---
 
@@ -330,10 +318,9 @@ Current notes:
 
 ## Notes for Development and Deployment
 
-- The active realtime pipeline in `gateway_v2/` is designed around the current dual-foot gait-analysis architecture.
-- The frontend authentication flow is real, but walk-session persistence to Firestore is not fully wired end-to-end yet.
-- History and analysis screens try to read from `walkSessions`, but currently fall back to mock data when no persisted session data exists.
-- Doctor pages are still prototype-grade and depend heavily on mock datasets.
+- The active realtime pipeline in `gateway_v2/` is now a raw IMU bridge plus session persistence layer.
+- Gait processing and game-specific control logic live primarily in the frontend shared modules.
+- Doctor pages still include prototype surfaces, but patient history and session persistence now center on Supabase.
 - Before public deployment, replace hardcoded local URLs and review Firebase project configuration carefully.
 
 ---
@@ -342,7 +329,7 @@ Current notes:
 
 Current repo status at a high level:
 
-- Realtime gateway, calibration, gait estimation, and game input loops are implemented
+- Realtime gateway, frontend gait processing, and game input loops are implemented
 - Patient-facing web flows for login, therapy selection, calibration, and sessions are available
 - Doctor and telemedicine experiences are present as prototypes and still need backend completion
 - Older firmware files remain in the repository for reference
