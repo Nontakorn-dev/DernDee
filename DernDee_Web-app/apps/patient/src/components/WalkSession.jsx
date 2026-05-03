@@ -5,7 +5,12 @@ import { GaitFeedbackAdvisor } from '@shared/gait/feedbackAdvisor.js';
 import { GaitProcessor } from '@shared/gait/gaitProcessor.js';
 import { GaitSessionAnalyzer } from '@shared/gait/sessionAnalyzer.js';
 import { useUserAuth } from '@shared/context/UserAuthContext.jsx';
-import { createRealtimeConnection } from '@shared/gateway/realtimeTransport.js';
+import {
+    TRANSPORT_MODE_WEB_BLUETOOTH,
+    createRealtimeConnection,
+    getRealtimeTransportMode,
+} from '@shared/gateway/realtimeTransport.js';
+import { persistSessionFromFrontend } from '@shared/services/sessionService.js';
 import derndeeLogo from '@shared/assets/images/derndee-logo.png';
 
 // Avatar Images (PNG)
@@ -65,6 +70,7 @@ const WalkSession = () => {
     const lastStepCountRef = useRef(0);
     const lastStepTimeRef = useRef(Date.now());
     const sessionStartedRef = useRef(false);
+    const sessionStartedAtRef = useRef(null);
     const manualDisconnectRef = useRef(false);
     const sampleCountRef = useRef(0);
     const activeSensorNameRef = useRef(null);
@@ -309,6 +315,7 @@ const WalkSession = () => {
             session_type: 'free_walk',
         });
         sessionStartedRef.current = true;
+        sessionStartedAtRef.current = new Date().toISOString();
     }, [isConnected, resetDerivedAnalysis, user?.uid]);
 
     // === Welcome Effect (Play TTS on first load, then transition to general) ===
@@ -406,7 +413,7 @@ const WalkSession = () => {
         // Walking time in minutes
         const walkingTimeMinutes = timeElapsed / 60;
 
-        sendControlMessage('END_SESSION', {
+        const sessionPayload = {
             summary: {
                 total_steps: summarySteps,
                 avg_speed_mps: summarySpeed,
@@ -420,9 +427,26 @@ const WalkSession = () => {
             },
             gait_metrics_rows: sessionAnalyzerRef.current.getGaitMetricsRows(),
             source: 'frontend',
-        });
+        };
+
+        sendControlMessage('END_SESSION', sessionPayload);
+
+        if (getRealtimeTransportMode() === TRANSPORT_MODE_WEB_BLUETOOTH && user?.uid) {
+            void persistSessionFromFrontend({
+                patientId: user.uid,
+                sessionType: 'free_walk',
+                summary: sessionPayload.summary,
+                details: sessionPayload.details,
+                gaitMetricsRows: sessionPayload.gait_metrics_rows,
+                source: sessionPayload.source,
+                startedAt: sessionStartedAtRef.current,
+            }).catch((error) => {
+                console.error('Failed to persist Browser BLE walk session to Supabase:', error);
+            });
+        }
 
         sessionStartedRef.current = false;
+        sessionStartedAtRef.current = null;
         manualDisconnectRef.current = true;
         if (wsRef.current) {
             wsRef.current.close();

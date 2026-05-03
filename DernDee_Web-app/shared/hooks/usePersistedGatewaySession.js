@@ -1,4 +1,9 @@
 import { useCallback, useEffect, useRef } from 'react'
+import {
+  TRANSPORT_MODE_WEB_BLUETOOTH,
+  getRealtimeTransportMode,
+} from '../gateway/realtimeTransport.js'
+import { persistSessionFromFrontend } from '../services/sessionService.js'
 
 export function usePersistedGatewaySession({
   wsRef,
@@ -18,6 +23,7 @@ export function usePersistedGatewaySession({
   const detailsBuilderRef = useRef(buildDetails)
   const gaitMetricsRowsBuilderRef = useRef(buildGaitMetricsRows)
   const metadataRef = useRef(metadata || {})
+  const sessionStartedAtRef = useRef(null)
 
   useEffect(() => {
     summaryBuilderRef.current = buildSummary
@@ -59,27 +65,55 @@ export function usePersistedGatewaySession({
 
     if (didSend) {
       sessionStartedRef.current = true
+      sessionStartedAtRef.current = new Date().toISOString()
     }
   }, [isConnected, sendControlMessage, sessionType, shouldStart, userId])
 
-  const endSessionIfActive = useCallback(() => {
+  const endSessionIfActive = useCallback(async () => {
     if (!sessionStartedRef.current) {
       return false
     }
 
+    const summary = summaryBuilderRef.current?.() || {}
+    const details = detailsBuilderRef.current?.() || {}
+    const gaitMetricsRows = gaitMetricsRowsBuilderRef.current?.() || []
+    const isBrowserBleMode = getRealtimeTransportMode() === TRANSPORT_MODE_WEB_BLUETOOTH
+    const startedAt = sessionStartedAtRef.current
+
+    sessionStartedRef.current = false
+    sessionStartedAtRef.current = null
+
     const didSend = sendControlMessage('END_SESSION', {
-      summary: summaryBuilderRef.current?.() || {},
-      details: detailsBuilderRef.current?.() || {},
-      gait_metrics_rows: gaitMetricsRowsBuilderRef.current?.() || [],
+      summary,
+      details,
+      gait_metrics_rows: gaitMetricsRows,
       source,
     })
 
-    if (didSend) {
-      sessionStartedRef.current = false
+    if (!didSend && !isBrowserBleMode) {
+      return false
     }
 
-    return didSend
-  }, [sendControlMessage, source])
+    if (isBrowserBleMode) {
+      try {
+        await persistSessionFromFrontend({
+          patientId: userId,
+          sessionType,
+          summary,
+          details,
+          gaitMetricsRows,
+          metadata: metadataRef.current,
+          source,
+          startedAt,
+        })
+      } catch (error) {
+        console.error('Failed to persist Browser BLE session to Supabase:', error)
+        return false
+      }
+    }
+
+    return didSend || isBrowserBleMode
+  }, [sendControlMessage, source, sessionType, userId])
 
   useEffect(() => {
     if (!shouldComplete || !isConnected) {

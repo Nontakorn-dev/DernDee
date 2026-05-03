@@ -130,7 +130,7 @@ const GameClearance = () => {
         const derivedQualityScore = Math.round(Math.max(0, Math.min(100, (stabilityScore * 0.6) + (completionRatio * 40))));
 
         return {
-            total_steps: Number.isFinite(sessionMetrics?.total_steps) ? sessionMetrics.total_steps : 0,
+            total_steps: Number.isFinite(sessionMetrics?.total_steps) ? sessionMetrics.total_steps : reps,
             avg_speed_mps: Number.isFinite(sessionMetrics?.avg_speed_mps) ? sessionMetrics.avg_speed_mps : null,
             cadence_spm: Number.isFinite(sessionMetrics?.cadence_spm) ? sessionMetrics.cadence_spm : cadenceFromReps,
             avg_step_length_m: Number.isFinite(sessionMetrics?.avg_step_length_m) ? sessionMetrics.avg_step_length_m : null,

@@ -161,10 +161,47 @@ const formatSecondsValue = (value) => {
 }
 
 const getSessionTypeConfig = (sessionType) => SESSION_TYPE_CONFIG[sessionType] || DEFAULT_SESSION_TYPE_CONFIG
+const SUMMARY_ONLY_SESSION_TYPES = new Set(['high_stepper', 'magic_plate', 'rhythm_drummer'])
 
 const isMissingSessionDetailsColumnError = (error) => {
   const message = `${error?.message || ''} ${error?.details || ''} ${error?.hint || ''}`.toLowerCase()
   return message.includes('details') && (message.includes('column') || message.includes('schema cache') || message.includes('pgrst'))
+}
+
+const buildFrontendSessionId = () => {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return `frontend-${crypto.randomUUID()}`
+  }
+
+  return `frontend-${Date.now()}-${Math.random().toString(16).slice(2)}`
+}
+
+const shouldPersistGaitMetrics = (sessionType) => !SUMMARY_ONLY_SESSION_TYPES.has(sessionType)
+
+const normalizeGaitMetricsInsertRow = (row, stepIndex) => {
+  if (!row || typeof row !== 'object') {
+    return null
+  }
+
+  return {
+    recorded_at: row.recorded_at || new Date().toISOString(),
+    side: row.side === 'left' || row.side === 'right' ? row.side : null,
+    step_index: Number.isFinite(Number(row.step_index)) ? Number(row.step_index) : stepIndex,
+    step_length_m: toFiniteNumber(row.step_length_m),
+    stride_length_m: toFiniteNumber(row.stride_length_m),
+    step_time_s: toFiniteNumber(row.step_time_s),
+    swing_time_s: toFiniteNumber(row.swing_time_s),
+    stance_time_s: toFiniteNumber(row.stance_time_s),
+    stride_time_s: toFiniteNumber(row.stride_time_s),
+    max_clearance_m: toFiniteNumber(row.max_clearance_m),
+    speed_mps: toFiniteNumber(row.speed_mps),
+    symmetry_percent: toFiniteNumber(row.symmetry_percent),
+    push_off_velocity_mps: toFiniteNumber(row.push_off_velocity_mps),
+    touchdown_pitch_deg: toFiniteNumber(row.touchdown_pitch_deg),
+    raw_payload: typeof row.raw_payload === 'object' && row.raw_payload && !Array.isArray(row.raw_payload)
+      ? row.raw_payload
+      : {},
+  }
 }
 
 const buildSessionCardMetrics = (session) => {
@@ -269,6 +306,99 @@ async function executeSessionQuery(queryFactory) {
   }
 
   return response
+}
+
+export async function persistSessionFromFrontend({
+  patientId,
+  sessionType,
+  summary = {},
+  details = {},
+  gaitMetricsRows = [],
+  metadata = {},
+  source = 'frontend',
+  startedAt = null,
+  endedAt = null,
+  gatewaySessionId = null,
+}) {
+  if (!patientId) {
+    throw new Error('patientId is required to persist a session')
+  }
+
+  const supabase = getSupabaseClient()
+  const startTime = startedAt ? new Date(startedAt) : new Date()
+  const endTime = endedAt ? new Date(endedAt) : new Date()
+  const durationSeconds = Math.max(0, Math.round((endTime.getTime() - startTime.getTime()) / 1000))
+  const detailsPayload = {
+    ...normalizeSessionDetails(details),
+  }
+
+  if (metadata?.game_label && !detailsPayload.game_label) {
+    detailsPayload.game_label = metadata.game_label
+  }
+
+  const sessionRow = {
+    patient_id: patientId,
+    gateway_session_id: gatewaySessionId || buildFrontendSessionId(),
+    source,
+    session_type: sessionType || 'free_walk',
+    start_time: startTime.toISOString(),
+    end_time: endTime.toISOString(),
+    duration_seconds: durationSeconds,
+    total_steps: Math.max(0, Math.round(toFiniteNumber(summary.total_steps) || 0)),
+    avg_speed_mps: toFiniteNumber(summary.avg_speed_mps),
+    cadence_spm: toFiniteNumber(summary.cadence_spm),
+    avg_step_length_m: toFiniteNumber(summary.avg_step_length_m),
+    avg_stride_length_m: toFiniteNumber(summary.avg_stride_length_m),
+    avg_clearance_m: toFiniteNumber(summary.avg_clearance_m),
+    symmetry_score: toFiniteNumber(summary.symmetry_score),
+    details: detailsPayload,
+  }
+
+  let insertResponse = await supabase
+    .from('sessions')
+    .insert(sessionRow)
+    .select('id')
+    .single()
+
+  if (insertResponse.error && isMissingSessionDetailsColumnError(insertResponse.error)) {
+    const fallbackRow = { ...sessionRow }
+    delete fallbackRow.details
+    insertResponse = await supabase
+      .from('sessions')
+      .insert(fallbackRow)
+      .select('id')
+      .single()
+  }
+
+  if (insertResponse.error) {
+    throw insertResponse.error
+  }
+
+  const sessionId = insertResponse.data?.id
+  const normalizedRows = shouldPersistGaitMetrics(sessionType)
+    ? gaitMetricsRows
+      .map((row, index) => normalizeGaitMetricsInsertRow(row, index + 1))
+      .filter(Boolean)
+    : []
+
+  if (sessionId && normalizedRows.length) {
+    const { error } = await supabase
+      .from('gait_metrics')
+      .insert(normalizedRows.map((row) => ({
+        ...row,
+        session_id: sessionId,
+      })))
+
+    if (error) {
+      throw error
+    }
+  }
+
+  return {
+    sessionId,
+    savedMetricsCount: normalizedRows.length,
+    sessionRow,
+  }
 }
 
 const calculateAge = (dateOfBirth) => {
