@@ -2,7 +2,7 @@
   "rewrites": [
     {
       "source": "/clinic/gait-dashboard/:path*",
-      "destination": "/clinic/gait-dashboard/index.html"
+      "destination": "/index.html"
     },
     {
       "source": "/clinic/:path*",

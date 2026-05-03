@@ -1,5 +1,5 @@
 import { generateWalkingData, streamDemoData } from './data/demoDataGenerator.js';
-import { GaitProcessor } from './data/gaitProcessor.js';
+import { GaitProcessor } from '../gait/gaitProcessor.js';
 import { Dashboard } from './ui/dashboard.js';
 import { ChartsManager } from './ui/charts.js';
 import {
@@ -12,7 +12,7 @@ import {
   resetBrowserBleDevices,
   setRealtimeTransportMode,
   supportsRememberedBrowserBleDevices,
-} from '../../../shared/gateway/realtimeTransport.js';
+} from '../gateway/realtimeTransport.js';
 
 const ANALYSIS_INTERVAL_MS = 1000;
 const MIN_ANALYSIS_SAMPLES = 300;

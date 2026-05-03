@@ -242,7 +242,7 @@ const DoctorDashboard = () => {
                         </div>
                         <div className="flex flex-col sm:flex-row gap-2 sm:gap-3">
                             <button
-                                onClick={() => window.location.assign('/clinic/gait-dashboard/')}
+                                onClick={() => window.location.assign('/gait-dashboard')}
                                 className="px-4 sm:px-6 py-2 sm:py-3 bg-indigo-500 hover:bg-indigo-600 text-white rounded-xl font-bold text-sm sm:text-base transition-all duration-300 shadow-lg hover:shadow-xl flex items-center gap-2"
                             >
                                 <Activity className="w-4 h-4 sm:w-5 sm:h-5" />

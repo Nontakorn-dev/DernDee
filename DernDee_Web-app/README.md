@@ -58,7 +58,7 @@ npm run dev
 5. **เปิดเบราว์เซอร์**
    - Patient app: `http://localhost:5174`
    - Clinic app: `http://localhost:5174/clinic/`
-   - Gait dashboard: `http://localhost:5174/clinic/gait-dashboard/`
+   - Gait dashboard: `http://localhost:5174/gait-dashboard`
 
 ## 🔐 ระบบ Authentication
 

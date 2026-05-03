@@ -197,10 +197,7 @@ function appRouteAliases() {
         if (pathname === '/clinic' || pathname === '/clinic/') {
           rewrite(req, '/apps/clinic/index.html')
         } else if (pathname === '/clinic/gait-dashboard' || pathname === '/clinic/gait-dashboard/') {
-          rewrite(req, '/apps/clinic/gait-dashboard/index.html')
-        } else if (pathname.startsWith('/clinic/gait-dashboard/')) {
-          const dashboardAssetPath = pathname.replace('/clinic/gait-dashboard/', '')
-          rewrite(req, `/apps/clinic/gait-dashboard/${dashboardAssetPath}`)
+          rewrite(req, '/apps/patient/index.html')
         } else if (pathname.startsWith('/clinic/')) {
           rewrite(req, '/apps/clinic/index.html')
         } else if (
@@ -220,7 +217,6 @@ function appRouteAliases() {
     closeBundle() {
       copyBuiltHtml('apps/patient/index.html', 'index.html')
       copyBuiltHtml('apps/clinic/index.html', 'clinic/index.html')
-      copyBuiltHtml('apps/clinic/gait-dashboard/index.html', 'clinic/gait-dashboard/index.html')
     },
   }
 }
@@ -243,7 +239,6 @@ export default defineConfig(({ mode }) => {
         input: {
           patient: path.resolve(__dirname, 'apps/patient/index.html'),
           clinic: path.resolve(__dirname, 'apps/clinic/index.html'),
-          clinicGaitDashboard: path.resolve(__dirname, 'apps/clinic/gait-dashboard/index.html'),
         },
       },
     },

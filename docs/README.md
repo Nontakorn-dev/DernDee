@@ -43,7 +43,7 @@
 | `DernDee_Web-app/` | frontend หลักทั้งหมด |
 | `DernDee_Web-app/apps/patient/` | patient web app |
 | `DernDee_Web-app/apps/clinic/` | doctor/clinic web app |
-| `DernDee_Web-app/apps/clinic/gait-dashboard/` | dashboard สำหรับดูสัญญาณและ metrics แบบ live |
+| `DernDee_Web-app/shared/gait-dashboard/` | shared dashboard runtime, UI helpers, styles, และ demo data |
 | `DernDee_Web-app/shared/` | shared auth, Supabase services, assets, styles, hooks |
 | `gateway_v2/` | BLE/WebSocket gateway และ session persistence |
 | `Hardware/` | firmware และ prototype code ฝั่ง ESP32/IMU |

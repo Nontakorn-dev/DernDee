@@ -1,8 +1,8 @@
 import React, { useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import derndeeLogo from '@shared/assets/images/derndee-logo.png';
-import { createGaitLabDashboardApp } from '../../../clinic/gait-dashboard/app.js';
-import dashboardCssText from '../../../clinic/gait-dashboard/styles/main.css?inline';
+import { createGaitLabDashboardApp } from '@shared/gait-dashboard/app.js';
+import dashboardCssText from '@shared/gait-dashboard/styles/main.css?inline';
 
 const GaitDashboard = () => {
     const navigate = useNavigate();

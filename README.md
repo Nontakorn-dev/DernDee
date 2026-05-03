@@ -206,7 +206,7 @@ The frontend runs at:
 
 - Patient app: `http://localhost:5174`
 - Clinic app: `http://localhost:5174/clinic/`
-- Gait dashboard: `http://localhost:5174/clinic/gait-dashboard/`
+- Gait dashboard: `http://localhost:5174/gait-dashboard`
 
 ### 5. Power on compatible IMU nodes
 

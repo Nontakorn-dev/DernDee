@@ -10,7 +10,6 @@ entry points ปัจจุบัน:
 
 - `apps/patient/index.html`
 - `apps/clinic/index.html`
-- `apps/clinic/gait-dashboard/index.html`
 
 shared code อยู่ที่ `DernDee_Web-app/shared/`
 
@@ -22,7 +21,8 @@ shared code อยู่ที่ `DernDee_Web-app/shared/`
 
 - map patient app เป็น root `/`
 - map clinic app เป็น `/clinic`
-- map gait dashboard เป็น `/clinic/gait-dashboard`
+- map gait dashboard หลักเป็น `/gait-dashboard`
+- redirect path เก่า `/clinic/gait-dashboard` กลับเข้ามา route กลาง
 - กันไม่ให้ Vite internal requests ถูก rewrite ผิด path
 - มี local dev middleware สำหรับ Supabase signup bypass ในเครื่องเดียวกัน
 
@@ -159,17 +159,16 @@ clinic app ใช้ `basename = '/clinic'` และมี doctor role guard �
 
 ## 7. Gait Dashboard
 
-dashboard logic หลักอยู่ที่ `apps/clinic/gait-dashboard/app.js`
+dashboard logic และ styles กลางอยู่ที่ `DernDee_Web-app/shared/gait-dashboard/`
 
-ตอนนี้มี 2 ทางในการ mount dashboard ตัวเดียวกัน:
+ตอนนี้ dashboard หลักถูกเปิดผ่าน patient route ` /gait-dashboard ` โดย `apps/patient/src/components/GaitDashboard.jsx`
 
-- patient route ` /gait-dashboard ` ผ่าน `apps/patient/src/components/GaitDashboard.jsx` เพื่อให้ใช้ Browser BLE session เดียวกับ patient app ได้โดยไม่ต้องข้าม document
-- standalone clinic entry `apps/clinic/gait-dashboard/` สำหรับเปิด dashboard แบบแยกหน้าโดยตรง
+ปุ่มจากฝั่ง clinic จะเด้งมายัง route กลางนี้ และ path เก่า `/clinic/gait-dashboard` ถูกใช้เป็น compatibility redirect เท่านั้น
 
 หน้าที่หลัก:
 
 - แสดง signal-level view ของ raw/processed gait data
-- ใช้ realtime transport เดียวกับ patient app และสามารถ reuse Browser BLE connection เดิมได้เมื่อ dashboard ถูกเปิดจาก patient app route
+- ใช้ realtime transport เดียวกับ patient app และสามารถ reuse Browser BLE connection เดิมได้เมื่อ dashboard ถูกเปิดจาก route กลางนี้
 - ไม่ใช่ source of truth สำหรับ persistence; persistence ยังอยู่ที่ Supabase + gateway
 
 ## 8. Frontend data presentation model

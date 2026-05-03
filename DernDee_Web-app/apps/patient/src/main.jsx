@@ -24,6 +24,7 @@ import '@shared/index.css'
 import { UserAuthContextProvider } from '@shared/context/UserAuthContext.jsx'
 import {
   createBrowserRouter,
+  Navigate,
   RouterProvider,
 } from "react-router-dom";
 
@@ -87,6 +88,10 @@ const router = createBrowserRouter([
   {
     path: "/gait-dashboard",
     element: <ProtectedRoute><GaitDashboard /></ProtectedRoute>
+  },
+  {
+    path: "/clinic/gait-dashboard",
+    element: <ProtectedRoute><Navigate to="/gait-dashboard" replace /></ProtectedRoute>
   },
   {
     path: "/game/clearance",

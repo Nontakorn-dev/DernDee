@@ -172,7 +172,7 @@ session types ต่อไปนี้เก็บเฉพาะ summary:
 | --- | --- | --- |
 | patient app dev | `http://localhost:5174/` | served by Vite |
 | clinic app dev | `http://localhost:5174/clinic` | same Vite workspace |
-| gait dashboard dev | `http://localhost:5174/clinic/gait-dashboard` | second clinic entry |
+| gait dashboard dev | `http://localhost:5174/gait-dashboard` | patient-shared route with reused BLE transport |
 | gateway WebSocket | `ws://<host>:8765` | realtime data + control messages |
 | Supabase Auth redirect | env-driven | controlled by `VITE_SUPABASE_AUTH_REDIRECT_URL` |
 
