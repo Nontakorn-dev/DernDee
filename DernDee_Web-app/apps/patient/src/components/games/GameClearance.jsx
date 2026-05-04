@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { VerticalLiftEstimator } from '@shared/gait/verticalLiftEstimator.js';
 import { OrientationTracker } from '@shared/sensor/orientationTracker.js';
 import { useUserAuth } from '@shared/context/UserAuthContext.jsx';
 import { createRealtimeConnection } from '@shared/gateway/realtimeTransport.js';
@@ -89,12 +90,17 @@ const GameClearance = () => {
     const stillnessStartedAtRef = useRef(null);
     const wasInSwingRef = useRef(false);
     const orientationTrackerRef = useRef(null);
+    const liftEstimatorRef = useRef(null);
 
     // === Audio ===
     const successSoundRef = useRef(null);
 
     if (!orientationTrackerRef.current) {
         orientationTrackerRef.current = new OrientationTracker();
+    }
+
+    if (!liftEstimatorRef.current) {
+        liftEstimatorRef.current = new VerticalLiftEstimator({ sensorMount: 'shank' });
     }
 
     // === Derived State ===
@@ -122,6 +128,7 @@ const GameClearance = () => {
         activeSensorNameRef.current = null;
         activeSensorMountRef.current = null;
         orientationTrackerRef.current?.reset();
+        liftEstimatorRef.current?.reset();
     }, []);
 
     const buildSessionSummary = useCallback(() => {
@@ -225,7 +232,6 @@ const GameClearance = () => {
 
         const payload = msg.payload;
         const now = Date.now();
-        let estimatorHeightCm = 0;
 
         if (!Array.isArray(payload?.raw_accel) || !Array.isArray(payload?.raw_gyro)) {
             return;
@@ -261,16 +267,38 @@ const GameClearance = () => {
             timestampMs: payload.timestamp_ms,
         });
 
-        let liveLiftHeightCm = 0;
-        const quaternion = orientation.quaternion;
-        const gyroNorm = typeof orientation.gyroNormRad === 'number' ? orientation.gyroNormRad : null;
-        let effectiveStance = false;
+        const quaternion = orientation?.quaternion;
+        const currentPitchDeg = Number.isFinite(orientation?.pitchDeg)
+            ? orientation.pitchDeg
+            : (quaternion && Array.isArray(quaternion) && quaternion.length === 4 ? quatToPitchDeg(quaternion) : null);
 
-        if (quaternion && Array.isArray(quaternion) && quaternion.length === 4) {
-            const currentPitchDeg = quatToPitchDeg(quaternion);
+        const liftEstimate = Number.isFinite(currentPitchDeg)
+            ? liftEstimatorRef.current?.update({
+                ay,
+                az,
+                gx,
+                gy,
+                gz,
+                pitchDeg: currentPitchDeg,
+                sensorMount: activeSensorMountRef.current ?? payload?.sensor_mount ?? 'unknown',
+                timestampMs: payload.timestamp_ms,
+            })
+            : null;
+
+        let estimatorHeightCm = Number.isFinite(liftEstimate?.heightCm) ? liftEstimate.heightCm : 0;
+        const estimatorStable = Boolean(liftEstimate?.isStable);
+        let liveLiftHeightCm = 0;
+        const gyroNorm = typeof orientation.gyroNormRad === 'number' ? orientation.gyroNormRad : null;
+        let effectiveStance = Boolean(liftEstimate?.isStance);
+
+        if (Number.isFinite(currentPitchDeg)) {
             const pitchCloseToBaseline = liftBaselinePitchRef.current === null
                 || Math.abs(currentPitchDeg - liftBaselinePitchRef.current) < 3.0;
-            const pseudoStanceCandidate = (gyroNorm === null || gyroNorm < 0.10) && pitchCloseToBaseline;
+            const pseudoStanceCandidate = (
+                (gyroNorm === null || gyroNorm < 0.10)
+                && pitchCloseToBaseline
+                && estimatorHeightCm < 1.0
+            );
 
             if (effectiveStance || pseudoStanceCandidate) {
                 if (!liftStableSinceRef.current) {
@@ -290,7 +318,10 @@ const GameClearance = () => {
                 }
             }
 
-            const fallbackActive = !effectiveStance && ((gyroNorm !== null && gyroNorm > 0.18) || estimatorHeightCm > 0.5);
+            const fallbackWindowOpen = !estimatorStable || estimatorHeightCm < 1.2;
+            const fallbackActive = !effectiveStance
+                && fallbackWindowOpen
+                && ((gyroNorm !== null && gyroNorm > 0.16) || estimatorHeightCm > 0.35);
 
             if (liftBaselinePitchRef.current !== null && fallbackActive) {
                 const forwardLiftDeg = Math.max(0, (liftBaselinePitchRef.current - currentPitchDeg) - LIFT_DEAD_ZONE_DEG);
@@ -298,15 +329,11 @@ const GameClearance = () => {
             }
         }
 
-        if (effectiveStance) {
-            estimatorHeightCm = 0;
-        }
-
-        const rawPhaseHeightCm = resolvePhaseAwareHeightCm(estimatorHeightCm, liveLiftHeightCm);
+        let rawPhaseHeightCm = estimatorHeightCm;
         const stillnessCandidate = !effectiveStance
             && gyroNorm !== null
             && gyroNorm < STILLNESS_GYRO_THRESHOLD
-            && rawPhaseHeightCm < STILLNESS_HEIGHT_THRESHOLD_CM;
+            && Math.max(estimatorHeightCm, liveLiftHeightCm) < STILLNESS_HEIGHT_THRESHOLD_CM;
 
         if (stillnessCandidate) {
             if (!stillnessStartedAtRef.current) {
@@ -315,9 +342,19 @@ const GameClearance = () => {
 
             if (now - stillnessStartedAtRef.current >= STILLNESS_RESET_MS) {
                 effectiveStance = true;
+                estimatorHeightCm = 0;
+                rawPhaseHeightCm = 0;
+                liftEstimatorRef.current?.forceStance();
             }
         } else {
             stillnessStartedAtRef.current = null;
+        }
+
+        if (!effectiveStance) {
+            const fallbackAssistActive = !estimatorStable || estimatorHeightCm < 1.2;
+            rawPhaseHeightCm = fallbackAssistActive
+                ? resolvePhaseAwareHeightCm(estimatorHeightCm, liveLiftHeightCm)
+                : estimatorHeightCm;
         }
 
         if (effectiveStance) {
@@ -327,17 +364,13 @@ const GameClearance = () => {
             if (!wasInSwingRef.current) {
                 wasInSwingRef.current = true;
                 swingStartedAtRef.current = now;
-                swingHeightFloorRef.current = rawPhaseHeightCm;
                 swingIntegratedHeightRef.current = 0;
                 stillnessStartedAtRef.current = null;
             }
 
-            // Only accumulate lift once the phase is clearly in swing.
             const swingAgeMs = swingStartedAtRef.current ? now - swingStartedAtRef.current : 0;
             const settleFactor = Math.max(0, Math.min(1, swingAgeMs / SWING_SETTLE_MS));
-            swingHeightFloorRef.current = Math.min(swingHeightFloorRef.current, rawPhaseHeightCm);
-            const relativePhaseHeightCm = Math.max(0, rawPhaseHeightCm - swingHeightFloorRef.current);
-            const phaseHeightCm = relativePhaseHeightCm * settleFactor;
+            const phaseHeightCm = rawPhaseHeightCm * settleFactor;
 
             swingIntegratedHeightRef.current += (phaseHeightCm - swingIntegratedHeightRef.current) * SWING_INTEGRATION_ALPHA;
 
