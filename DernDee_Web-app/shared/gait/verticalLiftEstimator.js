@@ -6,12 +6,22 @@ const G_MS2 = 9.81;
 const MAX_LINEAR_ACCEL_MPS2 = 18;
 const MAX_VELOCITY_MPS = 2.5;
 const MAX_HEIGHT_M = 0.35;
-const MIN_STABLE_SWING_SAMPLES = 5;
-const MIN_RELIABLE_HEIGHT_M = 0.012;
-const STANCE_BIAS_ALPHA = 0.08;
+const MIN_STABLE_SWING_SAMPLES = 7;
+const MIN_RELIABLE_HEIGHT_M = 0.015;
+const STANCE_BIAS_ALPHA = 0.14;
 const ACCEL_FILTER_ALPHA = 0.3;
 const HEIGHT_SMOOTH_ALPHA = 0.35;
-const STANCE_ZERO_EPSILON_M = 0.003;
+const STANCE_ZERO_EPSILON_M = 0.005;
+const VERTICAL_ACCEL_DEADBAND_MPS2 = 0.65;
+const SWING_INTEGRATION_START_SAMPLES = 4;
+
+function applySignedDeadband(value, threshold) {
+  if (Math.abs(value) <= threshold) {
+    return 0;
+  }
+
+  return value - (Math.sign(value) * threshold);
+}
 
 function projectVerticalLinearAccelerationMps2(ayRaw, azRaw, pitchDeg, gravity) {
   const ayMps2 = rawAccelToG(ayRaw) * gravity;
@@ -102,6 +112,11 @@ export class VerticalLiftEstimator {
       biasCorrectedLinearAccelMps2 - this.filteredLinearAccelMps2
     ) * ACCEL_FILTER_ALPHA;
 
+    const effectiveLinearAccelMps2 = applySignedDeadband(
+      this.filteredLinearAccelMps2,
+      VERTICAL_ACCEL_DEADBAND_MPS2,
+    );
+
     if (nextPhase === 'STANCE') {
       this.stanceSampleCount += 1;
       this.swingSampleCount = 0;
@@ -123,11 +138,15 @@ export class VerticalLiftEstimator {
       }
 
       this.swingSampleCount += 1;
-      this.verticalVelocityMps = clamp(
-        this.verticalVelocityMps + (this.filteredLinearAccelMps2 * dt),
-        -this.maxVelocityMps,
-        this.maxVelocityMps,
-      );
+      if (this.swingSampleCount < SWING_INTEGRATION_START_SAMPLES) {
+        this.verticalVelocityMps = 0;
+      } else {
+        this.verticalVelocityMps = clamp(
+          this.verticalVelocityMps + (effectiveLinearAccelMps2 * dt),
+          -this.maxVelocityMps,
+          this.maxVelocityMps,
+        );
+      }
 
       const nextDisplacementM = this.verticalDisplacementM + (this.verticalVelocityMps * dt);
       this.verticalDisplacementM = clamp(nextDisplacementM, 0, this.maxHeightM);
@@ -157,7 +176,7 @@ export class VerticalLiftEstimator {
       isStable: this.isStable,
       heightCm: this.smoothedHeightM * 100,
       rawHeightCm: this.verticalDisplacementM * 100,
-      linearVerticalAccelMps2: this.filteredLinearAccelMps2,
+      linearVerticalAccelMps2: effectiveLinearAccelMps2,
       swingSamples: this.swingSampleCount,
       debug: stepState.debug,
     };

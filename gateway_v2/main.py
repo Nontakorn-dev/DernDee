@@ -13,11 +13,15 @@ import websockets
 
 from connection import MultiBLEManager
 from decoder import decode_packet
+from gateway_lift_estimator import GatewayLiftEstimator
+from scaling import scale_data
 from session_persistence import SessionPersistenceManager, SupabaseSessionRepository
 
 connected_clients = set()
 session_persistence = SessionPersistenceManager(SupabaseSessionRepository())
 calibration_task: asyncio.Task | None = None
+lift_estimators: dict[str, GatewayLiftEstimator] = {}
+lift_estimator_last_timestamps_ms: dict[str, float] = {}
 
 
 def infer_sensor_mount(sender_name):
@@ -30,8 +34,64 @@ def infer_side(sender_name):
     return "R"
 
 
+def apply_foot_axis_config(ax, ay, az, gx, gy, gz, is_right=False):
+    del is_right
+    n_ax = ay
+    n_ay = -ax
+    n_az = az
+
+    n_gx = gy
+    n_gy = -gx
+    n_gz = gz
+    return n_ax, n_ay, n_az, n_gx, n_gy, n_gz
+
+
+def get_gateway_lift_state(sender_name, raw_payload):
+    physics = scale_data(raw_payload)
+    sensor_mount = infer_sensor_mount(sender_name)
+
+    estimator = lift_estimators.get(sender_name)
+    if estimator is None:
+        estimator = GatewayLiftEstimator(sample_rate=100.0, sensor_mount=sensor_mount)
+        lift_estimators[sender_name] = estimator
+    else:
+        estimator.set_sensor_mount(sensor_mount)
+
+    ax_raw, ay_raw, az_raw = physics['accel']
+    gx_raw, gy_raw, gz_raw = physics['gyro']
+    current_timestamp_ms = physics['timestamp']
+    dt_sec = 0.01
+    last_timestamp_ms = lift_estimator_last_timestamps_ms.get(sender_name)
+    if last_timestamp_ms is not None:
+        diff_ms = current_timestamp_ms - last_timestamp_ms
+        if 0 < diff_ms < 500:
+            dt_sec = diff_ms / 1000.0
+    lift_estimator_last_timestamps_ms[sender_name] = current_timestamp_ms
+
+    is_right = '_R_' in sender_name or 'Right' in sender_name or 'R_Shank' in sender_name
+    ax, ay, az, gx, gy, gz = apply_foot_axis_config(
+        ax_raw,
+        ay_raw,
+        az_raw,
+        gx_raw,
+        gy_raw,
+        gz_raw,
+        is_right=is_right,
+    )
+
+    return estimator.update(
+        [ax, ay, az],
+        [gx, gy, gz],
+        current_timestamp_ms,
+        dt=dt_sec,
+    )
+
+
 def reset_runtime_state():
     session_persistence.reset()
+    for estimator in lift_estimators.values():
+        estimator.reset()
+    lift_estimator_last_timestamps_ms.clear()
 
 
 def cancel_calibration_task():
@@ -176,6 +236,12 @@ def data_handler(sender_name, data):
     if not raw:
         return
 
+    lift_state = None
+    try:
+        lift_state = get_gateway_lift_state(sender_name, raw)
+    except Exception as error:
+        print(f"⚠️ Gateway lift estimator failed for {sender_name}: {error}")
+
     payload = {
         "type": "DATA",
         "payload": {
@@ -187,6 +253,15 @@ def data_handler(sender_name, data):
             "raw_gyro": raw["raw_gyro"],
         },
     }
+
+    if lift_state:
+        payload['payload'].update({
+            'is_stance': lift_state['is_stance'],
+            'position': lift_state['position'],
+            'velocity': lift_state['velocity'],
+            'quaternion': lift_state['quaternion'],
+        })
+
     asyncio.create_task(broadcast(payload))
 
 
