@@ -52,7 +52,7 @@ create table if not exists public.sessions (
   id uuid primary key default gen_random_uuid(),
   patient_id uuid not null references public.profiles (id) on delete cascade,
   gateway_session_id text unique,
-  source text not null default 'gateway_v2',
+  source text not null default 'frontend',
   session_type text not null default 'free_walk',
   start_time timestamptz not null,
   end_time timestamptz,

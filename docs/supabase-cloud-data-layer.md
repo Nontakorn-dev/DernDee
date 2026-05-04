@@ -1,6 +1,6 @@
 # Supabase Cloud Data Layer
 
-อัปเดตตามโค้ดใน repository นี้ ณ วันที่ 2026-05-01
+อัปเดตตามโค้ดใน repository นี้ ณ วันที่ 2026-05-04
 
 ## Goal
 
@@ -15,15 +15,15 @@ Supabase เป็น data layer กลางของระบบสำหร�
 
 หลักการสำคัญของโปรเจกต์นี้คือ:
 
-- browser ไม่ใช่ source of truth สำหรับ gait persistence
-- `gateway_v2` เป็น service เดียวที่รู้ว่ามี gait events จริงเกิดขึ้นเมื่อไร
-- frontend มีหน้าที่ส่ง session lifecycle commands และอ่านผลที่ถูก persist แล้วกลับมาแสดง
+- realtime transport อยู่ใน browser ผ่าน Browser BLE
+- frontend เป็นเจ้าของ session lifecycle และ session persistence เอง
+- Supabase เป็น source of truth สำหรับข้อมูลย้อนหลังและ doctor review
 
-## Persistence split ปัจจุบัน
+## Persistence path ปัจจุบัน
 
-ระบบนี้ใช้ 2 เส้นทาง persistence พร้อมกัน:
+ระบบนี้ใช้ browser-side persistence เป็นหลัก
 
-### 1. Browser-side Supabase access
+### Browser-side Supabase access
 
 ใช้ `@supabase/supabase-js` สำหรับ:
 
@@ -33,11 +33,6 @@ Supabase เป็น data layer กลางของระบบสำหร�
 - history reads
 - clinic dashboard and patient detail reads
 - doctor review updates
-
-### 2. Gateway-side Supabase access
-
-ใช้ service role key ใน `gateway_v2` สำหรับ:
-
 - persist completed `sessions`
 - persist `gait_metrics` รายก้าวสำหรับ `free_walk`
 - persist `sessions.details` สำหรับ game-specific summaries
@@ -58,6 +53,7 @@ table หลักที่ใช้งานจริง:
 
 - `patient_id`
 - `session_type`
+- `gateway_session_id` สำหรับ compatibility กับ schema เดิม แม้ตอนนี้จะ generate จาก frontend
 - `start_time`, `end_time`, `duration_seconds`
 - `total_steps`
 - `avg_speed_mps`, `cadence_spm`
@@ -130,10 +126,11 @@ table หลักที่ใช้งานจริง:
 
 แนวคิดหลักของ RLS ปัจจุบัน:
 
-- patient อ่าน/แก้ข้อมูลตัวเองได้
+- patient อ่านหรือแก้ข้อมูลตัวเองได้
+- patient insert session ของตัวเองได้ผ่าน browser session persistence path
 - doctor อ่านข้อมูลได้เฉพาะ patient ที่ถูก assign ผ่าน `doctor_patient_assignments`
 - doctor update `sessions` ได้เฉพาะ row ของ patient ที่ตัวเองรับผิดชอบ
-- `gait_metrics` select อิงจาก session ownership/assignment ไม่ได้เปิด public
+- `gait_metrics` select อิงจาก session ownership หรือ assignment ไม่ได้เปิด public
 
 ## Frontend integration points
 
@@ -142,30 +139,16 @@ table หลักที่ใช้งานจริง:
 - `DernDee_Web-app/shared/supabase/client.js`
 - `DernDee_Web-app/shared/services/profileService.js`
 - `DernDee_Web-app/shared/services/sessionService.js`
+- `DernDee_Web-app/shared/hooks/usePersistedGatewaySession.js`
 - `DernDee_Web-app/shared/context/UserAuthContext.jsx`
 
 บทบาทของแต่ละชิ้น:
 
 - `client.js` สร้าง browser Supabase client และ auth redirect utilities
 - `profileService.js` จัดการ profile normalization, upsert, patient presence
-- `sessionService.js` query history/dashboard/review และ map session rows เป็น UI-friendly model
+- `sessionService.js` query history หรือ review และ insert session rows จาก frontend
+- `usePersistedGatewaySession.js` orchestrate session lifecycle กับ realtime transport และเรียก `persistSessionFromFrontend()`
 - `UserAuthContext.jsx` ถือ auth state กลางของ app ทั้ง patient และ clinic
-
-## Gateway integration points
-
-ไฟล์สำคัญ:
-
-- `gateway_v2/main.py`
-- `gateway_v2/session_persistence.py`
-
-flow ปัจจุบัน:
-
-1. frontend ส่ง `START_SESSION`
-2. gateway เปิด active session in memory
-3. gateway broadcast realtime `DATA`
-4. frontend ส่ง `END_SESSION` พร้อม `summary` และ `details`
-5. gateway persist `sessions`
-6. gateway persist `gait_metrics` เฉพาะ session types ที่อนุญาต
 
 ## Environment files
 
@@ -183,22 +166,15 @@ flow ปัจจุบัน:
 - `VITE_SUPABASE_SKIP_EMAIL_CONFIRMATION`
 - `SUPABASE_SERVICE_ROLE_KEY` เฉพาะ local dev signup helper ใน Vite middleware
 
-### Gateway `.env`
-
-จำเป็น:
-
-- `SUPABASE_URL`
-- `SUPABASE_SERVICE_ROLE_KEY`
-
 ## Deployment checklist
 
 1. Apply migrations ใน `supabase/migrations/` ให้ครบอย่างน้อย 001, 002, และ 003
 2. กำหนด frontend env vars ให้ถูกต้อง
-3. กำหนด gateway env vars ให้ถูกต้อง และเก็บ service role ไว้เฉพาะ gateway
-4. ตั้งค่า Supabase Auth redirect URLs ให้ตรงกับ deployment target
-5. promote doctor users โดย update `profiles.role = 'doctor'`
-6. สร้าง `doctor_patient_assignments` สำหรับคู่ doctor/patient ที่ต้องใช้งาน
-7. รัน frontend และ gateway พร้อมกันเพื่อให้ session write path สมบูรณ์
+3. ตั้งค่า Supabase Auth redirect URLs ให้ตรงกับ deployment target
+4. promote doctor users โดย update `profiles.role = 'doctor'`
+5. สร้าง `doctor_patient_assignments` สำหรับคู่ doctor/patient ที่ต้องใช้งาน
+6. deploy frontend บน origin ที่ใช้ browser และ device ที่รองรับ Web Bluetooth
+7. ทดสอบ Browser BLE pairing, calibration, และ session persistence บน environment จริงก่อนเปิดใช้งาน
 
 ## Operational notes
 

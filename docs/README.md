@@ -1,31 +1,31 @@
 # DernDee Documentation
 
-อัปเดตตามโค้ดใน repository นี้ ณ วันที่ 2026-05-01
+อัปเดตตามโค้ดใน repository นี้ ณ วันที่ 2026-05-04
 
-เอกสารชุดนี้เป็น source of truth สำหรับสถานะระบบปัจจุบัน แทนไฟล์ `PROJECT_SUMMARY.md` เดิมที่อิงสถาปัตย์เก่า
+เอกสารชุดนี้เป็น source of truth สำหรับสถาปัตย์ปัจจุบัน หลังย้าย realtime transport ไป Browser BLE และถอด Python gateway ออกจาก repo
 
 ## เริ่มอ่านจากไฟล์ไหน
 
 1. `system-overview.md`
-   ภาพรวมทั้งระบบ, องค์ประกอบหลัก, data flow ระดับสูง, และข้อจำกัดการใช้งานจริง
+   ภาพรวมทั้งระบบ, runtime flow ระดับสูง, และข้อจำกัดของ Browser BLE
 
 2. `frontend-apps.md`
-   โครงสร้างเว็บแอปฝั่ง patient, clinic, shared layer, และหน้าที่ของ route หลัก
+   โครงสร้าง patient app, clinic app, gait dashboard, shared hooks, และ route สำคัญ
 
-3. `realtime-gateway.md`
-   รายละเอียด Python gateway, BLE ingestion, WebSocket contract, firmware compatibility, และ persistence policy
+3. `realtime-browser-ble.md`
+   รายละเอียด realtime transport ปัจจุบัน, message contract, และ Browser BLE runbook
 
 4. `supabase-cloud-data-layer.md`
-   แบบข้อมูลบน Supabase, migration สำคัญ, RLS model, และเส้นทาง persistence ระหว่าง frontend กับ gateway
+   แบบข้อมูลบน Supabase, migration สำคัญ, และ path การ persist ที่ frontend รับผิดชอบเอง
 
 ## สรุปสถาปัตย์ปัจจุบัน
 
 - `DernDee_Web-app` เป็น React + Vite multi-entry app ที่มี patient app, clinic app, และ gait dashboard อยู่ใน repo เดียวกัน
-- `gateway_v2` เป็น Python realtime gateway สำหรับรับ BLE IMU, ประมวลผล gait, และ broadcast ผ่าน WebSocket ที่พอร์ต `8765`
-- `Hardware` เก็บ firmware ฝั่ง ESP32/IMU หลายตัว แต่ gateway ปัจจุบัน decode packet format ที่ตรงกับ `Hardware/esp32_imu_node.ino`
-- authentication, profile, history, clinic review, และ doctor-patient assignment ย้ายมาอยู่บน Supabase แล้ว
-- Free Walk จะ persist `sessions` และ `gait_metrics` รายก้าว
-- High Stepper, Magic Plate, และ Rhythm Drummer จะ persist เฉพาะ `sessions` summary และ `sessions.details` เพื่อคุม Supabase write volume
+- realtime transport ใช้ Browser BLE ใน `shared/gateway/realtimeTransport.js` เป็นค่า default
+- `Hardware` เก็บ firmware ฝั่ง ESP32/IMU หลายตัว โดย packet format ปัจจุบันอิง `Hardware/esp32_imu_node.ino`
+- authentication, profile, history, clinic review, และ doctor-patient assignment อยู่บน Supabase
+- Free Walk persist `sessions` และ `gait_metrics` จาก frontend โดยตรง
+- High Stepper, Magic Plate, และ Rhythm Drummer persist `sessions` summary และ `sessions.details`
 
 ## แผนที่เอกสาร
 
@@ -33,7 +33,7 @@
 | --- | --- |
 | `system-overview.md` | ภาพรวมระบบ, runtime flow, โครงสร้าง repo, ข้อจำกัดหลัก |
 | `frontend-apps.md` | โครงสร้าง frontend, route map, shared services, patient/clinic flows |
-| `realtime-gateway.md` | gateway internals, WebSocket messages, persistence rules, firmware notes |
+| `realtime-browser-ble.md` | Browser BLE transport, control messages, firmware notes, runbook |
 | `supabase-cloud-data-layer.md` | schema, migrations, RLS, environment variables, deployment checklist |
 
 ## โฟลเดอร์สำคัญใน repo
@@ -45,7 +45,6 @@
 | `DernDee_Web-app/apps/clinic/` | doctor/clinic web app |
 | `DernDee_Web-app/shared/gait-dashboard/` | shared dashboard runtime, UI helpers, styles, และ demo data |
 | `DernDee_Web-app/shared/` | shared auth, Supabase services, assets, styles, hooks |
-| `gateway_v2/` | BLE/WebSocket gateway และ session persistence |
 | `Hardware/` | firmware และ prototype code ฝั่ง ESP32/IMU |
 | `supabase/migrations/` | migration scripts สำหรับ schema ปัจจุบัน |
 

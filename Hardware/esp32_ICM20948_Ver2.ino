@@ -3,7 +3,7 @@
  *
  * Goals:
  * - ESP32-C3-safe single-core task model
- * - 100 Hz Packet V1 stream compatible with gateway_v2/decoder.py
+ * - 100 Hz Packet V1 stream compatible with the frontend Browser BLE decoder
  * - Raw accel/gyro int16 delivery (no scaling, no fusion)
  * - Automatic BLE advertising restart after disconnect
  *

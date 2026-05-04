@@ -1,6 +1,5 @@
 const TRANSPORT_MODE_STORAGE_KEY = 'derndee:realtime-transport-mode'
 const DEVICE_ASSIGNMENTS_STORAGE_KEY = 'derndee:browser-ble-assignments'
-const TRANSPORT_MODE_GATEWAY = 'gateway'
 const TRANSPORT_MODE_WEB_BLUETOOTH = 'web-bluetooth'
 const BLE_SERVICE_UUID = '4fafc201-1fb5-459e-8fcc-c5c9c331914b'
 const BLE_CHARACTERISTIC_UUID = 'beb5483e-36e1-4688-b7f5-ea07361b26a8'
@@ -15,16 +14,13 @@ const BODY_POSITIONS = [
   { id: 'RIGHT_SHANK', name: 'Right Ankle', order: 5, deviceId: 'DernDee_Sensor_005' },
 ]
 
-function getDefaultWsUrl() {
-  return `ws://${window.location.hostname}:8765`
-}
-
 function getStoredMode() {
   if (typeof window === 'undefined') {
-    return TRANSPORT_MODE_GATEWAY
+    return TRANSPORT_MODE_WEB_BLUETOOTH
   }
 
-  return window.sessionStorage.getItem(TRANSPORT_MODE_STORAGE_KEY) || TRANSPORT_MODE_GATEWAY
+  const storedMode = window.sessionStorage.getItem(TRANSPORT_MODE_STORAGE_KEY)
+  return storedMode === TRANSPORT_MODE_WEB_BLUETOOTH ? storedMode : TRANSPORT_MODE_WEB_BLUETOOTH
 }
 
 function setStoredMode(mode) {
@@ -215,16 +211,13 @@ class BrowserBleManager {
   }
 
   setMode(nextMode) {
-    if (nextMode === this.mode) {
+    void nextMode
+    if (this.mode === TRANSPORT_MODE_WEB_BLUETOOTH) {
       return
     }
 
-    this.mode = nextMode
-    setStoredMode(nextMode)
-    if (nextMode !== TRANSPORT_MODE_WEB_BLUETOOTH) {
-      void this.disconnectAllDevices({ keepMode: true })
-      this.forceCloseSockets()
-    }
+    this.mode = TRANSPORT_MODE_WEB_BLUETOOTH
+    setStoredMode(TRANSPORT_MODE_WEB_BLUETOOTH)
     this.notifyModeListeners()
   }
 
@@ -537,8 +530,8 @@ class BrowserBleManager {
       this.persistAssignments()
     }
     if (!keepMode) {
-      this.mode = TRANSPORT_MODE_GATEWAY
-      setStoredMode(TRANSPORT_MODE_GATEWAY)
+      this.mode = TRANSPORT_MODE_WEB_BLUETOOTH
+      setStoredMode(TRANSPORT_MODE_WEB_BLUETOOTH)
       this.notifyModeListeners()
     }
   }
@@ -628,16 +621,11 @@ const browserBleManager = new BrowserBleManager()
 
 export {
   BODY_POSITIONS,
-  TRANSPORT_MODE_GATEWAY,
   TRANSPORT_MODE_WEB_BLUETOOTH,
 }
 
 export function createRealtimeConnection() {
-  if (browserBleManager.getMode() === TRANSPORT_MODE_WEB_BLUETOOTH) {
-    return browserBleManager.createSocket()
-  }
-
-  return new WebSocket(getDefaultWsUrl())
+  return browserBleManager.createSocket()
 }
 
 export function getRealtimeTransportMode() {

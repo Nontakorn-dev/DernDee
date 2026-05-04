@@ -1,200 +1,87 @@
-# Derndee - Health Tech Platform
+# DernDee Web App
 
-Derndee เป็นแพลตฟอร์ม Health Tech ที่ปฏิวัติการทำกายภาพบำบัดการเดิน โดยใช้ระบบอุปกรณ์สวมใส่ (Wearable Sensors) ร่วมกับปัญญาประดิษฐ์ (AI) เพื่อมอบประสบการณ์การฟื้นฟูที่แม่นยำและสามารถทำได้จากที่บ้าน
+DernDee_Web-app เป็น frontend หลักของระบบ DernDee ที่รวม patient app, clinic app, shared gait dashboard, Browser BLE realtime transport, และ Supabase integration ไว้ใน workspace เดียวกัน
 
-## 🚀 ระบบประกอบด้วย
+## Stack ปัจจุบัน
 
-### 1. ฝ่ายฮาร์ดแวร์ (Hardware)
-- **สมองกลหลัก**: ESP32-C3 สำหรับประมวลผล Sensor Fusion
-- **เซ็นเซอร์**: 9-axis ICM-20948 ในรูปแบบ Quaternion
-- **การเชื่อมต่อ**: Bluetooth Low Energy (BLE) เพื่อประหยัดแบตเตอรี่
-- **ตำแหน่งติดตั้ง**: อก, ต้นขาซ้าย, ต้นขาขวา, ข้อเท้าซ้าย, ข้อเท้าขวา
+- Frontend: React + Vite
+- Auth และ data layer: Supabase
+- Realtime transport: Browser BLE ผ่าน `shared/gateway/realtimeTransport.js`
+- Shared gait logic: JavaScript modules ใน `shared/gait/`
 
-### 2. ฝ่ายปัญญาประดิษฐ์ (AI & Data Processing)
-- **อัลกอริทึม**: Dynamic Time Warping (DTW)
-- **ข้อมูล Input**: ข้อมูลการหมุน (Quaternion) จากอุปกรณ์
-- **การเปรียบเทียบ**: ท่าเดินของผู้ใช้กับคลังข้อมูลท่าเดินต้นแบบ (Gait Library)
-- **การวินิจฉัย**: แยกแยะท่าที่ "ถูก" (Golden Template) และ "ผิด" (Error Templates)
+## Prerequisites
 
-### 3. ฝ่ายซอฟต์แวร์ (Software & Technology Stack)
-- **Frontend**: React + Vite (JavaScript/JSX)
-- **Backend**: Supabase + Python WebSocket Gateway (`gateway_v2`)
-- **สถาปัตยกรรม**: Hybrid Processing
-  - **On-Device**: ประมวลผล Real-time (Avatar, AI)
-   - **Server-Side**: Supabase Auth/Data Layer, คลังข้อมูล, รายงานสำหรับนักกายภาพบำบัด
-
-## 🛠️ การติดตั้งและรันโปรเจค
-
-### Prerequisites
-- Node.js (v16 หรือสูงกว่า)
-- npm หรือ yarn
+- Node.js 18 หรือใหม่กว่า
+- npm
 - Supabase project
-- Python environment สำหรับ `gateway_v2`
+- browser ที่รองรับ Web Bluetooth สำหรับ live sensor mode
 
-### ขั้นตอนการติดตั้ง
+## Setup
 
-1. **Clone โปรเจค**
+1. ติดตั้ง dependencies
+
 ```bash
-git clone <repository-url>
-cd Database
-```
-
-2. **ติดตั้ง Dependencies**
-```bash
+cd DernDee_Web-app
 npm install
 ```
 
-3. **ตั้งค่า Supabase และ Gateway**
-   - ดูรายละเอียด schema และ data flow ที่ `../docs/supabase-cloud-data-layer.md`
-   - คัดลอก `.env.example` เป็น `.env` ใน `DernDee_Web-app/` และ `gateway_v2/`
-   - ใส่ค่า `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`
-   - apply SQL migration ใน `../supabase/migrations/20260430000100_initial_cloud_data_layer.sql`
+2. ตั้งค่า environment variables
 
-4. **รันโปรเจค**
+- คัดลอก `.env.example` เป็น `.env`
+- ใส่ค่า `VITE_SUPABASE_URL` และ `VITE_SUPABASE_ANON_KEY`
+- ถ้าใช้ local signup helper ให้เติม `SUPABASE_SERVICE_ROLE_KEY` ตามที่ `vite.config.js` รองรับใน dev เท่านั้น
+
+3. รัน dev server
+
 ```bash
 npm run dev
 ```
 
-5. **เปิดเบราว์เซอร์**
-   - Patient app: `http://localhost:5174`
-   - Clinic app: `http://localhost:5174/clinic/`
-   - Gait dashboard: `http://localhost:5174/gait-dashboard`
+## Routes สำคัญ
 
-## 🔐 ระบบ Authentication
+- Patient app: `http://localhost:5174`
+- Clinic app: `http://localhost:5174/clinic/`
+- Gait dashboard: `http://localhost:5174/gait-dashboard`
 
-### Google Sign-in
-- ใช้ Supabase Authentication
-- รองรับ Google Sign-in
-- สร้างโปรไฟล์ผู้ใช้ใหม่ใน `profiles` อัตโนมัติ
-- จัดเก็บข้อมูลกายภาพบำบัดและ session data ใน Supabase
+## Live sensor workflow
 
-### การจัดการผู้ใช้
-- **ผู้ใช้ใหม่**: สร้างโปรไฟล์พร้อมข้อมูลกายภาพบำบัด
-- **ผู้ใช้เก่า**: อัปเดตเวลาล็อกอินล่าสุด
-- **ข้อมูลที่เก็บ**: UID, อีเมล, ชื่อ, รูปโปรไฟล์, เวลาสร้าง, เวลาล็อกอินล่าสุด
+1. เปิด patient app
+2. เข้า `Device Connection`
+3. pair sensors ผ่านปุ่ม `Connect via BLE`
+4. ไป `Calibration` และเริ่ม session ได้เลย
+5. Free Walk, เกม, และ gait dashboard จะใช้ stream เดียวกันจาก Browser BLE transport
 
-## 🎨 UI/UX Features
+## โครงสร้างหลัก
 
-### Design System
-- **สีหลัก**: สีเขียว (#4CAF50) และสีฟ้า (#2196F3)
-- **Typography**: Inter font family
-- **Layout**: Responsive design สำหรับทุกขนาดหน้าจอ
-- **Animations**: Smooth transitions และ hover effects
-
-### Components
-- **Logo**: ไอคอนรูปคนพร้อมสัญลักษณ์ Wi-Fi
-- **Social Login**: Google, Facebook, Apple (พร้อมใช้งาน)
-- **Forms**: Input fields พร้อม validation
-- **Cards**: Feature cards และ user info cards
-- **Buttons**: Primary, secondary, และ action buttons
-
-## 📱 หน้าจอหลัก
-
-### 1. Welcome Page (/)
-- Hero section พร้อมโลโก้และคำอธิบาย
-- Features preview
-- Action buttons สำหรับ Login และ Register
-
-### 2. Login Page (/login)
-- Social login options
-- Traditional email/password login
-- Validation และ error handling
-
-### 3. Register Page (/register)
-- Social sign-up options
-- Email/password registration
-- Password confirmation
-
-### 4. Home Page (/home)
-- User profile information
-- Features overview
-- Quick action buttons
-- Responsive dashboard
-
-## 🔧 การพัฒนา
-
-### Project Structure
-```
+```text
 apps/
 ├── patient/
-│   ├── index.html              # Patient React entry
+│   ├── index.html
 │   └── src/
-│       ├── main.jsx            # Patient app route entry
-│       └── components/         # Patient pages and games
+│       ├── main.jsx
+│       └── components/
 └── clinic/
-    ├── index.html              # Clinic React entry
-    ├── src/
-    │   ├── main.jsx            # Clinic app route entry
-    │   ├── components/         # Doctor dashboard screens
-    │   └── data/               # Clinic mock data, to be replaced by Supabase
-    └── gait-dashboard/
-        ├── index.html          # Live gait visualization entry
-        ├── main.js
-        ├── data/
-        ├── dsp/
-        ├── styles/
-        └── ui/
+    ├── index.html
+    └── src/
+        ├── main.jsx
+        ├── components/
+        └── data/
 
 shared/
-├── assets/                     # Shared images, avatars, and voice assets
-├── context/
-│   └── UserAuthContext.jsx     # Shared auth/session context
+├── assets/
 ├── auth/
-│   └── ProtectedRoute.jsx      # Shared route guard
-├── firebase.js                 # Shared Firebase bootstrap
-└── index.css                   # Shared global styles
-
-vercel.json                     # Production route rewrites for BrowserRouter apps
+├── context/
+├── gait/
+├── gait-dashboard/
+├── gateway/
+├── hooks/
+├── sensor/
+├── services/
+└── supabase/
 ```
 
-### Key Features
-- **Protected Routes**: การป้องกันเส้นทางที่ต้องล็อกอิน
-- **Loading States**: แสดงสถานะการโหลดระหว่างการทำงาน
-- **Error Handling**: จัดการข้อผิดพลาดและแสดงข้อความที่เหมาะสม
-- **Responsive Design**: รองรับทุกขนาดหน้าจอ
-- **Modern UI**: ใช้ CSS Grid, Flexbox, และ CSS Variables
+## หมายเหตุ
 
-## 🚀 การ Deploy
-
-### Build สำหรับ Production
-```bash
-npm run build
-```
-
-### Deploy บน Vercel
-```bash
-npm run build
-```
-
-The current Vite build emits separate entries for the patient app, clinic app, and clinic gait dashboard. This is the first step toward mapping them to `app.derndee.com` and `clinic.derndee.com`.
-
-## 🔮 Roadmap
-
-### Phase 1: Authentication & Basic UI ✅
-- [x] Google Sign-in
-- [x] User profile management
-- [x] Responsive design
-- [x] Modern UI components
-
-### Phase 2: Hardware Integration
-- [ ] BLE device connection
-- [ ] Sensor data processing
-- [ ] Real-time data streaming
-
-### Phase 3: AI Implementation
-- [ ] DTW algorithm integration
-- [ ] Gait analysis
-- [ ] Real-time feedback
-
-### Phase 4: Physical Therapy Features
-- [ ] Session management
-- [ ] Progress tracking
-- [ ] Therapist dashboard
-
-## 📞 ติดต่อ
-
-สำหรับคำถามหรือการสนับสนุนเพิ่มเติม กรุณาติดต่อทีมพัฒนา Derndee
-
----
-
-**หมายเหตุ**: โปรเจคนี้เป็นส่วนหนึ่งของระบบ Health Tech ที่กำลังพัฒนา โปรดติดตามการอัปเดตและฟีเจอร์ใหม่ๆ
+- realtime mode ไม่ต้องพึ่ง Python gateway แล้ว
+- session persistence เกิดจาก frontend โดยตรงผ่าน `shared/services/sessionService.js`
+- ถ้า browser ไม่รองรับ Web Bluetooth, gait dashboard ยังใช้ demo mode ได้ แต่ session จริงจาก sensor จะไม่ทำงาน

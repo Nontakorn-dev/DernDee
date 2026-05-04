@@ -1,6 +1,6 @@
 # Frontend Apps
 
-อัปเดตตามโค้ดใน repository นี้ ณ วันที่ 2026-05-01
+อัปเดตตามโค้ดใน repository นี้ ณ วันที่ 2026-05-04
 
 ## 1. โครงสร้าง frontend ปัจจุบัน
 
@@ -34,7 +34,7 @@ alias หลัก:
 
 ## 3. Shared Layer
 
-shared layer เป็นหัวใจของ frontend ปัจจุบัน เพราะทั้ง patient และ clinic ใช้ auth/data model ชุดเดียวกัน
+shared layer เป็นหัวใจของ frontend ปัจจุบัน เพราะทั้ง patient และ clinic ใช้ auth, transport, และ data model ชุดเดียวกัน
 
 ### 3.1 Auth และ profile
 
@@ -53,20 +53,25 @@ shared layer เป็นหัวใจของ frontend ปัจจุบั
 - heartbeat `patient_presence` ทุก 30 วินาทีเมื่อ patient online
 - mark offline ตอน logout, unload, หรือ tab hidden
 
-### 3.2 Session data
+### 3.2 Realtime transport และ session data
 
 ไฟล์สำคัญ:
 
+- `shared/gateway/realtimeTransport.js`
 - `shared/services/sessionService.js`
 - `shared/hooks/usePersistedGatewaySession.js`
 
 หน้าที่หลัก:
 
+- pair sensors ผ่าน Browser BLE
+- decode Packet V1 และส่ง `DATA` payloads ไป routes ที่เปิด realtime connection
+- emulate `CALIBRATE`, `RESET`, `START_SESSION`, `END_SESSION` ใน browser
 - query history และ latest session ของ patient
 - query dashboard, patient detail, และ analysis review ของ doctor
 - map `session_type` ไปเป็น labels, descriptions, tones, และ card metrics
-- handle fallback กรณี database ยังไม่มีคอลัมน์ `sessions.details`
-- ส่ง `START_SESSION` / `END_SESSION` สำหรับ Free Walk และเกมทั้งหมดผ่าน WebSocket
+- persist `sessions` และ `gait_metrics` ลง Supabase จาก frontend โดยตรง
+
+หมายเหตุ: hook ยังใช้ชื่อ `usePersistedGatewaySession.js` ตามชื่อเดิม แต่ path ปัจจุบันไม่ได้พึ่ง Python gateway แล้ว
 
 ## 4. Patient App
 
@@ -82,6 +87,7 @@ entry file: `apps/patient/src/main.jsx`
 | `/profile` | `Profile.jsx` | profile editing + patient ID display |
 | `/settings` | `Settings.jsx` | settings UI |
 | `/therapy` | `TherapySelect.jsx` | เลือก therapy mode |
+| `/device-connection` | `DeviceConnection.jsx` | pair และดูสถานะ Browser BLE sensors |
 | `/calibration` | `Calibration.jsx` | calibration ก่อนเริ่ม session |
 | `/walk-session` | `WalkSession.jsx` | free walk realtime session |
 | `/walk-summary` | `WalkSummary.jsx` | summary หลังจบ walk |
@@ -100,13 +106,13 @@ entry file: `apps/patient/src/main.jsx`
   - อ่านจาก Supabase และแยก card ตาม `session_type`
 - `Profile.jsx`
   - profile image, editable profile, และ patient user ID
+- `DeviceConnection.jsx`
+  - pair sensor จริงผ่าน Browser BLE และเก็บ assignment ไว้ reuse ข้าม route
 - `WalkSession.jsx`
-  - realtime WebSocket + gateway session persistence
+  - realtime Browser BLE + frontend session persistence
 
 ### Patient screens ที่ยังเป็น prototype บางส่วน
 
-- `DeviceConnection.jsx`
-  - เป็น simulated device UX ไม่ใช่ Web Bluetooth production integration
 - `Telemedicine.jsx`
   - ยังเป็น UI/prototype มากกว่า backend-integrated telehealth flow
 - `AnalysisResult.jsx`
@@ -117,14 +123,14 @@ entry file: `apps/patient/src/main.jsx`
 ### High Stepper
 
 - file: `apps/patient/src/components/games/GameClearance.jsx`
-- รับ realtime state จาก WebSocket
+- รับ realtime state จาก Browser BLE transport
 - persist session type `high_stepper`
 - ใส่ `details` เช่น `red_line_hits`, `target_reps`, `target_height_cm`, `goal_progress_percent`, `stability_score`
 
 ### Magic Plate
 
 - file: `apps/patient/src/components/games/GameBalance.jsx`
-- ใช้ quaternion/tilt สำหรับ balance training
+- ใช้ quaternion หรือ tilt สำหรับ balance training
 - persist session type `magic_plate`
 - ใส่ `details` เช่น time in zones, center hold %, avg deviation
 
@@ -161,15 +167,14 @@ clinic app ใช้ `basename = '/clinic'` และมี doctor role guard �
 
 dashboard logic และ styles กลางอยู่ที่ `DernDee_Web-app/shared/gait-dashboard/`
 
-ตอนนี้ dashboard หลักถูกเปิดผ่าน patient route ` /gait-dashboard ` โดย `apps/patient/src/components/GaitDashboard.jsx`
-
-ปุ่มจากฝั่ง clinic จะเด้งมายัง route กลางนี้ และ path เก่า `/clinic/gait-dashboard` ถูกใช้เป็น compatibility redirect เท่านั้น
+ตอนนี้ dashboard หลักถูกเปิดผ่าน patient route `/gait-dashboard` โดย `apps/patient/src/components/GaitDashboard.jsx`
 
 หน้าที่หลัก:
 
-- แสดง signal-level view ของ raw/processed gait data
-- ใช้ realtime transport เดียวกับ patient app และสามารถ reuse Browser BLE connection เดิมได้เมื่อ dashboard ถูกเปิดจาก route กลางนี้
-- ไม่ใช่ source of truth สำหรับ persistence; persistence ยังอยู่ที่ Supabase + gateway
+- แสดง signal-level view ของ raw และ processed gait data
+- ใช้ realtime transport เดียวกับ patient app
+- สามารถ reuse Browser BLE connection เดิมได้ถ้า sensor ยังเชื่อมอยู่ใน session เดียวกัน
+- fallback เป็น demo mode เมื่อไม่มี sensor ที่ pair ไว้หรือ browser ไม่รองรับ Web Bluetooth
 
 ## 8. Frontend data presentation model
 
@@ -179,7 +184,7 @@ session cards ปัจจุบันไม่ได้ render field ดิบ�
 
 - map `session_type` ไปเป็น display label เช่น Free Walk, High Stepper, Magic Plate, Rhythm Drummer
 - map `details` ไปเป็น card metrics ที่อ่านง่าย
-- ใช้ tone/color ต่างกันตาม session type ทั้งฝั่ง patient history และ clinic patient detail
+- ใช้ tone หรือ color ต่างกันตาม session type ทั้งฝั่ง patient history และ clinic patient detail
 
 ## 9. Frontend environment variables
 
@@ -201,4 +206,4 @@ session cards ปัจจุบันไม่ได้ render field ดิบ�
 
 - clinic review page ยังใช้ layout แบบ generic gait parameters แม้ game sessions จะเป็น summary-only model แล้ว
 - export CSV สำหรับ game sessions อาจไม่มี per-step rows ถ้า session type เป็น summary-only
-- `AnalysisResult.jsx` ยังไม่ใช่หน้าวิเคราะห์ที่แยกเกมละเอียดเท่าหน้า history/clinic cards
+- live sensor mode ต้องใช้ browser ที่รองรับ Web Bluetooth จริง

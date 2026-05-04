@@ -20,7 +20,6 @@ import {
 import derndeeLogo from '@shared/assets/images/derndee-logo.png';
 import {
     BODY_POSITIONS,
-    TRANSPORT_MODE_GATEWAY,
     TRANSPORT_MODE_WEB_BLUETOOTH,
     connectBrowserBleDevice,
     disconnectBrowserBleDevice,
@@ -28,7 +27,6 @@ import {
     getRealtimeTransportMode,
     isWebBluetoothSupported,
     resetBrowserBleDevices,
-    setRealtimeTransportMode,
     subscribeToBrowserBleDevices,
     subscribeToRealtimeTransportMode,
 } from '@shared/gateway/realtimeTransport.js';
@@ -83,78 +81,6 @@ const DeviceConnection = () => {
         };
     }, []);
 
-    const connectDemoDevice = async (positionId, deviceData) => {
-        setDevices((prevDevices) => prevDevices.map((device) => (
-            device.positionId === positionId
-                ? {
-                    ...device,
-                    status: 'connecting',
-                    deviceId: deviceData.id,
-                    deviceName: deviceData.name,
-                    battery: deviceData.battery,
-                    signal: deviceData.signal,
-                    packetCount: 0,
-                    lastPacketSize: null,
-                }
-                : device
-        )));
-
-        try {
-            await new Promise((resolve) => setTimeout(resolve, 2000));
-            setDevices((prevDevices) => prevDevices.map((device) => (
-                device.positionId === positionId
-                    ? { ...device, status: 'connected' }
-                    : device
-            )));
-        } catch (connectionError) {
-            console.error('Connection error:', connectionError);
-            setDevices((prevDevices) => prevDevices.map((device) => (
-                device.positionId === positionId
-                    ? { ...device, status: 'error' }
-                    : device
-            )));
-        }
-    };
-
-    const simulateDeviceDiscovery = () => {
-        const mockDevices = [
-            { id: 'DernDee_Sensor_001', name: 'Sensor 001', battery: 95, signal: 'Strong' },
-            { id: 'DernDee_Sensor_002', name: 'Sensor 002', battery: 88, signal: 'Medium' },
-            { id: 'DernDee_Sensor_003', name: 'Sensor 003', battery: 92, signal: 'Strong' },
-            { id: 'DernDee_Sensor_004', name: 'Sensor 004', battery: 85, signal: 'Medium' },
-            { id: 'DernDee_Sensor_005', name: 'Sensor 005', battery: 90, signal: 'Strong' },
-        ];
-
-        setIsScanning(false);
-
-        const notFoundDevices = [];
-
-        setDevices((prevDevices) => prevDevices.map((device) => {
-            if (device.status === 'connected') {
-                return device;
-            }
-
-            const foundDevice = mockDevices.find((candidate) => candidate.id === device.expectedDeviceId);
-            if (foundDevice && (device.status === 'disconnected' || device.status === 'scanning')) {
-                setTimeout(() => {
-                    void connectDemoDevice(device.positionId, foundDevice);
-                }, 500);
-                return { ...device, status: 'connecting' };
-            }
-
-            if (device.status === 'scanning') {
-                notFoundDevices.push(device.positionName);
-                return { ...device, status: 'error' };
-            }
-
-            return device;
-        }));
-
-        if (notFoundDevices.length > 0) {
-            setError(`Devices not found: ${notFoundDevices.join(', ')}. Please check if devices are powered on and try again.`);
-        }
-    };
-
     const handleConnectBrowserBleDevice = async (positionId) => {
         if (!bleSupported) {
             setError('Web Bluetooth is not available in this browser. Use Bluefy or a compatible Chromium browser.');
@@ -174,73 +100,12 @@ const DeviceConnection = () => {
 
     const startScan = async () => {
         setError(null);
-
-        if (discoveryMode === TRANSPORT_MODE_WEB_BLUETOOTH) {
-            await resetBrowserBleDevices();
-            setIsScanning(false);
-            return;
-        }
-
-        setIsScanning(true);
-        setDevices((prevDevices) => prevDevices.map((device) => (
-            device.status === 'disconnected' || device.status === 'error'
-                ? {
-                    ...device,
-                    status: 'scanning',
-                    deviceId: null,
-                    deviceName: null,
-                    battery: null,
-                    signal: null,
-                    packetCount: 0,
-                    lastPacketSize: null,
-                }
-                : device
-        )));
-
-        setTimeout(() => {
-            simulateDeviceDiscovery();
-        }, 2000);
+        await resetBrowserBleDevices();
+        setIsScanning(false);
     };
 
     const refreshDevice = async (positionId) => {
-        if (discoveryMode === TRANSPORT_MODE_WEB_BLUETOOTH) {
-            await handleConnectBrowserBleDevice(positionId);
-            return;
-        }
-
-        setDevices((prevDevices) => prevDevices.map((device) => (
-            device.positionId === positionId
-                ? {
-                    ...device,
-                    status: 'scanning',
-                    deviceId: null,
-                    deviceName: null,
-                    battery: null,
-                    signal: null,
-                    packetCount: 0,
-                    lastPacketSize: null,
-                }
-                : device
-        )));
-
-        setTimeout(() => {
-            simulateDeviceDiscovery();
-        }, 1500);
-    };
-
-    const handleModeChange = async (nextMode) => {
-        if (nextMode === discoveryMode) {
-            return;
-        }
-
-        if (discoveryMode === TRANSPORT_MODE_WEB_BLUETOOTH) {
-            await resetBrowserBleDevices();
-        }
-
-        setError(null);
-        setIsScanning(false);
-        setDevices(createInitialDevices());
-        setRealtimeTransportMode(nextMode);
+        await handleConnectBrowserBleDevice(positionId);
     };
 
     const getStatusInfo = (status) => {
@@ -357,42 +222,18 @@ const DeviceConnection = () => {
                                 className="px-4 sm:px-6 py-2 sm:py-3 rounded-full text-xs sm:text-sm md:text-base font-extrabold bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 text-white transition-all duration-300 shadow-lg hover:shadow-2xl disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 tracking-wide flex-shrink-0 w-full sm:w-auto"
                             >
                                 <Search className={`w-4 h-4 sm:w-5 sm:h-5 ${isScanning ? 'animate-spin' : ''}`} />
-                                <span>{discoveryMode === TRANSPORT_MODE_WEB_BLUETOOTH ? 'Reset Devices' : (isScanning ? 'Scanning...' : 'Scan Devices')}</span>
+                                <span>Reset Devices</span>
                             </button>
                         </div>
 
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                            <button
-                                onClick={() => handleModeChange(TRANSPORT_MODE_GATEWAY)}
-                                className={`rounded-2xl border-2 px-4 py-3 text-sm sm:text-base font-extrabold transition-all duration-300 ${discoveryMode === TRANSPORT_MODE_GATEWAY
-                                    ? 'border-slate-900 bg-slate-900 text-white shadow-lg'
-                                    : 'border-slate-200 bg-white text-slate-700'
-                                    }`}
-                            >
-                                Demo / Gateway Mode
-                            </button>
-                            <button
-                                onClick={() => handleModeChange(TRANSPORT_MODE_WEB_BLUETOOTH)}
-                                disabled={!bleSupported}
-                                className={`rounded-2xl border-2 px-4 py-3 text-sm sm:text-base font-extrabold transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed ${discoveryMode === TRANSPORT_MODE_WEB_BLUETOOTH
-                                    ? 'border-emerald-600 bg-emerald-600 text-white shadow-lg'
-                                    : 'border-emerald-200 bg-white text-emerald-700'
-                                    }`}
-                            >
-                                Experimental Web Bluetooth
-                            </button>
+                        <div className="rounded-2xl border-2 border-emerald-200 bg-emerald-50 p-4">
+                            <p className="text-sm sm:text-base font-bold text-emerald-900">
+                                Browser BLE is now the default realtime transport for DernDee.
+                            </p>
+                            <p className="mt-2 text-xs sm:text-sm font-medium text-emerald-800">
+                                Connect sensors here once, then continue to Calibration and therapy routes without launching a separate gateway process.
+                            </p>
                         </div>
-
-                        {discoveryMode === TRANSPORT_MODE_WEB_BLUETOOTH && (
-                            <div className="rounded-2xl border-2 border-emerald-200 bg-emerald-50 p-4">
-                                <p className="text-sm sm:text-base font-bold text-emerald-900">
-                                    Browser BLE mode now keeps these sensor links alive across Calibration and patient gameplay routes.
-                                </p>
-                                <p className="mt-2 text-xs sm:text-sm font-medium text-emerald-800">
-                                    Session streaming is live, but persistence still stays local-only in this experimental mode because no Python gateway is involved.
-                                </p>
-                            </div>
-                        )}
                     </div>
                 </div>
 
@@ -410,31 +251,6 @@ const DeviceConnection = () => {
                                 className="text-red-600 hover:text-red-800 text-2xl font-bold hover:bg-red-200 rounded-full w-8 h-8 flex items-center justify-center transition-all"
                             >
                                 ×
-                            </button>
-                        </div>
-                    </div>
-                )}
-
-                {allConnected && discoveryMode === TRANSPORT_MODE_GATEWAY && (
-                    <div className="bg-gradient-to-r from-green-50 via-emerald-50 to-green-50 border-2 border-green-400 rounded-3xl shadow-2xl p-4 sm:p-5 mb-3 sm:mb-4">
-                        <div className="flex items-center justify-between gap-3 flex-wrap">
-                            <div className="flex items-center gap-3 flex-1">
-                                <CheckCircle2 className="w-6 h-6 sm:w-8 sm:h-8 text-green-600 flex-shrink-0 animate-pulse" />
-                                <div className="flex-1">
-                                    <p className="text-base sm:text-lg md:text-xl font-extrabold text-green-800 tracking-tight">
-                                        All devices connected successfully!
-                                    </p>
-                                    <p className="text-sm sm:text-base font-semibold text-green-700 mt-1">
-                                        Ready to start therapy session
-                                    </p>
-                                </div>
-                            </div>
-                            <button
-                                onClick={() => navigate('/therapy')}
-                                className="px-6 py-3 rounded-full text-sm sm:text-base font-extrabold bg-gradient-to-r from-green-500 to-emerald-600 hover:from-green-600 hover:to-emerald-700 text-white transition-all duration-300 shadow-lg hover:shadow-2xl flex items-center gap-2 tracking-wide whitespace-nowrap"
-                            >
-                                <span>Go to Therapy</span>
-                                <ArrowRight className="w-4 h-4 sm:w-5 sm:h-5" />
                             </button>
                         </div>
                     </div>
@@ -524,20 +340,18 @@ const DeviceConnection = () => {
                                                     <span>{device.signal}</span>
                                                 </div>
                                             )}
-                                            {discoveryMode === TRANSPORT_MODE_WEB_BLUETOOTH && (
-                                                <>
+                                            <>
+                                                <div className="flex items-center gap-2 text-cyan-700 font-semibold">
+                                                    <Activity className="w-4 h-4" />
+                                                    <span>{device.packetCount} packets</span>
+                                                </div>
+                                                {device.lastPacketSize !== null && (
                                                     <div className="flex items-center gap-2 text-cyan-700 font-semibold">
-                                                        <Activity className="w-4 h-4" />
-                                                        <span>{device.packetCount} packets</span>
+                                                        <Radio className="w-4 h-4" />
+                                                        <span>{device.lastPacketSize} bytes</span>
                                                     </div>
-                                                    {device.lastPacketSize !== null && (
-                                                        <div className="flex items-center gap-2 text-cyan-700 font-semibold">
-                                                            <Radio className="w-4 h-4" />
-                                                            <span>{device.lastPacketSize} bytes</span>
-                                                        </div>
-                                                    )}
-                                                </>
-                                            )}
+                                                )}
+                                            </>
                                         </div>
                                     </div>
                                 )}
@@ -567,26 +381,24 @@ const DeviceConnection = () => {
                                     />
                                 </div>
 
-                                {discoveryMode === TRANSPORT_MODE_WEB_BLUETOOTH && (
-                                    <div className="mt-4 flex gap-3">
-                                        {device.status === 'connected' ? (
-                                            <button
-                                                onClick={() => disconnectBrowserBleDevice(device.positionId, { forgetDevice: true })}
-                                                className="flex-1 rounded-2xl border-2 border-red-200 bg-red-50 px-4 py-3 text-sm font-extrabold text-red-700 transition-all duration-300 hover:bg-red-100"
-                                            >
-                                                Disconnect
-                                            </button>
-                                        ) : (
-                                            <button
-                                                onClick={() => handleConnectBrowserBleDevice(device.positionId)}
-                                                disabled={device.status === 'connecting'}
-                                                className="flex-1 rounded-2xl border-2 border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-extrabold text-emerald-700 transition-all duration-300 hover:bg-emerald-100 disabled:opacity-50 disabled:cursor-not-allowed"
-                                            >
-                                                {device.status === 'connecting' ? 'Waiting for device...' : 'Connect via BLE'}
-                                            </button>
-                                        )}
-                                    </div>
-                                )}
+                                <div className="mt-4 flex gap-3">
+                                    {device.status === 'connected' ? (
+                                        <button
+                                            onClick={() => disconnectBrowserBleDevice(device.positionId, { forgetDevice: true })}
+                                            className="flex-1 rounded-2xl border-2 border-red-200 bg-red-50 px-4 py-3 text-sm font-extrabold text-red-700 transition-all duration-300 hover:bg-red-100"
+                                        >
+                                            Disconnect
+                                        </button>
+                                    ) : (
+                                        <button
+                                            onClick={() => handleConnectBrowserBleDevice(device.positionId)}
+                                            disabled={device.status === 'connecting'}
+                                            className="flex-1 rounded-2xl border-2 border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-extrabold text-emerald-700 transition-all duration-300 hover:bg-emerald-100 disabled:opacity-50 disabled:cursor-not-allowed"
+                                        >
+                                            {device.status === 'connecting' ? 'Waiting for device...' : 'Connect via BLE'}
+                                        </button>
+                                    )}
+                                </div>
                             </div>
                         );
                     })}

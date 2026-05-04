@@ -1,13 +1,13 @@
 # System Overview
 
-อัปเดตตามโค้ดใน repository นี้ ณ วันที่ 2026-05-01
+อัปเดตตามโค้ดใน repository นี้ ณ วันที่ 2026-05-04
 
 ## 1. DernDee คืออะไร
 
 DernDee เป็นระบบกายภาพบำบัดการเดินแบบ realtime ที่เชื่อม 4 ชั้นเข้าด้วยกัน:
 
 1. wearable IMU firmware บน ESP32
-2. Python gateway สำหรับ BLE ingestion, raw streaming, และ session persistence
+2. Browser BLE realtime transport ใน frontend
 3. React web apps สำหรับ patient และ clinic
 4. Supabase สำหรับ auth, profiles, session history, และ review workflow
 
@@ -25,27 +25,27 @@ DernDee เป็นระบบกายภาพบำบัดการเด
   - gait dashboard
 - shared layer อยู่ที่ `DernDee_Web-app/shared/`
 
-### Realtime Gateway
+### Realtime Transport
 
-- path หลัก: `gateway_v2/`
-- ภาษา: Python
+- path หลัก: `DernDee_Web-app/shared/gateway/realtimeTransport.js`
+- ภาษา: JavaScript
 - ทำหน้าที่:
-  - scan/connect BLE devices ที่ขึ้นต้นด้วย `DernDee`
-  - decode packet จาก IMU
-  - broadcast raw realtime `DATA` payloads ไป frontend ผ่าน WebSocket
-  - handle calibration/session control messages
-  - persist completed sessions ไป Supabase
+  - pair BLE devices ที่ขึ้นต้นด้วย `DernDee`
+  - decode packet จาก IMU ใน browser
+  - broadcast raw realtime `DATA` payloads ไปทุก route ที่เปิด `createRealtimeConnection()`
+  - handle calibration และ session control messages แบบ in-browser
+  - keep device assignments ไว้ข้าม route ใน session เดียวกัน
 
 ### Data Layer
 
 - auth และ browser-side queries ใช้ Supabase JS client
-- gateway-side persistence ใช้ Supabase service role
+- session persistence ใช้ frontend insert path ใน `shared/services/sessionService.js`
 - schema ปัจจุบันรองรับ profiles, patient presence, sessions, gait metrics, doctor assignments, และ review state
 
 ### Firmware
 
 - path หลัก: `Hardware/`
-- gateway ปัจจุบันเข้ากันได้กับ packet format ของ `Hardware/esp32_imu_node.ino`
+- runtime ปัจจุบันเข้ากันได้กับ packet format ของ `Hardware/esp32_imu_node.ino`
 - firmware รุ่นอื่นในโฟลเดอร์นี้ควรมองเป็น reference/prototype จนกว่าจะยืนยัน packet compatibility อีกครั้ง
 
 ## 3. โครงสร้าง repo ที่ใช้งานจริง
@@ -57,7 +57,7 @@ DernDee_Robustness/
 |   |-- README.md
 |   |-- system-overview.md
 |   |-- frontend-apps.md
-|   |-- realtime-gateway.md
+|   |-- realtime-browser-ble.md
 |   `-- supabase-cloud-data-layer.md
 |-- DernDee_Web-app/
 |   |-- apps/
@@ -65,7 +65,6 @@ DernDee_Robustness/
 |   |   `-- clinic/
 |   |-- shared/
 |   `-- public/
-|-- gateway_v2/
 |-- Hardware/
 `-- supabase/
     `-- migrations/
@@ -80,32 +79,32 @@ DernDee_Robustness/
 3. `profileService` สร้างหรือ update row ใน `profiles`
 4. patient browser ส่ง heartbeat ไป `patient_presence` ทุก 30 วินาทีเมื่อ online
 
-### 4.2 Calibration flow
+### 4.2 Device connection และ calibration
 
-1. patient เข้า `/calibration`
-2. frontend เปิด WebSocket ไป `ws://<host>:8765`
-3. frontend ส่ง `CALIBRATE`
-4. gateway broadcast `CALIBRATION_START`
-5. gateway รอ calibration timer 3 วินาที
-6. gateway ส่ง `CALIBRATION_DONE`
-6. frontend จึงอนุญาตให้เริ่ม therapy target ต่อไป
+1. patient เข้า `/device-connection`
+2. pair sensors ผ่าน Web Bluetooth
+3. transport เก็บ device assignments ไว้ใน browser session
+4. patient เข้า `/calibration`
+5. frontend ส่ง `CALIBRATE` ผ่าน in-browser transport
+6. transport broadcast `CALIBRATION_START` และ `CALIBRATION_DONE`
+7. frontend จึงอนุญาตให้เริ่ม therapy target ต่อไป
 
 ### 4.3 Free Walk session
 
 1. `WalkSession.jsx` ส่ง `START_SESSION` พร้อม `patient_id` และ `session_type = free_walk`
-2. gateway เปิด active session ใน memory
-3. ระหว่างเดิน gateway ส่ง `DATA` payloads แบบ raw realtime ไป browser
+2. transport เปิด active session metadata ใน memory
+3. ระหว่างเดิน transport ส่ง `DATA` payloads แบบ raw realtime ไป browser routes ทั้งหมดที่ subscribe อยู่
 4. frontend คำนวณ gait metrics และ feedback จาก raw stream
-4. เมื่อจบ session frontend ส่ง `END_SESSION` พร้อม summary overrides
-5. gateway persist `sessions` row และ `gait_metrics` รายก้าวที่ frontend ส่งกลับลง Supabase
+5. เมื่อจบ session frontend ส่ง `END_SESSION` พร้อม summary overrides
+6. `persistSessionFromFrontend()` insert `sessions` row และ `gait_metrics` ลง Supabase
 
 ### 4.4 Gamification sessions
 
-1. High Stepper, Magic Plate, และ Rhythm Drummer ใช้ WebSocket stream เดียวกับ Free Walk
-2. แต่ละเกมส่ง `START_SESSION`/`END_SESSION` ผ่าน shared hook เดียวกัน
+1. High Stepper, Magic Plate, และ Rhythm Drummer ใช้ realtime stream เดียวกับ Free Walk
+2. แต่ละเกมส่ง `START_SESSION` และ `END_SESSION` ผ่าน shared hook เดียวกัน
 3. เกมแต่ละตัวส่ง `details` เฉพาะเกม เช่น rep counts, zone time, target BPM, score
-4. gateway persist เฉพาะ `sessions` summary และ `sessions.details`
-5. gateway ไม่ insert `gait_metrics` รายก้าวสำหรับ 3 session types นี้ เพื่อคุม Supabase quota
+4. frontend persist `sessions` summary และ `sessions.details`
+5. game modes ไม่ insert `gait_metrics` รายก้าว
 
 ### 4.5 Clinic review flow
 
@@ -120,23 +119,23 @@ DernDee_Robustness/
 ```mermaid
 flowchart TD
     A[ESP32 IMU firmware] --> B[BLE packets]
-    B --> C[gateway_v2 connection.py]
-  C --> D[decoder.py]
-  D --> I[WebSocket raw DATA payloads]
+    B --> C[Browser BLE characteristic notifications]
+    C --> D[realtimeTransport.js decodePacket]
+    D --> E[In-browser DATA payloads]
 
-    I --> J[Patient app]
-    I --> K[Clinic gait dashboard]
+    E --> F[Patient app]
+    E --> G[Gait dashboard]
 
-  J --> J2[Frontend gait and game logic]
-  J2 --> L[START_SESSION / END_SESSION]
-    L --> M[session_persistence.py]
-    M --> N[Supabase sessions]
-    M --> O[Supabase gait_metrics]
+    F --> H[Frontend gait and game logic]
+    H --> I[START_SESSION / END_SESSION]
+    I --> J[persistSessionFromFrontend]
+    J --> K[Supabase sessions]
+    J --> L[Supabase gait_metrics]
 
-    P[Supabase Auth + profiles] --> J
-    P --> Q[Clinic app]
-    N --> Q
-    O --> Q
+    M[Supabase Auth + profiles] --> F
+    M --> N[Clinic app]
+    K --> N
+    L --> N
 ```
 
 ## 6. สิ่งที่ persist กับสิ่งที่ไม่ persist
@@ -153,8 +152,8 @@ flowchart TD
 ### ไม่ persist ลง Supabase แบบ 100 Hz
 
 - raw IMU samples จาก firmware
-- realtime WebSocket `DATA` ทุก frame
-- derived orientation/game state ทุก sampleที่ frontend คำนวณเอง
+- realtime `DATA` ทุก frame
+- derived orientation หรือ game state ทุก sample ที่ frontend คำนวณเอง
 
 ### Summary-only game sessions
 
@@ -164,22 +163,22 @@ session types ต่อไปนี้เก็บเฉพาะ summary:
 - `magic_plate`
 - `rhythm_drummer`
 
-ผลคือหน้า history/clinic cards ยังแสดงผลได้จาก summary row แต่จะไม่มี per-step `gait_metrics` สำหรับ export หรือ analysis เชิงลึกแบบ Free Walk
+ผลคือหน้า history และ clinic cards ยังแสดงผลได้จาก summary row แต่จะไม่มี per-step `gait_metrics` สำหรับ export หรือ analysis เชิงลึกแบบ Free Walk
 
-## 7. Ports และ endpoints สำคัญ
+## 7. Endpoints และ browser requirements
 
 | Surface | Value | Notes |
 | --- | --- | --- |
 | patient app dev | `http://localhost:5174/` | served by Vite |
 | clinic app dev | `http://localhost:5174/clinic` | same Vite workspace |
-| gait dashboard dev | `http://localhost:5174/gait-dashboard` | patient-shared route with reused BLE transport |
-| gateway WebSocket | `ws://<host>:8765` | realtime data + control messages |
+| gait dashboard dev | `http://localhost:5174/gait-dashboard` | reuse Browser BLE transport จาก route กลาง |
 | Supabase Auth redirect | env-driven | controlled by `VITE_SUPABASE_AUTH_REDIRECT_URL` |
+| Browser requirement | Chromium/Bluefy with Web Bluetooth | required for live sensor mode |
 
 ## 8. ข้อจำกัดปัจจุบันที่ควรรู้
 
-- ระบบ realtime ยังต้องพึ่ง `gateway_v2` อยู่ ดังนั้น deployment แบบ Vercel อย่างเดียวไม่ครอบคลุม BLE + raw data bridge
-- `DeviceConnection.jsx` ยังเป็น simulated UI ไม่ใช่ Web Bluetooth production flow
-- game sessions มี session summary ดีแล้ว แต่ analysis เชิงรายก้าวจะต้องใช้ Free Walk หรือออกแบบ summary-based review ใหม่
+- realtime mode ต้องใช้ browser และ device ที่รองรับ Web Bluetooth จริง
+- ถ้า browser ไม่รองรับ Web Bluetooth ระบบจะใช้ demo mode ได้ แต่ไม่สามารถอ่าน sensor จริงได้
+- game sessions มี session summary ดีแล้ว แต่ analysis เชิงรายก้าวยังเน้นที่ Free Walk
 - clinic app enforce role doctor ที่ frontend และ rely on Supabase RLS ฝั่ง data layer
 - firmware compatibility ยังผูกกับ packet format ปัจจุบัน ไม่ใช่ทุก `.ino` ใน repo

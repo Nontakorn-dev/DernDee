@@ -58,14 +58,13 @@ const GaitDashboard = () => {
                         <span id="status-text">Demo Mode</span>
                     </div>
 
-                    <button className="btn" id="mode-toggle" title="Switch between Demo and Gateway mode" type="button">
+                    <button className="btn" id="mode-toggle" title="Switch between Demo and Browser BLE mode" type="button">
                         <span className="mode-toggle-dot" id="mode-dot"></span>
                         <span id="mode-label">Demo</span>
                     </button>
 
                     <button className="btn" id="btn-demo" title="Start Demo Mode" type="button">▶ Demo</button>
-                    <button className="btn" id="btn-browser-ble" title="Connect a sensor directly from this browser" type="button">📶 Browser BLE</button>
-                    <button className="btn btn-primary" id="btn-connect" title="Connect to shared gateway stream" type="button">⚡ Gateway</button>
+                    <button className="btn btn-primary" id="btn-connect" title="Connect a sensor directly from this browser" type="button">📶 Connect Sensor</button>
                 </div>
             </header>
 

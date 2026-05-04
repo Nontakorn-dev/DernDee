@@ -3,7 +3,6 @@ import { GaitProcessor } from '../gait/gaitProcessor.js';
 import { Dashboard } from './ui/dashboard.js';
 import { ChartsManager } from './ui/charts.js';
 import {
-  TRANSPORT_MODE_GATEWAY,
   TRANSPORT_MODE_WEB_BLUETOOTH,
   connectBrowserBleDevice,
   createRealtimeConnection,
@@ -193,7 +192,7 @@ export class GaitLabDashboardApp {
   async startDemo() {
     this.stopAll();
     await resetBrowserBleDevices();
-    setRealtimeTransportMode(TRANSPORT_MODE_GATEWAY);
+    setRealtimeTransportMode(TRANSPORT_MODE_WEB_BLUETOOTH);
     this.mode = 'demo';
     this.dashboard.setMode('demo');
     this.dashboard.updateStatus('demo');
@@ -223,7 +222,7 @@ export class GaitLabDashboardApp {
     const {
       fallbackToDemo = true,
       suppressErrorLog = false,
-      transportMode = TRANSPORT_MODE_GATEWAY,
+      transportMode = TRANSPORT_MODE_WEB_BLUETOOTH,
       pairBrowserBle = false,
       preferKnownDevice = false,
       pickerFallback = true,
@@ -231,13 +230,9 @@ export class GaitLabDashboardApp {
 
     try {
       this.stopAll();
-      if (transportMode === TRANSPORT_MODE_GATEWAY) {
-        await resetBrowserBleDevices();
-      }
-
       setRealtimeTransportMode(transportMode);
 
-      this.mode = transportMode === TRANSPORT_MODE_WEB_BLUETOOTH ? 'browser-ble' : 'gateway';
+      this.mode = 'browser-ble';
       this.dashboard.setMode(this.mode);
       this.sampleCount = 0;
 
@@ -273,14 +268,6 @@ export class GaitLabDashboardApp {
         }, 500);
       }
     }
-  }
-
-  async startGatewayLive(options = {}) {
-    await this.startLive({
-      ...options,
-      transportMode: TRANSPORT_MODE_GATEWAY,
-      pairBrowserBle: false,
-    });
   }
 
   async startBrowserBle(options = {}) {
@@ -327,7 +314,7 @@ export class GaitLabDashboardApp {
     }
     if (this.options.teardownTransportOnDestroy) {
       void resetBrowserBleDevices();
-      setRealtimeTransportMode(TRANSPORT_MODE_GATEWAY);
+      setRealtimeTransportMode(TRANSPORT_MODE_WEB_BLUETOOTH);
     }
     this.charts.destroy();
   }
@@ -355,7 +342,7 @@ export class GaitLabDashboardApp {
       }
     }
 
-    void this.startGatewayLive({ fallbackToDemo: true, suppressErrorLog: true });
+    void this.startDemo();
   }
 
   _hasConnectedDashboardSensor() {
@@ -367,17 +354,17 @@ export class GaitLabDashboardApp {
   _bindEvents() {
     document.getElementById('mode-toggle')?.addEventListener('click', () => {
       if (this.mode === 'demo') {
-        void this.startGatewayLive();
+        void this.startBrowserBle();
       } else {
         void this.startDemo();
       }
     });
 
     document.getElementById('btn-connect')?.addEventListener('click', () => {
-      if (this.mode === 'gateway') {
+      if (this.mode === 'browser-ble') {
         void this.startDemo();
       } else {
-        void this.startGatewayLive();
+        void this.startBrowserBle();
       }
     });
 
@@ -385,13 +372,6 @@ export class GaitLabDashboardApp {
       void this.startDemo();
     });
 
-    document.getElementById('btn-browser-ble')?.addEventListener('click', () => {
-      if (this.mode === 'browser-ble') {
-        void this.startDemo();
-      } else {
-        void this.startBrowserBle();
-      }
-    });
   }
 }
 

@@ -118,7 +118,6 @@ export class Dashboard {
     if (this.modeLabel) {
       const labels = {
         demo: 'Demo',
-        gateway: 'Gateway',
         'browser-ble': 'Browser BLE',
       };
       this.modeLabel.textContent = labels[mode] || 'Live';
