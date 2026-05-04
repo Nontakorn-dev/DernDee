@@ -66,6 +66,35 @@ const SHANK_ANGLE_SCALE = {
   stepSize: 15,
 };
 
+function formatTimeTick(value) {
+  return Number.isFinite(value) ? value.toFixed(2) : value;
+}
+
+function buildSeriesPoints(timestamps, values, startIdx = 0) {
+  const points = [];
+
+  for (let i = startIdx; i < timestamps.length; i += 1) {
+    if (!Number.isFinite(timestamps[i]) || !Number.isFinite(values[i])) {
+      continue;
+    }
+
+    points.push({ x: timestamps[i], y: values[i] });
+  }
+
+  return points;
+}
+
+function buildVerticalLineData(xValue, yMin, yMax) {
+  if (!Number.isFinite(xValue) || !Number.isFinite(yMin) || !Number.isFinite(yMax)) {
+    return [];
+  }
+
+  return [
+    { x: xValue, y: yMin },
+    { x: xValue, y: yMax },
+  ];
+}
+
 function getStableScaleRange(values, baseRange) {
   const numericValues = values.filter(Number.isFinite);
 
@@ -161,6 +190,28 @@ export class ChartsManager {
             showLine: false,
             pointBorderWidth: 0,
           },
+          {
+            label: 'Integration Start',
+            data: [],
+            borderColor: 'rgba(25, 118, 210, 0.85)',
+            backgroundColor: 'rgba(25, 118, 210, 0.85)',
+            borderWidth: 1.25,
+            borderDash: [6, 4],
+            pointRadius: 0,
+            pointHoverRadius: 0,
+            fill: false,
+          },
+          {
+            label: 'Integration End',
+            data: [],
+            borderColor: 'rgba(56, 142, 60, 0.85)',
+            backgroundColor: 'rgba(56, 142, 60, 0.85)',
+            borderWidth: 1.25,
+            borderDash: [6, 4],
+            pointRadius: 0,
+            pointHoverRadius: 0,
+            fill: false,
+          },
         ],
       },
       options: {
@@ -195,8 +246,13 @@ export class ChartsManager {
         },
         scales: {
           x: {
+            type: 'linear',
             ...commonScaleOptions,
             title: { display: true, text: 'Time (s)', font: { size: 10, weight: '600' }, color: '#757575' },
+            ticks: {
+              ...commonScaleOptions.ticks,
+              callback: (value) => formatTimeTick(value),
+            },
           },
           y: {
             ...commonScaleOptions,
@@ -220,28 +276,27 @@ export class ChartsManager {
 
     const showSamples = 400;
     const startIdx = Math.max(0, data.timestamps.length - showSamples);
-
-    const labels = [];
-    const angVelData = [];
-    for (let i = startIdx; i < data.timestamps.length; i += 1) {
-      labels.push(data.timestamps[i].toFixed(2));
-      angVelData.push(data.angularVelocity[i]);
-    }
+    const angVelPoints = buildSeriesPoints(data.timestamps, data.angularVelocity, startIdx);
+    const visibleStartTime = data.timestamps[startIdx] ?? null;
+    const visibleEndTime = data.timestamps[data.timestamps.length - 1] ?? null;
 
     const hsData = [];
     const toData = [];
     const msvData = [];
 
     for (const event of data.events) {
-      if (event.index < startIdx) {
-        continue;
-      }
-      const chartIdx = event.index - startIdx;
-      if (chartIdx < 0 || chartIdx >= labels.length) {
+      if (event.index < startIdx || event.index >= data.timestamps.length) {
         continue;
       }
 
-      const point = { x: labels[chartIdx], y: data.angularVelocity[event.index] };
+      const x = Number.isFinite(event.time) ? event.time : data.timestamps[event.index];
+      const y = data.angularVelocity[event.index];
+
+      if (!Number.isFinite(x) || !Number.isFinite(y)) {
+        continue;
+      }
+
+      const point = { x, y };
       if (event.type === 'HS') {
         hsData.push(point);
       } else if (event.type === 'TO') {
@@ -251,15 +306,29 @@ export class ChartsManager {
       }
     }
 
-    this.angVelChart.data.labels = labels;
-    this.angVelChart.data.datasets[0].data = angVelData;
+    this.angVelChart.data.labels = [];
+    this.angVelChart.data.datasets[0].data = angVelPoints;
     this.angVelChart.data.datasets[1].data = hsData;
     this.angVelChart.data.datasets[2].data = toData;
     this.angVelChart.data.datasets[3].data = msvData;
 
-    const angVelScale = getStableScaleRange(angVelData, ANGULAR_VELOCITY_SCALE);
+    const angVelScale = getStableScaleRange(angVelPoints.map((point) => point.y), ANGULAR_VELOCITY_SCALE);
     this.angVelChart.options.scales.y.min = angVelScale.min;
     this.angVelChart.options.scales.y.max = angVelScale.max;
+    this.angVelChart.options.scales.x.min = visibleStartTime;
+    this.angVelChart.options.scales.x.max = visibleEndTime;
+
+    const integrationWindow = data.integrationWindow ?? null;
+    this.angVelChart.data.datasets[4].data = buildVerticalLineData(
+      integrationWindow?.startTime,
+      angVelScale.min,
+      angVelScale.max,
+    );
+    this.angVelChart.data.datasets[5].data = buildVerticalLineData(
+      integrationWindow?.endTime,
+      angVelScale.min,
+      angVelScale.max,
+    );
 
     this.angVelChart.update('none');
   }
@@ -316,8 +385,13 @@ export class ChartsManager {
         },
         scales: {
           x: {
+            type: 'linear',
             ...commonScaleOptions,
             title: { display: true, text: 'Time (s)', font: { size: 10, weight: '600' }, color: '#757575' },
+            ticks: {
+              ...commonScaleOptions.ticks,
+              callback: (value) => formatTimeTick(value),
+            },
           },
           y: {
             ...commonScaleOptions,
@@ -341,20 +415,18 @@ export class ChartsManager {
 
     const showSamples = 400;
     const startIdx = Math.max(0, data.timestamps.length - showSamples);
+    const anglePoints = buildSeriesPoints(data.timestamps, data.shankAngle, startIdx);
+    const visibleStartTime = data.timestamps[startIdx] ?? null;
+    const visibleEndTime = data.timestamps[data.timestamps.length - 1] ?? null;
 
-    const labels = [];
-    const angleData = [];
-    for (let i = startIdx; i < data.timestamps.length; i += 1) {
-      labels.push(data.timestamps[i].toFixed(2));
-      angleData.push(data.shankAngle[i]);
-    }
+    this.angleChart.data.labels = [];
+    this.angleChart.data.datasets[0].data = anglePoints;
 
-    this.angleChart.data.labels = labels;
-    this.angleChart.data.datasets[0].data = angleData;
-
-    const angleScale = getStableScaleRange(angleData, SHANK_ANGLE_SCALE);
+    const angleScale = getStableScaleRange(anglePoints.map((point) => point.y), SHANK_ANGLE_SCALE);
     this.angleChart.options.scales.y.min = angleScale.min;
     this.angleChart.options.scales.y.max = angleScale.max;
+    this.angleChart.options.scales.x.min = visibleStartTime;
+    this.angleChart.options.scales.x.max = visibleEndTime;
 
     this.angleChart.update('none');
   }

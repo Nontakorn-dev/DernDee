@@ -1,5 +1,23 @@
 import { findLocalMinima, findZeroCrossing, movingAverage } from './signalUtils.js';
 
+function getTimeAt(timestamps, index, fallbackDt) {
+  if (timestamps && Number.isFinite(timestamps[index])) {
+    return timestamps[index];
+  }
+
+  return index * fallbackDt;
+}
+
+function getDurationBetween(timestamps, startIdx, endIdx, fallbackDt) {
+  if (startIdx === null || endIdx === null || startIdx === undefined || endIdx === undefined) {
+    return null;
+  }
+
+  const startTime = getTimeAt(timestamps, startIdx, fallbackDt);
+  const endTime = getTimeAt(timestamps, endIdx, fallbackDt);
+  return Math.max(0, endTime - startTime);
+}
+
 export class GaitEventDetector {
   constructor(options = {}) {
     this.sampleRate = options.sampleRate || 100;
@@ -16,22 +34,19 @@ export class GaitEventDetector {
 
   detect(angVel, timestamps) {
     const dt = 1.0 / this.sampleRate;
-    const minStrideSamples = Math.floor(this.minStrideTime * this.sampleRate);
-    const maxStrideSamples = Math.ceil(this.maxStrideTime * this.sampleRate);
-    const stillSamples = Math.max(1, Math.floor(this.stillDurationSeconds * this.sampleRate));
 
     const smoothed = movingAverage(angVel, this.smoothingWindow);
-    const minHsDistance = Math.floor(minStrideSamples * 0.8);
+    const minHsDistance = Math.floor(this.minStrideTime * this.sampleRate * 0.8);
     const allMinima = findLocalMinima(smoothed, this.hsProminence, minHsDistance);
     const heelStrikes = allMinima.filter((idx) => smoothed[idx] < -50);
 
     const events = [];
-    const cycles = [];
+    const rawStrides = [];
 
     for (const idx of heelStrikes) {
       events.push({
         index: idx,
-        time: timestamps ? timestamps[idx] : idx * dt,
+        time: getTimeAt(timestamps, idx, dt),
         type: 'HS',
       });
     }
@@ -40,8 +55,9 @@ export class GaitEventDetector {
       const hsStartIdx = heelStrikes[i];
       const hsEndIdx = heelStrikes[i + 1];
       const strideSamples = hsEndIdx - hsStartIdx;
+      const strideTime = getDurationBetween(timestamps, hsStartIdx, hsEndIdx, dt);
 
-      if (strideSamples < minStrideSamples || strideSamples > maxStrideSamples) {
+      if (strideTime === null || strideTime < this.minStrideTime || strideTime > this.maxStrideTime) {
         continue;
       }
 
@@ -54,7 +70,7 @@ export class GaitEventDetector {
       if (msvIdx !== null) {
         events.push({
           index: msvIdx,
-          time: timestamps ? timestamps[msvIdx] : msvIdx * dt,
+          time: getTimeAt(timestamps, msvIdx, dt),
           type: 'MSV',
         });
       }
@@ -72,29 +88,29 @@ export class GaitEventDetector {
         toIdx = toMinima[0] + toSearchStart;
         events.push({
           index: toIdx,
-          time: timestamps ? timestamps[toIdx] : toIdx * dt,
+          time: getTimeAt(timestamps, toIdx, dt),
           type: 'TO',
         });
       }
 
-      const strideTime = (hsEndIdx - hsStartIdx) * dt;
-      const stanceTime = toIdx !== null ? (toIdx - hsStartIdx) * dt : strideTime * 0.62;
-      const swingTime = strideTime - stanceTime;
+      const measuredStanceTime = toIdx !== null
+        ? getDurationBetween(timestamps, hsStartIdx, toIdx, dt)
+        : null;
+      const stanceTime = measuredStanceTime !== null
+        ? Math.max(0, Math.min(strideTime, measuredStanceTime))
+        : strideTime * 0.62;
+      const swingTime = Math.max(0, strideTime - stanceTime);
 
-      cycles.push({
-        hsStart: { index: hsStartIdx, time: timestamps ? timestamps[hsStartIdx] : hsStartIdx * dt, type: 'HS' },
-        hsEnd: { index: hsEndIdx, time: timestamps ? timestamps[hsEndIdx] : hsEndIdx * dt, type: 'HS' },
-        to: toIdx !== null
-          ? { index: toIdx, time: timestamps ? timestamps[toIdx] : toIdx * dt, type: 'TO' }
-          : null,
-        msv: msvIdx !== null
-          ? { index: msvIdx, time: timestamps ? timestamps[msvIdx] : msvIdx * dt, type: 'MSV' }
-          : null,
+      rawStrides.push({
+        hsStart: { index: hsStartIdx, time: getTimeAt(timestamps, hsStartIdx, dt), type: 'HS' },
+        hsEnd: { index: hsEndIdx, time: getTimeAt(timestamps, hsEndIdx, dt), type: 'HS' },
+        to: toIdx !== null ? { index: toIdx, time: getTimeAt(timestamps, toIdx, dt), type: 'TO' } : null,
+        msv: msvIdx !== null ? { index: msvIdx, time: getTimeAt(timestamps, msvIdx, dt), type: 'MSV' } : null,
         strideTime,
         stanceTime,
         swingTime,
-        stancePct: (stanceTime / strideTime) * 100,
-        swingPct: (swingTime / strideTime) * 100,
+        stancePct: strideTime > 0 ? (stanceTime / strideTime) * 100 : 0,
+        swingPct: strideTime > 0 ? (swingTime / strideTime) * 100 : 0,
       });
     }
 
@@ -102,26 +118,34 @@ export class GaitEventDetector {
       const hsStartIdx = heelStrikes[heelStrikes.length - 1];
       const sampleCount = smoothed.length;
 
-      let stillRun = 0;
+      let stillStartIdx = null;
       let endIdx = null;
 
       for (let i = hsStartIdx; i < sampleCount; i += 1) {
         if (Math.abs(smoothed[i]) <= this.stillAngularVelocityAbs) {
-          stillRun += 1;
-          if (stillRun >= stillSamples) {
+          if (stillStartIdx === null) {
+            stillStartIdx = i;
+          }
+
+          const stillDuration = getDurationBetween(timestamps, stillStartIdx, i, dt);
+          if (stillDuration !== null && stillDuration >= this.stillDurationSeconds) {
             endIdx = i;
             break;
           }
         } else {
-          stillRun = 0;
+          stillStartIdx = null;
         }
       }
 
       if (endIdx !== null) {
         const strideSamples = endIdx - hsStartIdx;
-        const minOpenStrideSamples = Math.floor(this.minOpenStrideTimeSeconds * this.sampleRate);
+        const openStrideTime = getDurationBetween(timestamps, hsStartIdx, endIdx, dt);
 
-        if (strideSamples >= minOpenStrideSamples && strideSamples <= maxStrideSamples) {
+        if (
+          openStrideTime !== null
+          && openStrideTime >= this.minOpenStrideTimeSeconds
+          && openStrideTime <= this.maxStrideTime
+        ) {
           let maxAbsWithin = 0;
           for (let j = hsStartIdx; j <= endIdx; j += 1) {
             maxAbsWithin = Math.max(maxAbsWithin, Math.abs(smoothed[j]));
@@ -134,7 +158,7 @@ export class GaitEventDetector {
             if (msvIdx !== null) {
               events.push({
                 index: msvIdx,
-                time: timestamps[msvIdx],
+                time: getTimeAt(timestamps, msvIdx, dt),
                 type: 'MSV',
               });
             }
@@ -154,31 +178,37 @@ export class GaitEventDetector {
                 toIdx = toMinima[0] + toSearchStart;
                 events.push({
                   index: toIdx,
-                  time: timestamps[toIdx],
+                  time: getTimeAt(timestamps, toIdx, dt),
                   type: 'TO',
                 });
               }
             }
 
-            const strideTime = (endIdx - hsStartIdx) * dt;
-            const stanceTime = toIdx !== null ? (toIdx - hsStartIdx) * dt : strideTime * 0.62;
-            const swingTime = strideTime - stanceTime;
+            const measuredStanceTime = toIdx !== null
+              ? getDurationBetween(timestamps, hsStartIdx, toIdx, dt)
+              : null;
+            const stanceTime = measuredStanceTime !== null
+              ? Math.max(0, Math.min(openStrideTime, measuredStanceTime))
+              : openStrideTime * 0.62;
+            const swingTime = Math.max(0, openStrideTime - stanceTime);
 
-            cycles.push({
-              hsStart: { index: hsStartIdx, time: timestamps[hsStartIdx], type: 'HS' },
-              hsEnd: { index: endIdx, time: timestamps[endIdx], type: 'HS' },
-              to: toIdx !== null ? { index: toIdx, time: timestamps[toIdx], type: 'TO' } : null,
-              msv: msvIdx !== null ? { index: msvIdx, time: timestamps[msvIdx], type: 'MSV' } : null,
-              strideTime,
+            rawStrides.push({
+              hsStart: { index: hsStartIdx, time: getTimeAt(timestamps, hsStartIdx, dt), type: 'HS' },
+              hsEnd: { index: endIdx, time: getTimeAt(timestamps, endIdx, dt), type: 'HS' },
+              to: toIdx !== null ? { index: toIdx, time: getTimeAt(timestamps, toIdx, dt), type: 'TO' } : null,
+              msv: msvIdx !== null ? { index: msvIdx, time: getTimeAt(timestamps, msvIdx, dt), type: 'MSV' } : null,
+              strideTime: openStrideTime,
               stanceTime,
               swingTime,
-              stancePct: (stanceTime / strideTime) * 100,
-              swingPct: (swingTime / strideTime) * 100,
+              stancePct: openStrideTime > 0 ? (stanceTime / openStrideTime) * 100 : 0,
+              swingPct: openStrideTime > 0 ? (swingTime / openStrideTime) * 100 : 0,
             });
           }
         }
       }
     }
+
+    const cycles = rawStrides.filter((cycle) => cycle?.hsStart && cycle?.hsEnd);
 
     events.sort((a, b) => a.index - b.index);
     return { events, cycles };
