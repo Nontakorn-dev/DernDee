@@ -18,7 +18,7 @@ Current repository documentation now lives in `docs/README.md` and the files lin
 The current repository centers around three main layers:
 
 - **Wearable firmware** for ESP32 IMU nodes that stream raw motion data over BLE
-- **Web application** for authentication, device pairing, calibration, free walking sessions, rehabilitation games, history screens, and doctor dashboard prototypes
+- **Web application** for authentication, device pairing, calibration, offline-first therapy sessions, rehabilitation games, history screens, and doctor dashboard prototypes
 - **Supabase data layer** for auth, profile data, session persistence, and review workflows
 
 The system currently supports these main usage paths:
@@ -37,7 +37,16 @@ The system currently supports these main usage paths:
   - Pair multiple IMU sensors directly from the browser
   - Decode Packet V1 raw accel and gyro samples in `realtimeTransport.js`
   - Reuse the same in-browser realtime stream across Calibration, Free Walk, games, and the gait dashboard
-  - Persist completed sessions to Supabase from the frontend
+  - Queue completed sessions in IndexedDB first, then sync them to Supabase when online
+
+- **Offline-first runtime**
+  - Session persistence uses a local outbox in IndexedDB before remote sync
+  - Reconnect logic flushes queued sessions automatically from the browser
+  - A service worker and web manifest let the patient app install and reopen offline
+
+- **Worker-backed gait analysis**
+  - `GaitProcessor` runs in a Web Worker for current Free Walk, Rhythm Drummer, and gait dashboard analysis paths
+  - Main-thread UI keeps rendering while sensor analysis continues in the background
 
 - **Patient web application**
   - Supabase authentication and patient profile bootstrapping
@@ -80,8 +89,13 @@ flowchart TD
   I --> L
   J --> L
 
-  L --> M[Supabase sessions]
-  L --> N[Supabase gait_metrics]
+  L --> M[IndexedDB session outbox]
+  M --> N{Online?}
+  N -->|Yes| O[Sync queued sessions to Supabase]
+  N -->|No| P[Keep local queue for retry]
+
+  O --> Q[Supabase sessions]
+  O --> R[Supabase gait_metrics]
 ```
 
 ---
@@ -102,26 +116,160 @@ flowchart TD
 
 ## Repository Structure
 
+This tree reflects the current workspace layout. Tool-managed directories such as `.git/`, `.venv/`, `DernDee_Web-app/node_modules/`, and `DernDee_Web-app/dist/` are shown at folder level only.
+
 ```text
 .
+|-- .git/
+|-- .gitignore
+|-- .venv/
+|-- .vscode/
+|   |-- mcp.json
+|   `-- settings.json
 |-- README.md
+|-- DernDee_Web-app/
+|   |-- .env
+|   |-- .env.example
+|   |-- .eslintignore
+|   |-- .eslintrc.cjs
+|   |-- README.md
+|   |-- apps/
+|   |   |-- clinic/
+|   |   |   |-- index.html
+|   |   |   `-- src/
+|   |   |       |-- components/
+|   |   |       |   |-- DoctorAnalysisReview.jsx
+|   |   |       |   |-- DoctorChat.jsx
+|   |   |       |   |-- DoctorDashboard.jsx
+|   |   |       |   `-- DoctorPatientDetail.jsx
+|   |   |       |-- data/
+|   |   |       |   `-- mockDoctorData.js
+|   |   |       `-- main.jsx
+|   |   `-- patient/
+|   |       |-- index.html
+|   |       `-- src/
+|   |           |-- components/
+|   |           |   |-- AnalysisResult.jsx
+|   |           |   |-- Calibration.jsx
+|   |           |   |-- DeviceConnection.css
+|   |           |   |-- DeviceConnection.jsx
+|   |           |   |-- GaitDashboard.jsx
+|   |           |   |-- History.jsx
+|   |           |   |-- Home.css
+|   |           |   |-- Home.jsx
+|   |           |   |-- Login.css
+|   |           |   |-- Login.jsx
+|   |           |   |-- Position.css
+|   |           |   |-- Position.jsx
+|   |           |   |-- Profile.css
+|   |           |   |-- Profile.jsx
+|   |           |   |-- Register.css
+|   |           |   |-- Register.jsx
+|   |           |   |-- Settings.jsx
+|   |           |   |-- Telemedicine.jsx
+|   |           |   |-- TherapySelect.jsx
+|   |           |   |-- WalkSession.jsx
+|   |           |   |-- WalkSummary.jsx
+|   |           |   `-- games/
+|   |           |       |-- GameBalance.jsx
+|   |           |       |-- GameClearance.jsx
+|   |           |       `-- GameRhythm.jsx
+|   |           `-- main.jsx
+|   |-- dist/
+|   |-- node_modules/
+|   |-- package-lock.json
+|   |-- package.json
+|   |-- postcss.config.js
+|   |-- public/
+|   |   |-- DernDee_logo.png
+|   |   |-- audio/
+|   |   |   |-- End.m4a
+|   |   |   |-- Fix.m4a
+|   |   |   |-- GoodBoy.m4a
+|   |   |   `-- Start.m4a
+|   |   `-- vite.svg
+|   |-- shared/
+|   |   |-- assets/
+|   |   |   |-- Avatar/
+|   |   |   |   |-- Avartar-GoodBoy.gif
+|   |   |   |   |-- Avatar-Stop.gif
+|   |   |   |   |-- Avatar-Talk.gif
+|   |   |   |   |-- General.png
+|   |   |   |   |-- Good.png
+|   |   |   |   |-- circumduction.mp4
+|   |   |   |   |-- circumduction.png
+|   |   |   |   |-- clearance.mp4
+|   |   |   |   |-- clearance.png
+|   |   |   |   |-- short_step.png
+|   |   |   |   `-- welcome.png
+|   |   |   |-- Voice/
+|   |   |   |   |-- End.m4a
+|   |   |   |   |-- Fix.m4a
+|   |   |   |   |-- GoodBoy.m4a
+|   |   |   |   `-- Start.m4a
+|   |   |   |-- images/
+|   |   |   |   |-- derndee-logo.png
+|   |   |   |   |-- devicePositionImage.png
+|   |   |   |   |-- doctor.png
+|   |   |   |   |-- good-boy.png
+|   |   |   |   `-- good.png
+|   |   |   `-- react.svg
+|   |   |-- auth/
+|   |   |   `-- ProtectedRoute.jsx
+|   |   |-- context/
+|   |   |   `-- UserAuthContext.jsx
+|   |   |-- gait/
+|   |   |   |-- feedbackAdvisor.js
+|   |   |   |-- gaitEventDetector.js
+|   |   |   |-- gaitProcessor.js
+|   |   |   |-- gatewayLiftEstimator.js
+|   |   |   |-- kalmanFilter.js
+|   |   |   |-- realtimeStepDetector.js
+|   |   |   |-- sessionAnalyzer.js
+|   |   |   |-- signalUtils.js
+|   |   |   |-- velocityIntegrator.js
+|   |   |   `-- verticalLiftEstimator.js
+|   |   |-- gait-dashboard/
+|   |   |   |-- app.js
+|   |   |   |-- data/
+|   |   |   |   `-- demoDataGenerator.js
+|   |   |   |-- styles/
+|   |   |   |   `-- main.css
+|   |   |   `-- ui/
+|   |   |       |-- charts.js
+|   |   |       `-- dashboard.js
+|   |   |-- gateway/
+|   |   |   `-- realtimeTransport.js
+|   |   |-- hooks/
+|   |   |   `-- usePersistedGatewaySession.js
+|   |   |-- index.css
+|   |   |-- sensor/
+|   |   |   `-- orientationTracker.js
+|   |   |-- services/
+|   |   |   |-- profileService.js
+|   |   |   `-- sessionService.js
+|   |   `-- supabase/
+|   |       `-- client.js
+|   |-- tailwind.config.js
+|   |-- vercel.json
+|   `-- vite.config.js
 |-- docs/
 |   |-- README.md
-|   |-- system-overview.md
 |   |-- frontend-apps.md
 |   |-- realtime-browser-ble.md
-|   `-- supabase-cloud-data-layer.md
-|-- DernDee_Web-app/
-|   |-- package.json
-|   |-- vite.config.js
-|   |-- apps/
-|   |   |-- patient/
-|   |   `-- clinic/
-|   |-- shared/
-|   `-- public/
+|   |-- supabase-cloud-data-layer.md
+|   `-- system-overview.md
 |-- Hardware/
+|   |-- esp32_ICM20948_Ver2.ino
+|   |-- esp32_IMU_Ver2.ino
+|   `-- esp32_imu_node.ino
 `-- supabase/
-    `-- migrations/
+  `-- migrations/
+    |-- 20260430000100_initial_cloud_data_layer.sql
+    |-- 20260430000200_enable_doctor_patient_linking.sql
+    |-- 20260430000300_add_session_details.sql
+    |-- 20260504000100_enable_patient_session_inserts.sql
+    `-- 20260504000200_set_session_source_default_to_frontend.sql
 ```
 
 ---
@@ -224,9 +372,12 @@ Current notes:
 ## Notes for Development and Deployment
 
 - The active realtime pipeline now lives entirely in the frontend shared modules.
+- Session completion is now offline-first: the browser writes to IndexedDB first and flushes to Supabase on reconnect.
 - Gait processing and game-specific control logic live primarily in the frontend shared modules.
+- Current Free Walk, Rhythm Drummer, and gait dashboard analysis use a worker-backed `GaitProcessor` to reduce UI-thread load.
 - Patient history and session persistence center on Supabase.
 - Deployment requires browsers and devices that support Web Bluetooth for live sensor mode.
+- The frontend now ships with a PWA manifest and service worker for installable offline app shells.
 
 ---
 

@@ -1,4 +1,12 @@
 import { getSupabaseClient } from '@shared/supabase/client.js'
+import {
+  countPendingSessions,
+  enqueuePendingSession,
+  isPendingSessionOutboxSupported,
+  listPendingSessions,
+  removePendingSession,
+  updatePendingSessionSyncState,
+} from './sessionOutbox.js'
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 
@@ -178,6 +186,16 @@ const buildFrontendSessionId = () => {
 
 const shouldPersistGaitMetrics = (sessionType) => !SUMMARY_ONLY_SESSION_TYPES.has(sessionType)
 
+const hasNetworkConnection = () => typeof navigator === 'undefined' || navigator.onLine !== false
+
+const formatSessionSyncError = (error) => ({
+  message: error?.message || 'Session sync failed',
+  code: error?.code || null,
+  details: error?.details || null,
+  hint: error?.hint || null,
+  status: Number.isFinite(Number(error?.status)) ? Number(error.status) : null,
+})
+
 const normalizeGaitMetricsInsertRow = (row, stepIndex) => {
   if (!row || typeof row !== 'object') {
     return null
@@ -308,7 +326,7 @@ async function executeSessionQuery(queryFactory) {
   return response
 }
 
-export async function persistSessionFromFrontend({
+function buildNormalizedFrontendSessionRecord({
   patientId,
   sessionType,
   summary = {},
@@ -320,11 +338,6 @@ export async function persistSessionFromFrontend({
   endedAt = null,
   gatewaySessionId = null,
 }) {
-  if (!patientId) {
-    throw new Error('patientId is required to persist a session')
-  }
-
-  const supabase = getSupabaseClient()
   const startTime = startedAt ? new Date(startedAt) : new Date()
   const endTime = endedAt ? new Date(endedAt) : new Date()
   const durationSeconds = Math.max(0, Math.round((endTime.getTime() - startTime.getTime()) / 1000))
@@ -336,23 +349,66 @@ export async function persistSessionFromFrontend({
     detailsPayload.game_label = metadata.game_label
   }
 
-  const sessionRow = {
-    patient_id: patientId,
-    gateway_session_id: gatewaySessionId || buildFrontendSessionId(),
+  const normalizedSessionType = sessionType || 'free_walk'
+  const normalizedGatewaySessionId = gatewaySessionId || buildFrontendSessionId()
+  const normalizedRows = shouldPersistGaitMetrics(normalizedSessionType)
+    ? gaitMetricsRows
+      .map((row, index) => normalizeGaitMetricsInsertRow(row, index + 1))
+      .filter(Boolean)
+    : []
+
+  return {
+    id: normalizedGatewaySessionId,
+    gatewaySessionId: normalizedGatewaySessionId,
+    patientId,
+    sessionType: normalizedSessionType,
     source,
-    session_type: sessionType || 'free_walk',
-    start_time: startTime.toISOString(),
-    end_time: endTime.toISOString(),
-    duration_seconds: durationSeconds,
-    total_steps: Math.max(0, Math.round(toFiniteNumber(summary.total_steps) || 0)),
-    avg_speed_mps: toFiniteNumber(summary.avg_speed_mps),
-    cadence_spm: toFiniteNumber(summary.cadence_spm),
-    avg_step_length_m: toFiniteNumber(summary.avg_step_length_m),
-    avg_stride_length_m: toFiniteNumber(summary.avg_stride_length_m),
-    avg_clearance_m: toFiniteNumber(summary.avg_clearance_m),
-    symmetry_score: toFiniteNumber(summary.symmetry_score),
+    startedAt: startTime.toISOString(),
+    endedAt: endTime.toISOString(),
+    durationSeconds,
+    summary: {
+      total_steps: Math.max(0, Math.round(toFiniteNumber(summary.total_steps) || 0)),
+      avg_speed_mps: toFiniteNumber(summary.avg_speed_mps),
+      cadence_spm: toFiniteNumber(summary.cadence_spm),
+      avg_step_length_m: toFiniteNumber(summary.avg_step_length_m),
+      avg_stride_length_m: toFiniteNumber(summary.avg_stride_length_m),
+      avg_clearance_m: toFiniteNumber(summary.avg_clearance_m),
+      symmetry_score: toFiniteNumber(summary.symmetry_score),
+    },
     details: detailsPayload,
+    gaitMetricsRows: normalizedRows,
+    metadata: typeof metadata === 'object' && metadata && !Array.isArray(metadata) ? { ...metadata } : {},
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+    syncAttempts: 0,
+    lastSyncError: null,
+    lastSyncAttemptAt: null,
   }
+}
+
+function buildSessionRowFromRecord(record) {
+  return {
+    patient_id: record.patientId,
+    gateway_session_id: record.gatewaySessionId,
+    source: record.source,
+    session_type: record.sessionType,
+    start_time: record.startedAt,
+    end_time: record.endedAt,
+    duration_seconds: record.durationSeconds,
+    total_steps: record.summary?.total_steps ?? 0,
+    avg_speed_mps: record.summary?.avg_speed_mps ?? null,
+    cadence_spm: record.summary?.cadence_spm ?? null,
+    avg_step_length_m: record.summary?.avg_step_length_m ?? null,
+    avg_stride_length_m: record.summary?.avg_stride_length_m ?? null,
+    avg_clearance_m: record.summary?.avg_clearance_m ?? null,
+    symmetry_score: record.summary?.symmetry_score ?? null,
+    details: record.details || {},
+  }
+}
+
+async function insertFrontendSessionRecord(record) {
+  const supabase = getSupabaseClient()
+  const sessionRow = buildSessionRowFromRecord(record)
 
   let insertResponse = await supabase
     .from('sessions')
@@ -375,16 +431,11 @@ export async function persistSessionFromFrontend({
   }
 
   const sessionId = insertResponse.data?.id
-  const normalizedRows = shouldPersistGaitMetrics(sessionType)
-    ? gaitMetricsRows
-      .map((row, index) => normalizeGaitMetricsInsertRow(row, index + 1))
-      .filter(Boolean)
-    : []
 
-  if (sessionId && normalizedRows.length) {
+  if (sessionId && record.gaitMetricsRows.length) {
     const { error } = await supabase
       .from('gait_metrics')
-      .insert(normalizedRows.map((row) => ({
+      .insert(record.gaitMetricsRows.map((row) => ({
         ...row,
         session_id: sessionId,
       })))
@@ -396,8 +447,130 @@ export async function persistSessionFromFrontend({
 
   return {
     sessionId,
-    savedMetricsCount: normalizedRows.length,
+    savedMetricsCount: record.gaitMetricsRows.length,
     sessionRow,
+  }
+}
+
+async function syncPendingSessionRecord(record) {
+  const syncResult = await insertFrontendSessionRecord(record)
+  await removePendingSession(record.id)
+  return syncResult
+}
+
+export async function flushPendingFrontendSessions() {
+  if (!hasNetworkConnection()) {
+    return {
+      syncedCount: 0,
+      failedCount: 0,
+      pendingCount: await countPendingSessions(),
+    }
+  }
+
+  const pendingRecords = await listPendingSessions()
+  let syncedCount = 0
+  let failedCount = 0
+
+  for (const record of pendingRecords) {
+    try {
+      await syncPendingSessionRecord(record)
+      syncedCount += 1
+    } catch (error) {
+      failedCount += 1
+      await updatePendingSessionSyncState(record.id, {
+        syncAttempts: Number(record.syncAttempts || 0) + 1,
+        lastSyncAttemptAt: new Date().toISOString(),
+        lastSyncError: formatSessionSyncError(error),
+        updatedAt: new Date().toISOString(),
+      })
+    }
+  }
+
+  return {
+    syncedCount,
+    failedCount,
+    pendingCount: await countPendingSessions(),
+  }
+}
+
+export async function getPendingFrontendSessionCount() {
+  return countPendingSessions()
+}
+
+export async function persistSessionFromFrontend({
+  patientId,
+  sessionType,
+  summary = {},
+  details = {},
+  gaitMetricsRows = [],
+  metadata = {},
+  source = 'frontend',
+  startedAt = null,
+  endedAt = null,
+  gatewaySessionId = null,
+}) {
+  if (!patientId) {
+    throw new Error('patientId is required to persist a session')
+  }
+
+  const record = buildNormalizedFrontendSessionRecord({
+    patientId,
+    sessionType,
+    summary,
+    details,
+    gaitMetricsRows,
+    metadata,
+    source,
+    startedAt,
+    endedAt,
+    gatewaySessionId,
+  })
+
+  let storedOffline = false
+  if (isPendingSessionOutboxSupported()) {
+    storedOffline = await enqueuePendingSession(record)
+  }
+
+  if (!hasNetworkConnection()) {
+    return {
+      sessionId: null,
+      savedMetricsCount: record.gaitMetricsRows.length,
+      sessionRow: buildSessionRowFromRecord(record),
+      gatewaySessionId: record.gatewaySessionId,
+      syncStatus: storedOffline ? 'queued' : 'pending-online',
+      queued: storedOffline,
+    }
+  }
+
+  try {
+    const syncResult = await syncPendingSessionRecord(record)
+    return {
+      ...syncResult,
+      gatewaySessionId: record.gatewaySessionId,
+      syncStatus: 'synced',
+      queued: false,
+    }
+  } catch (error) {
+    if (storedOffline) {
+      await updatePendingSessionSyncState(record.id, {
+        syncAttempts: 1,
+        lastSyncAttemptAt: new Date().toISOString(),
+        lastSyncError: formatSessionSyncError(error),
+        updatedAt: new Date().toISOString(),
+      })
+
+      return {
+        sessionId: null,
+        savedMetricsCount: record.gaitMetricsRows.length,
+        sessionRow: buildSessionRowFromRecord(record),
+        gatewaySessionId: record.gatewaySessionId,
+        syncStatus: 'queued',
+        queued: true,
+        syncError: formatSessionSyncError(error),
+      }
+    }
+
+    throw error
   }
 }
 

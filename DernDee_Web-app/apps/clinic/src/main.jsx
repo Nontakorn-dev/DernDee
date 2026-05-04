@@ -10,6 +10,7 @@ import DoctorPatientDetail from '@clinic/components/DoctorPatientDetail.jsx'
 import DoctorAnalysisReview from '@clinic/components/DoctorAnalysisReview.jsx'
 import DoctorChat from '@clinic/components/DoctorChat.jsx'
 import { UserAuthContextProvider, useUserAuth } from '@shared/context/UserAuthContext.jsx'
+import { registerDernDeePwa } from '@shared/pwa/registerPwa.js'
 import '@shared/index.css'
 
 function ClinicProtectedRoute({ children }) {
@@ -59,6 +60,8 @@ const router = createBrowserRouter([
 ], {
   basename: '/clinic',
 })
+
+registerDernDeePwa()
 
 ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode>

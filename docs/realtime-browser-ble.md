@@ -15,6 +15,7 @@
 - broadcast `DATA` payloads ไปทุก screen ที่เปิด `createRealtimeConnection()`
 - emulation control messages เช่น `CALIBRATE`, `RESET`, `START_SESSION`, `END_SESSION`
 - keep device assignments ไว้ใน `sessionStorage` เพื่อ reuse ข้าม route
+- ทำงานร่วมกับ session outbox ใน IndexedDB เพื่อให้ therapy sessions ถูกเก็บก่อนแม้ network จะหลุด
 
 ## 2. ไฟล์สำคัญ
 
@@ -23,7 +24,10 @@
 | `DernDee_Web-app/shared/gateway/realtimeTransport.js` | transport manager, Browser BLE sockets, control-message emulation |
 | `DernDee_Web-app/apps/patient/src/components/DeviceConnection.jsx` | pair/unpair sensors และดูสถานะ packet stream |
 | `DernDee_Web-app/shared/hooks/usePersistedGatewaySession.js` | ส่ง session lifecycle commands ผ่าน transport และ persist session จาก frontend |
-| `DernDee_Web-app/shared/services/sessionService.js` | insert `sessions` และ `gait_metrics` ลง Supabase |
+| `DernDee_Web-app/shared/services/sessionService.js` | queue sessions locally, sync to Supabase, query history |
+| `DernDee_Web-app/shared/services/sessionOutbox.js` | IndexedDB outbox สำหรับ pending sessions |
+| `DernDee_Web-app/shared/hooks/useOfflineSessionSync.js` | monitor online or offline state และ flush queue ตอน reconnect |
+| `DernDee_Web-app/shared/gait/gaitProcessorClient.js` | worker-backed analysis client สำหรับ GaitProcessor |
 
 ## 3. Runtime pipeline
 
@@ -33,6 +37,7 @@
 2. infer `side` และ `sensor_mount` จากชื่ออุปกรณ์
 3. broadcast `DATA` payloads ไปทุก BrowserBleSocket
 4. แต่ละ route เช่น Calibration, WalkSession, High Stepper, Magic Plate, Rhythm Drummer, และ gait dashboard อ่าน raw stream เดียวกันนี้
+5. เส้นทางที่ใช้ `GaitProcessor` จะส่ง sample ต่อเข้า Web Worker แทนการ analyze บน main thread
 
 ## 4. In-browser message contract
 
@@ -71,13 +76,14 @@ transport ยังคง interface เดิมเพื่อไม่ให�
 
 ### Free Walk
 
-- frontend persist `sessions`
-- frontend persist `gait_metrics` รายก้าว
+- frontend queue `sessions` ลง IndexedDB ก่อน
+- frontend queue `gait_metrics` รายก้าวลง IndexedDB ก่อน
+- ถ้า online จะ sync ไป Supabase ทันที; ถ้า offline จะรอ reconnect แล้ว flush ภายหลัง
 
 ### High Stepper / Magic Plate / Rhythm Drummer
 
-- frontend persist `sessions`
-- frontend persist `sessions.details`
+- frontend queue `sessions` ลง IndexedDB ก่อน
+- frontend queue `sessions.details` ลง IndexedDB ก่อน
 - ไม่ persist `gait_metrics` รายก้าว
 
 ## 6. Browser requirements
@@ -109,5 +115,5 @@ npm run dev
 ## 9. ข้อจำกัดและข้อควรระวัง
 
 - BLE จะทำงานได้เฉพาะใน browser และ device ที่รองรับ Web Bluetooth
-- browser จะเป็นเจ้าของ realtime session lifecycle เอง ดังนั้นถ้าปิด tab ระหว่าง session ข้อมูลอาจยัง persist ไม่ครบ
+- browser จะเป็นเจ้าของ realtime session lifecycle เอง ดังนั้น session ที่อยู่ใน IndexedDB outbox ยังต้องกลับมาเปิด app เพื่อ flush ถ้า service worker ยังไม่ถือ auth context ของผู้ใช้
 - deployment แบบ static hosting ใช้ได้ ถ้าเครื่องผู้ใช้รองรับ Web Bluetooth และเข้าถึง sensor BLE โดยตรง

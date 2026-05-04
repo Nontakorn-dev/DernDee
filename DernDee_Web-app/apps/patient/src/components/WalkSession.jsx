@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ArrowLeft, Footprints, Gauge, Wifi, WifiOff, Pause, Play, Square } from 'lucide-react';
 import { GaitFeedbackAdvisor } from '@shared/gait/feedbackAdvisor.js';
-import { GaitProcessor } from '@shared/gait/gaitProcessor.js';
+import { createGaitProcessorClient } from '@shared/gait/gaitProcessorClient.js';
 import { GaitSessionAnalyzer } from '@shared/gait/sessionAnalyzer.js';
 import { useUserAuth } from '@shared/context/UserAuthContext.jsx';
 import {
@@ -80,7 +80,7 @@ const WalkSession = () => {
     const feedbackAdvisorRef = useRef(null);
 
     if (!processorRef.current) {
-        processorRef.current = new GaitProcessor();
+        processorRef.current = createGaitProcessorClient();
     }
     if (!sessionAnalyzerRef.current) {
         sessionAnalyzerRef.current = new GaitSessionAnalyzer();
@@ -180,11 +180,14 @@ const WalkSession = () => {
             }
         };
 
-        processor.onParams(onParams);
-        return () => {
-            processor.paramListeners = processor.paramListeners.filter((callback) => callback !== onParams);
-        };
+        return processor.onParams(onParams);
     }, [handleFeedback]);
+
+    useEffect(() => {
+        return () => {
+            processorRef.current?.destroy?.();
+        };
+    }, []);
 
     const handleMessage = useCallback((msg) => {
         if (msg.type !== 'DATA') return;

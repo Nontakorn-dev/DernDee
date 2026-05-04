@@ -3,6 +3,7 @@ import fs from 'node:fs'
 import { createClient } from '@supabase/supabase-js'
 import { defineConfig, loadEnv } from 'vite'
 import react from '@vitejs/plugin-react'
+import { VitePWA } from 'vite-plugin-pwa'
 
 function isLoopbackAddress(remoteAddress = '') {
   return remoteAddress === '127.0.0.1'
@@ -23,8 +24,9 @@ async function readJsonBody(req) {
 
 async function findUserByEmail(adminClient, email) {
   let page = 1
+  let hasMoreUsers = true
 
-  while (true) {
+  while (hasMoreUsers) {
     const { data, error } = await adminClient.auth.admin.listUsers({
       page,
       perPage: 200,
@@ -42,11 +44,14 @@ async function findUserByEmail(adminClient, email) {
     }
 
     if (users.length < 200) {
-      return null
+      hasMoreUsers = false
+      break
     }
 
     page += 1
   }
+
+  return null
 }
 
 function localDevSupabaseAuth(env) {
@@ -226,7 +231,46 @@ export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, __dirname, '')
 
   return {
-    plugins: [react(), localDevSupabaseAuth(env), appRouteAliases()],
+    plugins: [
+      react(),
+      localDevSupabaseAuth(env),
+      appRouteAliases(),
+      VitePWA({
+        strategies: 'injectManifest',
+        srcDir: 'shared/pwa',
+        filename: 'sw.js',
+        injectRegister: false,
+        registerType: 'autoUpdate',
+        includeAssets: [
+          'DernDee_logo.png',
+          'vite.svg',
+          'audio/*.m4a',
+        ],
+        manifest: {
+          name: 'DernDee',
+          short_name: 'DernDee',
+          description: 'Real-time gait rehabilitation platform with offline-first therapy sessions.',
+          theme_color: '#2563eb',
+          background_color: '#eff6ff',
+          display: 'standalone',
+          scope: '/',
+          start_url: '/',
+          icons: [
+            {
+              src: '/DernDee_logo.png',
+              sizes: '192x192',
+              type: 'image/png',
+            },
+            {
+              src: '/DernDee_logo.png',
+              sizes: '512x512',
+              type: 'image/png',
+              purpose: 'any maskable',
+            },
+          ],
+        },
+      }),
+    ],
     resolve: {
       alias: {
         '@shared': path.resolve(__dirname, 'shared'),
@@ -250,6 +294,9 @@ export default defineConfig(({ mode }) => {
       fs: {
         allow: [path.resolve(__dirname, '..')],
       },
+    },
+    worker: {
+      format: 'es',
     },
   }
 })

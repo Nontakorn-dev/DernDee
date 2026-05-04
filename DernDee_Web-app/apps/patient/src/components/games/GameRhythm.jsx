@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { GaitProcessor } from '@shared/gait/gaitProcessor.js';
+import { createGaitProcessorClient } from '@shared/gait/gaitProcessorClient.js';
 import { RealtimeStepDetector } from '@shared/gait/realtimeStepDetector.js';
 import { GaitSessionAnalyzer } from '@shared/gait/sessionAnalyzer.js';
 import { useUserAuth } from '@shared/context/UserAuthContext.jsx';
@@ -109,7 +109,7 @@ const GameRhythm = () => {
     const wsRef = useRef(null);
 
     if (!processorRef.current) {
-        processorRef.current = new GaitProcessor();
+        processorRef.current = createGaitProcessorClient();
     }
     if (!stepDetectorRef.current) {
         stepDetectorRef.current = new RealtimeStepDetector({ sensorMount: 'shank' });
@@ -456,9 +456,12 @@ const GameRhythm = () => {
             setSessionMetrics(nextSessionMetrics);
         };
 
-        processor.onParams(onParams);
+        return processor.onParams(onParams);
+    }, []);
+
+    useEffect(() => {
         return () => {
-            processor.paramListeners = processor.paramListeners.filter((callback) => callback !== onParams);
+            processorRef.current?.destroy?.();
         };
     }, []);
 

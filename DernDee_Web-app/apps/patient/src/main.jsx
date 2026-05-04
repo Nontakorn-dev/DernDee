@@ -19,6 +19,7 @@ import GameClearance from '@patient/components/games/GameClearance.jsx'
 import GameBalance from '@patient/components/games/GameBalance.jsx'
 import GameRhythm from '@patient/components/games/GameRhythm.jsx'
 import ProtectedRoute from '@shared/auth/ProtectedRoute.jsx'
+import { registerDernDeePwa } from '@shared/pwa/registerPwa.js'
 
 import '@shared/index.css'
 import { UserAuthContextProvider } from '@shared/context/UserAuthContext.jsx'
@@ -106,6 +107,8 @@ const router = createBrowserRouter([
     element: <ProtectedRoute><GameRhythm /></ProtectedRoute>
   }
 ])
+
+registerDernDeePwa()
 
 ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode>

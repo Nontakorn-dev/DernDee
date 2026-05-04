@@ -8,6 +8,7 @@ import {
     upsertAuthProfile,
     upsertPatientPresence,
 } from '@shared/services/profileService.js'
+import { useOfflineSessionSync } from '@shared/hooks/useOfflineSessionSync.js'
 
 const userAuthContext = createContext();
 const bypassEmailConfirmationInDev = import.meta.env.DEV && import.meta.env.VITE_SUPABASE_SKIP_EMAIL_CONFIRMATION === 'true';
@@ -17,6 +18,9 @@ export function UserAuthContextProvider({ children }) {
     const [user, setUser] = useState(null);
     const [profile, setProfile] = useState(null);
     const [loading, setLoading] = useState(true);
+    const offlineSessionSync = useOfflineSessionSync({
+        enabled: isSupabaseConfigured && Boolean(user?.uid),
+    });
 
     const syncAuthenticatedUser = async (authUser) => {
         if (!authUser) {
@@ -261,6 +265,7 @@ export function UserAuthContextProvider({ children }) {
             loading,
             isConfigured: isSupabaseConfigured,
             bypassEmailConfirmationInDev,
+            offlineSessionSync,
         }}>
             {children}
         </userAuthContext.Provider>

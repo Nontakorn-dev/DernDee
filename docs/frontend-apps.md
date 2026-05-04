@@ -59,7 +59,10 @@ shared layer เป็นหัวใจของ frontend ปัจจุบั
 
 - `shared/gateway/realtimeTransport.js`
 - `shared/services/sessionService.js`
+- `shared/services/sessionOutbox.js`
 - `shared/hooks/usePersistedGatewaySession.js`
+- `shared/hooks/useOfflineSessionSync.js`
+- `shared/pwa/registerPwa.js`
 
 หน้าที่หลัก:
 
@@ -69,7 +72,9 @@ shared layer เป็นหัวใจของ frontend ปัจจุบั
 - query history และ latest session ของ patient
 - query dashboard, patient detail, และ analysis review ของ doctor
 - map `session_type` ไปเป็น labels, descriptions, tones, และ card metrics
-- persist `sessions` และ `gait_metrics` ลง Supabase จาก frontend โดยตรง
+- persist `sessions` และ `gait_metrics` ลง IndexedDB outbox ก่อน แล้วค่อย sync ไป Supabase
+- flush pending session queue เมื่อ browser online กลับมา
+- register service worker และ web manifest สำหรับ installable offline shell
 
 หมายเหตุ: hook ยังใช้ชื่อ `usePersistedGatewaySession.js` ตามชื่อเดิม แต่ path ปัจจุบันไม่ได้พึ่ง Python gateway แล้ว
 
@@ -109,7 +114,7 @@ entry file: `apps/patient/src/main.jsx`
 - `DeviceConnection.jsx`
   - pair sensor จริงผ่าน Browser BLE และเก็บ assignment ไว้ reuse ข้าม route
 - `WalkSession.jsx`
-  - realtime Browser BLE + frontend session persistence
+  - realtime Browser BLE + offline-first session persistence
 
 ### Patient screens ที่ยังเป็น prototype บางส่วน
 
@@ -138,6 +143,7 @@ entry file: `apps/patient/src/main.jsx`
 
 - file: `apps/patient/src/components/games/GameRhythm.jsx`
 - ใช้ beat timing, cadence, score, streak
+- gait analysis path ใช้ worker-backed `GaitProcessor`
 - persist session type `rhythm_drummer`
 - ใส่ `details` เช่น score, target score, best streak, target BPM, beat count
 
@@ -174,6 +180,7 @@ dashboard logic และ styles กลางอยู่ที่ `DernDee_Web-
 - แสดง signal-level view ของ raw และ processed gait data
 - ใช้ realtime transport เดียวกับ patient app
 - สามารถ reuse Browser BLE connection เดิมได้ถ้า sensor ยังเชื่อมอยู่ใน session เดียวกัน
+- analysis หลักใช้ worker-backed `GaitProcessor`
 - fallback เป็น demo mode เมื่อไม่มี sensor ที่ pair ไว้หรือ browser ไม่รองรับ Web Bluetooth
 
 ## 8. Frontend data presentation model

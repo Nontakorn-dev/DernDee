@@ -39,8 +39,15 @@ DernDee เป็นระบบกายภาพบำบัดการเด
 ### Data Layer
 
 - auth และ browser-side queries ใช้ Supabase JS client
-- session persistence ใช้ frontend insert path ใน `shared/services/sessionService.js`
+- session persistence ใช้ frontend offline-first path ใน `shared/services/sessionService.js`
+- pending session queue ถูกเก็บใน IndexedDB ผ่าน `shared/services/sessionOutbox.js`
 - schema ปัจจุบันรองรับ profiles, patient presence, sessions, gait metrics, doctor assignments, และ review state
+
+### Offline-first และ PWA
+
+- session queue ถูก sync เมื่อ browser online กลับมาผ่าน `shared/hooks/useOfflineSessionSync.js`
+- patient และ clinic entry ลงทะเบียน service worker ผ่าน `shared/pwa/registerPwa.js`
+- app shell ถูก cache ผ่าน `vite-plugin-pwa` เพื่อให้หน้าเว็บเปิดขึ้นได้แม้ไม่มี Wi-Fi
 
 ### Firmware
 
@@ -94,16 +101,17 @@ DernDee_Robustness/
 1. `WalkSession.jsx` ส่ง `START_SESSION` พร้อม `patient_id` และ `session_type = free_walk`
 2. transport เปิด active session metadata ใน memory
 3. ระหว่างเดิน transport ส่ง `DATA` payloads แบบ raw realtime ไป browser routes ทั้งหมดที่ subscribe อยู่
-4. frontend คำนวณ gait metrics และ feedback จาก raw stream
+4. worker-backed `GaitProcessor` คำนวณ gait metrics จาก raw stream โดยแยกออกจาก UI thread
 5. เมื่อจบ session frontend ส่ง `END_SESSION` พร้อม summary overrides
-6. `persistSessionFromFrontend()` insert `sessions` row และ `gait_metrics` ลง Supabase
+6. `persistSessionFromFrontend()` queue session ลง IndexedDB ก่อน
+7. ถ้า online จะ sync `sessions` และ `gait_metrics` ไป Supabase ทันที; ถ้า offline จะรอ reconnect
 
 ### 4.4 Gamification sessions
 
 1. High Stepper, Magic Plate, และ Rhythm Drummer ใช้ realtime stream เดียวกับ Free Walk
 2. แต่ละเกมส่ง `START_SESSION` และ `END_SESSION` ผ่าน shared hook เดียวกัน
 3. เกมแต่ละตัวส่ง `details` เฉพาะเกม เช่น rep counts, zone time, target BPM, score
-4. frontend persist `sessions` summary และ `sessions.details`
+4. frontend queue `sessions` summary และ `sessions.details` ลง IndexedDB ก่อน
 5. game modes ไม่ insert `gait_metrics` รายก้าว
 
 ### 4.5 Clinic review flow

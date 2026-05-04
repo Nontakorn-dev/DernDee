@@ -1,5 +1,5 @@
 import { generateWalkingData, streamDemoData } from './data/demoDataGenerator.js';
-import { GaitProcessor } from '../gait/gaitProcessor.js';
+import { createGaitProcessorClient } from '../gait/gaitProcessorClient.js';
 import { Dashboard } from './ui/dashboard.js';
 import { ChartsManager } from './ui/charts.js';
 import {
@@ -145,7 +145,7 @@ export class GaitLabDashboardApp {
     };
 
     this.stream = new GatewayStreamClient();
-    this.processor = new GaitProcessor();
+  this.processor = createGaitProcessorClient();
     this.dashboard = new Dashboard();
     this.charts = new ChartsManager();
 
@@ -316,6 +316,7 @@ export class GaitLabDashboardApp {
       void resetBrowserBleDevices();
       setRealtimeTransportMode(TRANSPORT_MODE_WEB_BLUETOOTH);
     }
+    this.processor.destroy();
     this.charts.destroy();
   }
 
