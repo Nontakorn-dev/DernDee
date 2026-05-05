@@ -1,216 +1,181 @@
 # Frontend Apps
 
-อัปเดตตามโค้ดใน repository นี้ ณ วันที่ 2026-05-04
+อัปเดตตามโค้ดใน repository นี้ ณ 2026-05-05
 
 ## 1. โครงสร้าง frontend ปัจจุบัน
 
-frontend อยู่ใน `DernDee_Web-app/` และใช้ Vite multi-entry app แทนการแยกหลาย repo
+frontend ทั้งหมดอยู่ใน `DernDee_Web-app/` และใช้ Vite workspace เดียว
 
-entry points ปัจจุบัน:
+HTML entries ที่ build จริงมี 2 ตัว
 
 - `apps/patient/index.html`
 - `apps/clinic/index.html`
 
 shared code อยู่ที่ `DernDee_Web-app/shared/`
 
-## 2. Vite และ route aliasing
+## 2. Vite และ route handling
 
 ไฟล์หลักคือ `DernDee_Web-app/vite.config.js`
 
-สิ่งสำคัญที่ config นี้ทำ:
+สิ่งสำคัญที่ config นี้ทำอยู่ตอนนี้
 
-- map patient app เป็น root `/`
-- map clinic app เป็น `/clinic`
-- map gait dashboard หลักเป็น `/gait-dashboard`
-- redirect path เก่า `/clinic/gait-dashboard` กลับเข้ามา route กลาง
-- กันไม่ให้ Vite internal requests ถูก rewrite ผิด path
-- มี local dev middleware สำหรับ Supabase signup bypass ในเครื่องเดียวกัน
+- alias `@shared` ไป `shared/`
+- alias `@patient` ไป `apps/patient/src/`
+- alias `@clinic` ไป `apps/clinic/src/`
+- serve patient app ที่ `/`
+- serve clinic app ที่ `/clinic`
+- rewrite `/clinic/gait-dashboard` กลับไป patient route `/gait-dashboard` เพื่อ compatibility
+- copy build output ไปที่ `dist/index.html` และ `dist/clinic/index.html`
+- register PWA ผ่าน `vite-plugin-pwa`
+- รัน local signup helper เฉพาะ loopback requests ถ้าเปิด env สำหรับ dev mode
 
-alias หลัก:
+dev server ปัจจุบันรันที่ `http://localhost:5174`
 
-- `@shared`
-- `@patient`
-- `@clinic`
-
-## 3. Shared Layer
-
-shared layer เป็นหัวใจของ frontend ปัจจุบัน เพราะทั้ง patient และ clinic ใช้ auth, transport, และ data model ชุดเดียวกัน
+## 3. Shared layer ที่ใช้จริง
 
 ### 3.1 Auth และ profile
 
-ไฟล์สำคัญ:
+ไฟล์สำคัญ
 
 - `shared/supabase/client.js`
 - `shared/context/UserAuthContext.jsx`
 - `shared/services/profileService.js`
 - `shared/auth/ProtectedRoute.jsx`
 
-ความรับผิดชอบหลัก:
+หน้าที่หลัก
 
-- bootstrap session จาก Supabase Auth
-- sync row ใน `profiles`
-- expose `user`, `profile`, `refreshProfile`, `logIn`, `signUp`, `logOut`
-- heartbeat `patient_presence` ทุก 30 วินาทีเมื่อ patient online
-- mark offline ตอน logout, unload, หรือ tab hidden
+- bootstrap Supabase Auth session
+- ถือ `user` และ `profile` กลางทั้ง app
+- sync profile row และ profile image bucket
+- update `patient_presence` เมื่อ patient online
 
-### 3.2 Realtime transport และ session data
+### 3.2 Realtime transport และ session persistence
 
-ไฟล์สำคัญ:
+ไฟล์สำคัญ
 
 - `shared/gateway/realtimeTransport.js`
+- `shared/hooks/usePersistedGatewaySession.js`
 - `shared/services/sessionService.js`
 - `shared/services/sessionOutbox.js`
-- `shared/hooks/usePersistedGatewaySession.js`
 - `shared/hooks/useOfflineSessionSync.js`
-- `shared/pwa/registerPwa.js`
 
-หน้าที่หลัก:
+หน้าที่หลัก
 
 - pair sensors ผ่าน Browser BLE
-- decode Packet V1 และส่ง `DATA` payloads ไป routes ที่เปิด realtime connection
-- emulate `CALIBRATE`, `RESET`, `START_SESSION`, `END_SESSION` ใน browser
-- query history และ latest session ของ patient
-- query dashboard, patient detail, และ analysis review ของ doctor
-- map `session_type` ไปเป็น labels, descriptions, tones, และ card metrics
-- persist `sessions` และ `gait_metrics` ลง IndexedDB outbox ก่อน แล้วค่อย sync ไป Supabase
-- flush pending session queue เมื่อ browser online กลับมา
-- register service worker และ web manifest สำหรับ installable offline shell
+- decode Packet V1 ใน browser
+- broadcast `DATA` และ control messages ให้ route ต่าง ๆ
+- queue completed sessions ลง IndexedDB
+- flush pending sessions ไป Supabase ตอน online
 
-หมายเหตุ: hook ยังใช้ชื่อ `usePersistedGatewaySession.js` ตามชื่อเดิม แต่ path ปัจจุบันไม่ได้พึ่ง Python gateway แล้ว
+### 3.3 Shared gait runtime และ dashboards
 
-## 4. Patient App
+ไฟล์สำคัญ
 
-entry file: `apps/patient/src/main.jsx`
+- `shared/gait/`
+- `shared/gait/gaitProcessorClient.js`
+- `shared/gait-dashboard/app.js`
+- `shared/gait-dashboard/ui/charts.js`
+- `shared/gait-dashboard/styles/main.css`
 
-### Route map หลัก
+หน้าที่หลัก
+
+- analyze gait metrics จาก raw sensor stream
+- รัน worker-backed processing เพื่อลด UI jank
+- ใช้ runtime ชุดเดียวกันทั้ง patient local dashboard และ doctor remote live dashboard
+
+### 3.4 Live mirror ระหว่าง patient กับ doctor
+
+ไฟล์สำคัญ
+
+- `apps/patient/src/components/PatientLiveGaitMirror.jsx`
+- `apps/clinic/src/components/DoctorLiveGaitDashboard.jsx`
+- `shared/services/liveGaitBroadcast.js`
+
+หน้าที่หลัก
+
+- patient app mount mirror แบบ global ภายใน auth context
+- mirror เลือก stream หลักโดย prefer sensor ที่ `sensor_mount === 'shank'`
+- publish sample batches ไปยัง Supabase Realtime Broadcast เมื่อมี viewer ฝั่ง doctor
+- doctor live dashboard subscribe stream ผ่าน route `/clinic/live-gait/:patientId`
+
+## 4. Patient app
+
+entry file คือ `apps/patient/src/main.jsx`
+
+### Route map ปัจจุบัน
 
 | Route | Screen | Purpose |
 | --- | --- | --- |
-| `/login` | `Login.jsx` | email/password login |
+| `/` | `Login.jsx` | auth entry หลัก |
+| `/login` | `Login.jsx` | email and password login |
 | `/register` | `Register.jsx` | patient sign up |
-| `/home` | `Home.jsx` | dashboard หลักของ patient |
-| `/profile` | `Profile.jsx` | profile editing + patient ID display |
+| `/home` | `Home.jsx` | patient dashboard |
+| `/profile` | `Profile.jsx` | profile editing และ patient ID |
 | `/settings` | `Settings.jsx` | settings UI |
 | `/therapy` | `TherapySelect.jsx` | เลือก therapy mode |
-| `/device-connection` | `DeviceConnection.jsx` | pair และดูสถานะ Browser BLE sensors |
-| `/calibration` | `Calibration.jsx` | calibration ก่อนเริ่ม session |
-| `/walk-session` | `WalkSession.jsx` | free walk realtime session |
-| `/walk-summary` | `WalkSummary.jsx` | summary หลังจบ walk |
-| `/history` | `History.jsx` | session history ของ patient |
+| `/device-connection` | `DeviceConnection.jsx` | pair sensors ผ่าน Browser BLE |
+| `/calibration` | `Calibration.jsx` | calibration flow |
+| `/walk-session` | `WalkSession.jsx` | free walk session |
+| `/walk-summary` | `WalkSummary.jsx` | post-session summary |
 | `/analysis-result` | `AnalysisResult.jsx` | latest session summary |
+| `/history` | `History.jsx` | history ของ patient |
 | `/telemedicine` | `Telemedicine.jsx` | telemedicine prototype |
+| `/gait-dashboard` | `GaitDashboard.jsx` | local gait dashboard |
+| `/clinic/gait-dashboard` | redirect | compatibility redirect ไป `/gait-dashboard` |
 | `/game/clearance` | `GameClearance.jsx` | High Stepper |
 | `/game/balance` | `GameBalance.jsx` | Magic Plate |
 | `/game/rhythm` | `GameRhythm.jsx` | Rhythm Drummer |
 
-### Patient screens ที่เชื่อมระบบจริงแล้ว
+หมายเหตุ
 
-- `Home.jsx`
-  - progress card คำนวณจาก `sessions` ของวันนั้นจริง
-- `History.jsx`
-  - อ่านจาก Supabase และแยก card ตาม `session_type`
-- `Profile.jsx`
-  - profile image, editable profile, และ patient user ID
-- `DeviceConnection.jsx`
-  - pair sensor จริงผ่าน Browser BLE และเก็บ assignment ไว้ reuse ข้าม route
-- `WalkSession.jsx`
-  - realtime Browser BLE + offline-first session persistence
+- route ส่วนใหญ่ถูกห่อด้วย `ProtectedRoute`
+- `PatientLiveGaitMirror` ถูก mount ระดับบนสุดของ patient app ทุกครั้งที่ user เป็น patient
+- `Position.jsx` มีอยู่ในโฟลเดอร์ component แต่ยังไม่ได้ถูก mount เป็น route ใน router ปัจจุบัน
 
-### Patient screens ที่ยังเป็น prototype บางส่วน
+## 5. Clinic app
 
-- `Telemedicine.jsx`
-  - ยังเป็น UI/prototype มากกว่า backend-integrated telehealth flow
-- `AnalysisResult.jsx`
-  - ยังใช้ presentation แบบ generic summary มากกว่าแยกตาม session type เต็มรูปแบบ
+entry file คือ `apps/clinic/src/main.jsx`
 
-## 5. Gamification บน frontend
+clinic app ใช้ `basename = '/clinic'` และมี role guard ที่ยอมเฉพาะ user ที่เป็น doctor
 
-### High Stepper
-
-- file: `apps/patient/src/components/games/GameClearance.jsx`
-- รับ realtime state จาก Browser BLE transport
-- persist session type `high_stepper`
-- ใส่ `details` เช่น `red_line_hits`, `target_reps`, `target_height_cm`, `goal_progress_percent`, `stability_score`
-
-### Magic Plate
-
-- file: `apps/patient/src/components/games/GameBalance.jsx`
-- ใช้ quaternion หรือ tilt สำหรับ balance training
-- persist session type `magic_plate`
-- ใส่ `details` เช่น time in zones, center hold %, avg deviation
-
-### Rhythm Drummer
-
-- file: `apps/patient/src/components/games/GameRhythm.jsx`
-- ใช้ beat timing, cadence, score, streak
-- gait analysis path ใช้ worker-backed `GaitProcessor`
-- persist session type `rhythm_drummer`
-- ใส่ `details` เช่น score, target score, best streak, target BPM, beat count
-
-## 6. Clinic App
-
-entry file: `apps/clinic/src/main.jsx`
-
-clinic app ใช้ `basename = '/clinic'` และมี doctor role guard ที่ตรวจทั้ง auth state และ `profile.role`
-
-### Route map หลัก
+### Route map ปัจจุบัน
 
 | Route | Screen | Purpose |
 | --- | --- | --- |
-| `/clinic/` | `DoctorDashboard.jsx` | ภาพรวม patient ที่ assign กับ doctor |
-| `/clinic/chat` | `DoctorChat.jsx` | chat UI / workflow prototype |
-| `/clinic/patients/:patientId` | `DoctorPatientDetail.jsx` | ข้อมูลผู้ป่วย + sessions list |
+| `/clinic` | `DoctorDashboard.jsx` | dashboard หลักของ doctor |
+| `/clinic/chat` | `DoctorChat.jsx` | chat UI prototype |
+| `/clinic/patients/:patientId` | `DoctorPatientDetail.jsx` | patient detail และรายการ sessions |
 | `/clinic/patients/:patientId/analysis/:sessionId` | `DoctorAnalysisReview.jsx` | review ราย session |
+| `/clinic/live-gait/:patientId` | `DoctorLiveGaitDashboard.jsx` | live dashboard ผ่าน Supabase Realtime |
 
-### จุดเชื่อมกับ Supabase ที่สำคัญ
+## 6. Frontend data model ที่ผู้ใช้เห็น
 
-- dashboard query ผ่าน `fetchDoctorDashboardData`
-- add patient by user ID ผ่าน `addDoctorPatientAssignment`
-- patient detail และ review อ่านจาก `sessions`, `profiles`, `gait_metrics`
-- game session cards ใช้ `sessions.details` เพื่อ render metric ที่ต่างกันตาม mode
+`sessionService.js` ทำหน้าที่เป็น model adapter ระหว่างตาราง Supabase กับ UI cards ทั้ง patient และ clinic
 
-## 7. Gait Dashboard
+สิ่งที่ service นี้ทำ
 
-dashboard logic และ styles กลางอยู่ที่ `DernDee_Web-app/shared/gait-dashboard/`
+- map `session_type` ไปเป็น label และ tone ที่อ่านง่าย
+- map `sessions.details` ไปเป็น card metrics ของ High Stepper, Magic Plate, และ Rhythm Drummer
+- query doctor dashboard, patient detail, analysis review, และ history จาก schema เดียวกัน
+- fallback ถ้าบาง environment ยังไม่มี `sessions.details`
 
-ตอนนี้ dashboard หลักถูกเปิดผ่าน patient route `/gait-dashboard` โดย `apps/patient/src/components/GaitDashboard.jsx`
+## 7. Environment variables ฝั่ง frontend
 
-หน้าที่หลัก:
-
-- แสดง signal-level view ของ raw และ processed gait data
-- ใช้ realtime transport เดียวกับ patient app
-- สามารถ reuse Browser BLE connection เดิมได้ถ้า sensor ยังเชื่อมอยู่ใน session เดียวกัน
-- analysis หลักใช้ worker-backed `GaitProcessor`
-- fallback เป็น demo mode เมื่อไม่มี sensor ที่ pair ไว้หรือ browser ไม่รองรับ Web Bluetooth
-
-## 8. Frontend data presentation model
-
-session cards ปัจจุบันไม่ได้ render field ดิบจาก database ตรง ๆ ทุกจุด แต่ใช้ model กลางจาก `sessionService.js`
-
-สิ่งที่ model นี้ทำ:
-
-- map `session_type` ไปเป็น display label เช่น Free Walk, High Stepper, Magic Plate, Rhythm Drummer
-- map `details` ไปเป็น card metrics ที่อ่านง่าย
-- ใช้ tone หรือ color ต่างกันตาม session type ทั้งฝั่ง patient history และ clinic patient detail
-
-## 9. Frontend environment variables
-
-### Frontend `.env`
-
-จำเป็น:
+จำเป็น
 
 - `VITE_SUPABASE_URL`
 - `VITE_SUPABASE_ANON_KEY`
 
-ใช้ในบาง flow:
+ใช้ในบาง flow
 
 - `VITE_SUPABASE_PROFILE_BUCKET`
 - `VITE_SUPABASE_AUTH_REDIRECT_URL`
 - `VITE_SUPABASE_SKIP_EMAIL_CONFIRMATION`
-- `SUPABASE_SERVICE_ROLE_KEY` เฉพาะ local dev signup helper ใน Vite server
+- `SUPABASE_SERVICE_ROLE_KEY` สำหรับ local signup helper ใน dev server เท่านั้น
 
-## 10. Known caveats ฝั่ง frontend
+## 8. Known caveats ฝั่ง frontend
 
-- clinic review page ยังใช้ layout แบบ generic gait parameters แม้ game sessions จะเป็น summary-only model แล้ว
-- export CSV สำหรับ game sessions อาจไม่มี per-step rows ถ้า session type เป็น summary-only
 - live sensor mode ต้องใช้ browser ที่รองรับ Web Bluetooth จริง
+- doctor live dashboard ใช้ Supabase Realtime Broadcast ดังนั้น smoothness และ quota ขึ้นกับ batch settings และจำนวน viewers
+- package name ใน `package.json` ยังเป็น `react-firebase-auth` แต่ไม่สะท้อน architecture ปัจจุบันแล้ว
+- PWA cache อาจทำให้เห็น build เก่าหลัง deploy จนกว่าจะ refresh service worker

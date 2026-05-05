@@ -1,119 +1,153 @@
 # Realtime Browser BLE
 
-อัปเดตตามโค้ดใน repository นี้ ณ วันที่ 2026-05-04
+อัปเดตตามโค้ดใน repository นี้ ณ 2026-05-05
 
-## 1. ภารกิจของ realtime transport ปัจจุบัน
+## 1. ขอบเขตของ realtime runtime ปัจจุบัน
 
-ระบบ realtime ของ DernDee ไม่ใช้ Python gateway แล้ว
+realtime path หลักของ DernDee อยู่ใน browser ไม่ได้พึ่ง process กลางนอก frontend
 
-หน้าที่หลักถูกย้ายมาอยู่ใน browser ผ่าน `DernDee_Web-app/shared/gateway/realtimeTransport.js`
+แกนหลักอยู่ที่ `DernDee_Web-app/shared/gateway/realtimeTransport.js`
 
-สิ่งที่ transport นี้ทำคือ:
+สิ่งที่ runtime นี้ทำ
 
 - pair BLE sensors ผ่าน Web Bluetooth
-- decode Packet V1 จาก firmware ใน browser
-- broadcast `DATA` payloads ไปทุก screen ที่เปิด `createRealtimeConnection()`
-- emulation control messages เช่น `CALIBRATE`, `RESET`, `START_SESSION`, `END_SESSION`
-- keep device assignments ไว้ใน `sessionStorage` เพื่อ reuse ข้าม route
-- ทำงานร่วมกับ session outbox ใน IndexedDB เพื่อให้ therapy sessions ถูกเก็บก่อนแม้ network จะหลุด
+- decode packet จาก characteristic notifications ใน browser
+- map sensor packets ไปเป็น `DATA` payloads สำหรับหน้าต่าง ๆ ใน app
+- emulate control messages เช่น `CALIBRATE`, `RESET`, `START_SESSION`, `END_SESSION`
+- จำ device assignments ไว้ใน `sessionStorage`
+- ทำงานร่วมกับ session outbox และ doctor live broadcast flow
 
-## 2. ไฟล์สำคัญ
+## 2. Packet contract ที่ decoder รองรับตอนนี้
 
-| File | Responsibility |
-| --- | --- |
-| `DernDee_Web-app/shared/gateway/realtimeTransport.js` | transport manager, Browser BLE sockets, control-message emulation |
-| `DernDee_Web-app/apps/patient/src/components/DeviceConnection.jsx` | pair/unpair sensors และดูสถานะ packet stream |
-| `DernDee_Web-app/shared/hooks/usePersistedGatewaySession.js` | ส่ง session lifecycle commands ผ่าน transport และ persist session จาก frontend |
-| `DernDee_Web-app/shared/services/sessionService.js` | queue sessions locally, sync to Supabase, query history |
-| `DernDee_Web-app/shared/services/sessionOutbox.js` | IndexedDB outbox สำหรับ pending sessions |
-| `DernDee_Web-app/shared/hooks/useOfflineSessionSync.js` | monitor online or offline state และ flush queue ตอน reconnect |
-| `DernDee_Web-app/shared/gait/gaitProcessorClient.js` | worker-backed analysis client สำหรับ GaitProcessor |
+decoder ปัจจุบันอ่าน packet ขนาด 22 bytes แบบ little-endian ตามโครงสร้างนี้
 
-## 3. Runtime pipeline
+```text
+[magic(2), version(1), seq(2), timestamp_us(4),
+ ax(2), ay(2), az(2), gx(2), gy(2), gz(2), crc8(1)]
+```
 
-เมื่อ packet เข้ามาจาก characteristic:
+ฟิลด์สำคัญที่ได้จาก `decodePacket(buffer)`
 
-1. `decodePacket(buffer)`
-2. infer `side` และ `sensor_mount` จากชื่ออุปกรณ์
-3. broadcast `DATA` payloads ไปทุก BrowserBleSocket
-4. แต่ละ route เช่น Calibration, WalkSession, High Stepper, Magic Plate, Rhythm Drummer, และ gait dashboard อ่าน raw stream เดียวกันนี้
-5. เส้นทางที่ใช้ `GaitProcessor` จะส่ง sample ต่อเข้า Web Worker แทนการ analyze บน main thread
+- `raw_accel`
+- `raw_gyro`
+- `timestamp_ms`
+- `seq`
 
-## 4. In-browser message contract
+เงื่อนไขที่ packet ต้องผ่านก่อนจะแปลงเป็น payload
 
-transport ยังคง interface เดิมเพื่อไม่ให้ patient app และ gait dashboard ต้องแก้ flow เยอะ
+- ความยาวต้องเท่ากับ 22 bytes
+- magic ต้องเป็น `0xAA55`
+- CRC8 ต้องตรง
+
+## 3. Firmware compatibility
+
+- firmware ที่ตรงกับ decoder ปัจจุบันคือ `Hardware/esp32_IMU_Ver2.ino`
+- ในไฟล์นี้มีคำอธิบาย Packet V1, sampling 100 Hz, และ CRC8 ตรงกับ logic ใน `realtimeTransport.js`
+- `Hardware/esp32_imu_node.ino` ใช้ header, field order, และ checksum คนละแบบ จึงไม่ควรถือว่า compatible กับ frontend runtime ปัจจุบัน
+
+## 4. Sensor slots และการจำ assignments
+
+transport เตรียม body positions ไว้ 5 slot
+
+| Position ID | UI Name | Inferred Mount |
+| --- | --- | --- |
+| `PELVIS` | Chest | pelvis |
+| `LEFT_THIGH` | Left Thigh | thigh |
+| `RIGHT_THIGH` | Right Thigh | thigh |
+| `LEFT_SHANK` | Left Ankle | shank |
+| `RIGHT_SHANK` | Right Ankle | shank |
+
+พฤติกรรมสำคัญ
+
+- transport ยอมรับชื่ออุปกรณ์ที่ขึ้นต้นด้วย `DernDee`
+- device assignments ถูกเก็บใน `sessionStorage`
+- ถ้า browser รองรับ `navigator.bluetooth.getDevices()` ระบบจะพยายาม reuse permission เดิม
+
+## 5. Message contract ที่ใช้ใน browser
 
 ### Commands
 
 | Message | Meaning |
 | --- | --- |
-| `CALIBRATE` | เริ่ม calibration timer 3 วินาทีใน browser |
+| `CALIBRATE` | เริ่ม calibration timer ใน browser |
 | `RESET` | reset transport runtime state |
 | `START_SESSION` | เปิด active session metadata ใน memory |
-| `END_SESSION` | ปิด active session และให้ frontend persist summary/details |
+| `END_SESSION` | ปิด active session แล้วให้ frontend persist summary |
 
 ### Events
 
 | Event | Meaning |
 | --- | --- |
 | `CALIBRATION_START` | calibration เริ่มแล้ว |
-| `CALIBRATION_DONE` | calibration timer ครบแล้ว |
-| `CALIBRATION_FAILED` | ยังไม่มี sensor ที่เชื่อมอยู่ |
-| `SYSTEM_RESET` | runtime state ถูก reset |
-| `SESSION_STARTED` | active session ถูกเปิดแล้ว |
+| `CALIBRATION_DONE` | calibration สำเร็จ |
+| `CALIBRATION_FAILED` | ไม่มี sensor ที่พร้อมใช้งาน |
+| `SYSTEM_RESET` | runtime state ถูกล้าง |
+| `SESSION_STARTED` | active session เปิดแล้ว |
 | `SESSION_SAVED` | frontend persist session สำเร็จ |
-| `DATA` | payload realtime หลักของระบบ |
+| `DATA` | realtime payload หลักของระบบ |
 
-### ฟิลด์หลักใน `DATA`
+## 6. Local patient realtime path
 
-- `raw_accel`, `raw_gyro`
-- `timestamp_ms`
-- `side`
-- `sensor_mount`
-- `seq`
+1. user pair sensors ใน `DeviceConnection.jsx`
+2. Browser BLE notifications ถูก decode ใน `realtimeTransport.js`
+3. transport broadcast `DATA` payloads ให้ route ที่ subscribe อยู่
+4. `WalkSession`, games, และ patient gait dashboard ใช้ stream เดียวกัน
+5. route ที่ต้องวิเคราะห์ gait ส่ง sample เข้า worker-backed processor ผ่าน `gaitProcessorClient.js`
 
-## 5. Persistence policy
+## 7. Doctor live broadcast path
 
-### Free Walk
+doctor live dashboard ไม่ได้อ่าน raw stream จาก database polling แต่ใช้ Supabase Realtime Broadcast เป็น relay
 
-- frontend queue `sessions` ลง IndexedDB ก่อน
-- frontend queue `gait_metrics` รายก้าวลง IndexedDB ก่อน
-- ถ้า online จะ sync ไป Supabase ทันที; ถ้า offline จะรอ reconnect แล้ว flush ภายหลัง
+ไฟล์ที่เกี่ยวข้อง
 
-### High Stepper / Magic Plate / Rhythm Drummer
+- `apps/patient/src/components/PatientLiveGaitMirror.jsx`
+- `shared/services/liveGaitBroadcast.js`
+- `apps/clinic/src/components/DoctorLiveGaitDashboard.jsx`
 
-- frontend queue `sessions` ลง IndexedDB ก่อน
-- frontend queue `sessions.details` ลง IndexedDB ก่อน
-- ไม่ persist `gait_metrics` รายก้าว
+flow ปัจจุบัน
 
-## 6. Browser requirements
+1. patient app mount `PatientLiveGaitMirror` ตลอดเวลาที่ user เป็น patient
+2. mirror subscribe `DATA` events จาก local Browser BLE transport
+3. mirror เลือก active stream โดย prefer sensor ที่เป็น `shank`
+4. `liveGaitBroadcast.js` batch samples แล้วส่งผ่าน Supabase Realtime channel `live-gait-stream:<patientId>`
+5. doctor route `/clinic/live-gait/:patientId` subscribe channel เดียวกันแล้วป้อน sample เข้า shared gait dashboard runtime ในโหมด `remote-broadcast`
 
-- ใช้ browser ที่รองรับ Web Bluetooth เช่น Chromium-based browser หรือ Bluefy บน iOS
-- user gesture จำเป็นสำหรับการ pair sensor ครั้งแรก
-- ถ้า browser รองรับ `navigator.bluetooth.getDevices()` ระบบจะพยายาม reuse permission เดิมให้ข้าม route ได้
+ค่า runtime สำคัญตอนนี้
 
-## 7. Firmware compatibility
+- `DEFAULT_BATCH_INTERVAL_MS = 80`
+- `DEFAULT_MAX_BATCH_SIZE = 24`
+- viewer heartbeat ทุก `2000 ms`
+- publisher จะส่ง sample เฉพาะตอนที่มี viewer ฝั่ง doctor อยู่จริง
 
-- runtime ปัจจุบัน decode Packet V1 จาก `Hardware/esp32_imu_node.ino`
-- firmware เก่าอื่นใน `Hardware/` ยังควรมองเป็น reference จนกว่าจะยืนยัน packet compatibility ใหม่
+หมายเหตุสำคัญ
 
-## 8. Local runbook
+- live broadcast payload เก็บ `timestamp_ms` ของ sample ต้นทางไว้แล้ว เพื่อให้ doctor dashboard render กราฟได้เนียนกว่าเดิม
+- doctor live dashboard ใช้ shared chart runtime เดียวกับ local gait dashboard แต่ต่างกันที่แหล่ง stream
 
-```bash
-cd DernDee_Web-app
-npm install
-npm run dev
-```
+## 8. ขอบเขตของการ persist
 
-จากนั้น:
+สิ่งที่ runtime นี้ไม่ persist เป็นแถว 100 Hz ลง Supabase tables
 
-1. เปิด patient app
-2. เข้า `DeviceConnection`
-3. pair sensors ผ่านปุ่ม `Connect via BLE`
-4. ไป `Calibration` หรือ route อื่นต่อได้เลยโดยไม่ต้องเปิด process เพิ่ม
+- raw packets จาก BLE
+- `DATA` payloads ทุก frame
+- batches ที่ใช้ใน doctor live dashboard
 
-## 9. ข้อจำกัดและข้อควรระวัง
+สิ่งที่ persist ผ่าน frontend persistence path
 
-- BLE จะทำงานได้เฉพาะใน browser และ device ที่รองรับ Web Bluetooth
-- browser จะเป็นเจ้าของ realtime session lifecycle เอง ดังนั้น session ที่อยู่ใน IndexedDB outbox ยังต้องกลับมาเปิด app เพื่อ flush ถ้า service worker ยังไม่ถือ auth context ของผู้ใช้
-- deployment แบบ static hosting ใช้ได้ ถ้าเครื่องผู้ใช้รองรับ Web Bluetooth และเข้าถึง sensor BLE โดยตรง
+- completed `sessions`
+- `gait_metrics` ของ `free_walk`
+- `sessions.details` ของ game modes
+
+## 9. Browser และ deployment requirements
+
+- ใช้ browser ที่รองรับ Web Bluetooth เช่น Chromium-based browser
+- user gesture จำเป็นสำหรับการ pair ครั้งแรก
+- static hosting ใช้ได้ ตราบใดที่ client browser รองรับ Web Bluetooth และเข้าถึง sensor BLE ได้
+- PWA ทำให้ app shell กลับมาเปิดได้ง่ายขึ้น แต่ไม่ได้แทน Web Bluetooth support
+
+## 10. Debug checklist ที่เจอบ่อย
+
+- ถ้า pair ไม่ได้ ให้เช็ก browser support ก่อน
+- ถ้า graph ไม่ขึ้น ให้เช็กว่า firmware ที่ใช้ตรงกับ `esp32_IMU_Ver2.ino` หรือไม่
+- ถ้า doctor live dashboard ว่าง ให้เช็กว่า patient app ยังเปิดอยู่, Supabase env ถูกต้อง, และ viewer route ใช้ `patientId` ที่ถูกต้อง
+- ถ้า deploy แล้วเห็น UI เก่า ให้ลอง hard refresh หรือ unregister service worker

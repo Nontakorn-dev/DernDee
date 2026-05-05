@@ -1,154 +1,131 @@
 # System Overview
 
-อัปเดตตามโค้ดใน repository นี้ ณ วันที่ 2026-05-04
+อัปเดตตามโค้ดใน repository นี้ ณ 2026-05-05
 
-## 1. DernDee คืออะไร
+## 1. DernDee ตอนนี้คืออะไร
 
-DernDee เป็นระบบกายภาพบำบัดการเดินแบบ realtime ที่เชื่อม 4 ชั้นเข้าด้วยกัน:
+DernDee เป็น prototype ระบบฟื้นฟูการเดินแบบ realtime ที่รวม 4 ชั้นหลักไว้ใน repo เดียว
 
-1. wearable IMU firmware บน ESP32
-2. Browser BLE realtime transport ใน frontend
+1. firmware บน ESP32 IMU
+2. Browser BLE transport และ shared gait logic ใน frontend
 3. React web apps สำหรับ patient และ clinic
-4. Supabase สำหรับ auth, profiles, session history, และ review workflow
+4. Supabase สำหรับ auth, profile, session history, review workflow, และ live relay สำหรับ doctor dashboard
 
-เป้าหมายหลักของระบบคือให้ผู้ป่วยฝึกเดินหรือเล่นเกมกายภาพจากข้อมูลเซนเซอร์จริง, ให้ frontend คำนวณ game/gait logic จาก raw stream, และให้ clinician ดูผลย้อนหลังในระดับ session ได้จากฐานข้อมูลกลาง
+เป้าหมายของระบบคือให้ patient ใช้งาน sensor จริงจาก browser, ให้ frontend วิเคราะห์ gait และ game logic จาก raw stream, และให้ doctor อ่าน history หรือดู live stream ของ patient ผ่าน clinic app
 
-## 2. องค์ประกอบหลักของระบบ
+## 2. โครงสร้างระบบปัจจุบัน
 
 ### Frontend
 
 - path หลัก: `DernDee_Web-app/`
-- framework: React 18 + Vite 4 + React Router 6
-- split เป็น 3 entry points
-  - patient app
-  - clinic app
-  - gait dashboard
-- shared layer อยู่ที่ `DernDee_Web-app/shared/`
+- framework: React 18, Vite 4, React Router 6
+- HTML entry จริงมี 2 ตัว
+  - `apps/patient/index.html`
+  - `apps/clinic/index.html`
+- shared modules อยู่ใน `DernDee_Web-app/shared/`
+- `gait-dashboard` หลักเป็น route ใน patient app ที่ `/gait-dashboard`
+- doctor live dashboard เป็น route ใน clinic app ที่ `/clinic/live-gait/:patientId`
 
-### Realtime Transport
+### Realtime transport
 
 - path หลัก: `DernDee_Web-app/shared/gateway/realtimeTransport.js`
-- ภาษา: JavaScript
-- ทำหน้าที่:
-  - pair BLE devices ที่ขึ้นต้นด้วย `DernDee`
-  - decode packet จาก IMU ใน browser
-  - broadcast raw realtime `DATA` payloads ไปทุก route ที่เปิด `createRealtimeConnection()`
-  - handle calibration และ session control messages แบบ in-browser
-  - keep device assignments ไว้ข้าม route ใน session เดียวกัน
+- ทำหน้าที่ pair BLE devices, decode packet ใน browser, เก็บ device assignments ไว้ใน `sessionStorage`, และ broadcast control หรือ `DATA` messages ให้ screen ต่าง ๆ ที่ subscribe อยู่
+- ไม่มี Python gateway runtime ใน repo ปัจจุบันแล้ว
 
-### Data Layer
+### Shared gait runtime
 
-- auth และ browser-side queries ใช้ Supabase JS client
-- session persistence ใช้ frontend offline-first path ใน `shared/services/sessionService.js`
-- pending session queue ถูกเก็บใน IndexedDB ผ่าน `shared/services/sessionOutbox.js`
-- schema ปัจจุบันรองรับ profiles, patient presence, sessions, gait metrics, doctor assignments, และ review state
+- `DernDee_Web-app/shared/gait/` เก็บ logic สำหรับ filtering, event detection, integration, และ feedback heuristics
+- `DernDee_Web-app/shared/gait/gaitProcessor.worker.js` ช่วยย้ายงานวิเคราะห์ออกจาก main thread
+- `DernDee_Web-app/shared/gait-dashboard/` เก็บ dashboard runtime, charts, UI bindings, และ styles ที่ใช้ทั้ง local และ remote mode
 
-### Offline-first และ PWA
+### Supabase data layer
 
-- session queue ถูก sync เมื่อ browser online กลับมาผ่าน `shared/hooks/useOfflineSessionSync.js`
-- patient และ clinic entry ลงทะเบียน service worker ผ่าน `shared/pwa/registerPwa.js`
-- app shell ถูก cache ผ่าน `vite-plugin-pwa` เพื่อให้หน้าเว็บเปิดขึ้นได้แม้ไม่มี Wi-Fi
+- auth, profiles, patient presence, sessions, gait metrics, และ doctor review workflow อยู่บน Supabase
+- session persistence ถูกเริ่มจาก frontend แล้วค่อย sync ไป Supabase ผ่าน `sessionService.js`
+- doctor live dashboard ใช้ Supabase Realtime Broadcast และ Presence เป็น relay ของ live samples ไม่ได้อ่านจากตาราง `gait_metrics` แบบ realtime
 
 ### Firmware
 
-- path หลัก: `Hardware/`
-- runtime ปัจจุบันเข้ากันได้กับ packet format ของ `Hardware/esp32_imu_node.ino`
-- firmware รุ่นอื่นในโฟลเดอร์นี้ควรมองเป็น reference/prototype จนกว่าจะยืนยัน packet compatibility อีกครั้ง
+- โฟลเดอร์ `Hardware/` เก็บ firmware หลายตัว
+- packet ที่ decoder ปัจจุบันรองรับตรง ๆ มาจาก `Hardware/esp32_IMU_Ver2.ino`
+- `Hardware/esp32_imu_node.ino` ไม่ตรงกับ packet layout ที่ frontend decode อยู่ในตอนนี้
 
 ## 3. โครงสร้าง repo ที่ใช้งานจริง
 
 ```text
 DernDee_Robustness/
-|-- README.md
-|-- docs/
-|   |-- README.md
-|   |-- system-overview.md
-|   |-- frontend-apps.md
-|   |-- realtime-browser-ble.md
-|   `-- supabase-cloud-data-layer.md
-|-- DernDee_Web-app/
-|   |-- apps/
-|   |   |-- patient/
-|   |   `-- clinic/
-|   |-- shared/
-|   `-- public/
-|-- Hardware/
-`-- supabase/
-    `-- migrations/
+├── README.md
+├── docs/
+│   ├── README.md
+│   ├── system-overview.md
+│   ├── frontend-apps.md
+│   ├── realtime-browser-ble.md
+│   └── supabase-cloud-data-layer.md
+├── DernDee_Web-app/
+│   ├── apps/
+│   │   ├── patient/
+│   │   └── clinic/
+│   ├── public/
+│   ├── shared/
+│   ├── package.json
+│   ├── vite.config.js
+│   └── vercel.json
+├── Hardware/
+└── supabase/
+    └── migrations/
 ```
 
-## 4. Runtime Flow หลัก
+## 4. Runtime flows หลัก
 
 ### 4.1 Auth และ profile bootstrap
 
 1. ผู้ใช้ login ผ่าน Supabase Auth
-2. `UserAuthContext` sync auth state
-3. `profileService` สร้างหรือ update row ใน `profiles`
-4. patient browser ส่ง heartbeat ไป `patient_presence` ทุก 30 วินาทีเมื่อ online
+2. `UserAuthContext.jsx` sync auth state และ expose `user`, `profile`, `logIn`, `signUp`, `logOut`, `refreshProfile`
+3. `profileService.js` ดูแลการ upsert profile และ profile image bucket
+4. ถ้าเป็น patient browser จะส่ง heartbeat ไป `patient_presence` เป็นระยะ
 
 ### 4.2 Device connection และ calibration
 
 1. patient เข้า `/device-connection`
-2. pair sensors ผ่าน Web Bluetooth
+2. pair sensors ผ่าน Browser BLE
 3. transport เก็บ device assignments ไว้ใน browser session
 4. patient เข้า `/calibration`
-5. frontend ส่ง `CALIBRATE` ผ่าน in-browser transport
-6. transport broadcast `CALIBRATION_START` และ `CALIBRATION_DONE`
-7. frontend จึงอนุญาตให้เริ่ม therapy target ต่อไป
+5. transport emulate `CALIBRATE` และส่ง `CALIBRATION_START` หรือ `CALIBRATION_DONE`
+6. route ถัดไป reuse stream เดิมได้โดยไม่ต้อง pair ใหม่ใน tab เดียวกัน
 
-### 4.3 Free Walk session
+### 4.3 Therapy sessions และ games
 
-1. `WalkSession.jsx` ส่ง `START_SESSION` พร้อม `patient_id` และ `session_type = free_walk`
-2. transport เปิด active session metadata ใน memory
-3. ระหว่างเดิน transport ส่ง `DATA` payloads แบบ raw realtime ไป browser routes ทั้งหมดที่ subscribe อยู่
-4. worker-backed `GaitProcessor` คำนวณ gait metrics จาก raw stream โดยแยกออกจาก UI thread
-5. เมื่อจบ session frontend ส่ง `END_SESSION` พร้อม summary overrides
-6. `persistSessionFromFrontend()` queue session ลง IndexedDB ก่อน
-7. ถ้า online จะ sync `sessions` และ `gait_metrics` ไป Supabase ทันที; ถ้า offline จะรอ reconnect
+1. patient เริ่ม `free_walk` หรือ game mode จาก patient app
+2. transport broadcast `DATA` payloads จาก sensor ที่เชื่อมอยู่
+3. `usePersistedGatewaySession.js` orchestrate session lifecycle และ summary payload
+4. completed sessions ถูก queue ลง IndexedDB ผ่าน `sessionOutbox.js`
+5. ถ้า online ระบบจะ sync ไป Supabase ทันที ถ้า offline จะ flush ตอน reconnect
 
-### 4.4 Gamification sessions
+### 4.4 Patient gait dashboard
 
-1. High Stepper, Magic Plate, และ Rhythm Drummer ใช้ realtime stream เดียวกับ Free Walk
-2. แต่ละเกมส่ง `START_SESSION` และ `END_SESSION` ผ่าน shared hook เดียวกัน
-3. เกมแต่ละตัวส่ง `details` เฉพาะเกม เช่น rep counts, zone time, target BPM, score
-4. frontend queue `sessions` summary และ `sessions.details` ลง IndexedDB ก่อน
-5. game modes ไม่ insert `gait_metrics` รายก้าว
+1. route `/gait-dashboard` ใช้ runtime ใน `shared/gait-dashboard/`
+2. local mode อ่าน stream ตรงจาก Browser BLE transport
+3. analysis ใช้ worker-backed gait processor เพื่อให้ UI ลื่นขึ้น
+4. ถ้าไม่มี sensor สามารถ fallback ไป demo mode ได้
 
-### 4.5 Clinic review flow
+### 4.5 Doctor live dashboard
 
-1. doctor login ผ่าน Supabase account ที่ role เป็น `doctor`
-2. clinic app query ผู้ป่วยที่ถูก assign ผ่าน `doctor_patient_assignments`
-3. doctor เปิด patient detail เพื่อดูรายการ session
-4. doctor เปิด analysis review ราย session เพื่อเขียน review status และ notes
-5. review status ถูก update กลับไปที่ `sessions`
+1. doctor เปิด clinic app และเข้า patient detail
+2. จากนั้นเปิด route `/clinic/live-gait/:patientId`
+3. `PatientLiveGaitMirror.jsx` ที่ถูก mount ทั่ว patient app จะ publish stream ของ sensor หลักไปยัง Supabase Realtime Broadcast
+4. `DoctorLiveGaitDashboard.jsx` subscribe stream ผ่าน `liveGaitBroadcast.js`
+5. doctor dashboard วิเคราะห์และ render กราฟจาก stream ที่ mirror มา ไม่ได้อ่านจากตาราง database แบบ frame ต่อ frame
 
-## 5. Data Flow ระดับสูง
+### 4.6 Clinic review flow
 
-```mermaid
-flowchart TD
-    A[ESP32 IMU firmware] --> B[BLE packets]
-    B --> C[Browser BLE characteristic notifications]
-    C --> D[realtimeTransport.js decodePacket]
-    D --> E[In-browser DATA payloads]
+1. clinic app enforce doctor role ผ่าน `profile.role`
+2. doctor dashboard อ่าน patient ที่ assign ผ่าน `doctor_patient_assignments`
+3. doctor เปิด patient detail เพื่อดู sessions ย้อนหลัง
+4. doctor เปิด analysis review ราย session เพื่อดู summary และ update review state
 
-    E --> F[Patient app]
-    E --> G[Gait dashboard]
+## 5. สิ่งที่ persist และสิ่งที่เป็น transient
 
-    F --> H[Frontend gait and game logic]
-    H --> I[START_SESSION / END_SESSION]
-    I --> J[persistSessionFromFrontend]
-    J --> K[Supabase sessions]
-    J --> L[Supabase gait_metrics]
-
-    M[Supabase Auth + profiles] --> F
-    M --> N[Clinic app]
-    K --> N
-    L --> N
-```
-
-## 6. สิ่งที่ persist กับสิ่งที่ไม่ persist
-
-### Persist แน่นอน
+### Persist ลง Supabase
 
 - `profiles`
 - `doctor_patient_assignments`
@@ -157,36 +134,16 @@ flowchart TD
 - `gait_metrics` สำหรับ `free_walk`
 - `sessions.details` สำหรับ game-specific summaries
 
-### ไม่ persist ลง Supabase แบบ 100 Hz
+### ไม่ persist เป็นแถว realtime 100 Hz
 
-- raw IMU samples จาก firmware
-- realtime `DATA` ทุก frame
-- derived orientation หรือ game state ทุก sample ที่ frontend คำนวณเอง
+- raw IMU packets
+- Browser BLE `DATA` events ทุก frame
+- doctor live chart batches ที่ส่งผ่าน Broadcast
+- calibration timer state และ live chart UI state
 
-### Summary-only game sessions
+## 6. Operational constraints ที่ควรรู้
 
-session types ต่อไปนี้เก็บเฉพาะ summary:
-
-- `high_stepper`
-- `magic_plate`
-- `rhythm_drummer`
-
-ผลคือหน้า history และ clinic cards ยังแสดงผลได้จาก summary row แต่จะไม่มี per-step `gait_metrics` สำหรับ export หรือ analysis เชิงลึกแบบ Free Walk
-
-## 7. Endpoints และ browser requirements
-
-| Surface | Value | Notes |
-| --- | --- | --- |
-| patient app dev | `http://localhost:5174/` | served by Vite |
-| clinic app dev | `http://localhost:5174/clinic` | same Vite workspace |
-| gait dashboard dev | `http://localhost:5174/gait-dashboard` | reuse Browser BLE transport จาก route กลาง |
-| Supabase Auth redirect | env-driven | controlled by `VITE_SUPABASE_AUTH_REDIRECT_URL` |
-| Browser requirement | Chromium/Bluefy with Web Bluetooth | required for live sensor mode |
-
-## 8. ข้อจำกัดปัจจุบันที่ควรรู้
-
-- realtime mode ต้องใช้ browser และ device ที่รองรับ Web Bluetooth จริง
-- ถ้า browser ไม่รองรับ Web Bluetooth ระบบจะใช้ demo mode ได้ แต่ไม่สามารถอ่าน sensor จริงได้
-- game sessions มี session summary ดีแล้ว แต่ analysis เชิงรายก้าวยังเน้นที่ Free Walk
-- clinic app enforce role doctor ที่ frontend และ rely on Supabase RLS ฝั่ง data layer
-- firmware compatibility ยังผูกกับ packet format ปัจจุบัน ไม่ใช่ทุก `.ino` ใน repo
+- live sensor mode ต้องใช้ browser และ device ที่รองรับ Web Bluetooth จริง
+- doctor live dashboard ขึ้นกับ Supabase Realtime quotas เพิ่มจาก baseline ของ auth และ history queries
+- PWA และ service worker ช่วยเรื่อง app shell และ offline reopen แต่ไม่ได้ทำให้ sensor stream ทำงานได้โดยไม่รองรับ Web Bluetooth
+- เอกสารนี้อธิบาย architecture ปัจจุบันเท่านั้น ถ้าต้องการ behavior ที่ละเอียดกว่าต้องดู implementation จริงใน `shared/` และ route entry files
