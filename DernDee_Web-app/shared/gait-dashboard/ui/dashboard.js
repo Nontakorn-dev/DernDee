@@ -119,6 +119,7 @@ export class Dashboard {
       const labels = {
         demo: 'Demo',
         'browser-ble': 'Browser BLE',
+        'remote-broadcast': 'Remote Live',
       };
       this.modeLabel.textContent = labels[mode] || 'Live';
     }

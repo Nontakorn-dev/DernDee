@@ -9,6 +9,7 @@ import DoctorDashboard from '@clinic/components/DoctorDashboard.jsx'
 import DoctorPatientDetail from '@clinic/components/DoctorPatientDetail.jsx'
 import DoctorAnalysisReview from '@clinic/components/DoctorAnalysisReview.jsx'
 import DoctorChat from '@clinic/components/DoctorChat.jsx'
+import DoctorLiveGaitDashboard from '@clinic/components/DoctorLiveGaitDashboard.jsx'
 import { UserAuthContextProvider, useUserAuth } from '@shared/context/UserAuthContext.jsx'
 import { registerDernDeePwa } from '@shared/pwa/registerPwa.js'
 import '@shared/index.css'
@@ -56,6 +57,10 @@ const router = createBrowserRouter([
   {
     path: '/patients/:patientId/analysis/:sessionId',
     element: <ClinicProtectedRoute><DoctorAnalysisReview /></ClinicProtectedRoute>,
+  },
+  {
+    path: '/live-gait/:patientId',
+    element: <ClinicProtectedRoute><DoctorLiveGaitDashboard /></ClinicProtectedRoute>,
   },
 ], {
   basename: '/clinic',

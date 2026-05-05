@@ -364,6 +364,16 @@ const DoctorDashboard = () => {
                                                 {patient.progress}%
                                             </span>
                                         </div>
+                                        <button
+                                            type="button"
+                                            onClick={(event) => {
+                                                event.stopPropagation();
+                                                navigate(`/live-gait/${patient.id}`);
+                                            }}
+                                            className="inline-flex items-center justify-center rounded-xl bg-indigo-500 px-4 py-2 text-sm font-bold text-white shadow-md transition-all duration-300 hover:bg-indigo-600 hover:shadow-lg"
+                                        >
+                                            Open Live Graph
+                                        </button>
                                     </div>
                                 </div>
                             ))}

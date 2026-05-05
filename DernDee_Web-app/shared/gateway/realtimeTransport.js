@@ -188,6 +188,7 @@ class BrowserBleSocket {
 class BrowserBleManager {
   constructor() {
     this.sockets = new Set()
+    this.messageListeners = new Set()
     this.deviceStateListeners = new Set()
     this.modeListeners = new Set()
     this.connections = new Map()
@@ -328,6 +329,14 @@ class BrowserBleManager {
 
   unregisterSocket(socket) {
     this.sockets.delete(socket)
+  }
+
+  subscribeToMessages(listener) {
+    this.messageListeners.add(listener)
+
+    return () => {
+      this.messageListeners.delete(listener)
+    }
   }
 
   forceCloseSockets() {
@@ -614,6 +623,14 @@ class BrowserBleManager {
     for (const socket of this.sockets) {
       socket.emitMessage(message)
     }
+
+    for (const listener of this.messageListeners) {
+      try {
+        listener(message)
+      } catch (error) {
+        console.error('Realtime transport listener failed:', error)
+      }
+    }
   }
 }
 
@@ -626,6 +643,10 @@ export {
 
 export function createRealtimeConnection() {
   return browserBleManager.createSocket()
+}
+
+export function subscribeToRealtimeMessages(listener) {
+  return browserBleManager.subscribeToMessages(listener)
 }
 
 export function getRealtimeTransportMode() {

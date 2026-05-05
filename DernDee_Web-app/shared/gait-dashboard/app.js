@@ -141,11 +141,19 @@ export class GaitLabDashboardApp {
   constructor(options = {}) {
     this.options = {
       teardownTransportOnDestroy: true,
+      streamFactory: null,
+      broadcastPublisherFactory: null,
+      initialMode: 'auto',
       ...options,
     };
 
-    this.stream = new GatewayStreamClient();
-  this.processor = createGaitProcessorClient();
+    this.stream = typeof this.options.streamFactory === 'function'
+      ? this.options.streamFactory()
+      : new GatewayStreamClient();
+    this.broadcastPublisher = typeof this.options.broadcastPublisherFactory === 'function'
+      ? this.options.broadcastPublisherFactory()
+      : null;
+    this.processor = createGaitProcessorClient();
     this.dashboard = new Dashboard();
     this.charts = new ChartsManager();
 
@@ -170,11 +178,13 @@ export class GaitLabDashboardApp {
 
     this.stream.onStatus((status) => {
       this.dashboard.updateStatus(status);
+      void this._publishBroadcastStatus(status);
     });
 
     this.stream.onData((sample) => {
       this.processor.addSample(sample);
       this.sampleCount += 1;
+      this._enqueueBroadcastSample(sample);
     });
 
     this._bindEvents();
@@ -218,6 +228,31 @@ export class GaitLabDashboardApp {
     }, ANALYSIS_INTERVAL_MS);
   }
 
+  async startRemote(options = {}) {
+    const { suppressErrorLog = false } = options;
+
+    try {
+      this.stopAll();
+      this.mode = 'remote-broadcast';
+      this.dashboard.setMode(this.mode);
+      this.dashboard.updateStatus('connecting');
+      this.sampleCount = 0;
+
+      await this.stream.connect();
+
+      this.analysisTimer = window.setInterval(() => {
+        if (this.sampleCount >= MIN_ANALYSIS_SAMPLES) {
+          this.processor.analyze();
+        }
+      }, ANALYSIS_INTERVAL_MS);
+    } catch (error) {
+      if (!suppressErrorLog) {
+        console.error('Remote live stream failed:', error);
+      }
+      this.dashboard.updateStatus('error');
+    }
+  }
+
   async startLive(options = {}) {
     const {
       fallbackToDemo = true,
@@ -236,6 +271,7 @@ export class GaitLabDashboardApp {
       this.dashboard.setMode(this.mode);
       this.sampleCount = 0;
 
+      await this._connectBroadcastPublisher();
       await this.stream.connect();
 
       if (pairBrowserBle) {
@@ -303,6 +339,10 @@ export class GaitLabDashboardApp {
       this.stream.disconnect();
     }
 
+    if (this.broadcastPublisher?.disconnect) {
+      void this.broadcastPublisher.disconnect();
+    }
+
     this.processor.reset();
   }
 
@@ -321,6 +361,11 @@ export class GaitLabDashboardApp {
   }
 
   _startInitialMode() {
+    if (this.options.initialMode === 'remote-broadcast') {
+      void this.startRemote({ suppressErrorLog: true });
+      return;
+    }
+
     if (getRealtimeTransportMode() === TRANSPORT_MODE_WEB_BLUETOOTH) {
       if (this._hasConnectedDashboardSensor()) {
         void this.startLive({
@@ -373,6 +418,42 @@ export class GaitLabDashboardApp {
       void this.startDemo();
     });
 
+  }
+
+  async _connectBroadcastPublisher() {
+    if (!this.broadcastPublisher?.connect) {
+      return;
+    }
+
+    try {
+      await this.broadcastPublisher.connect();
+    } catch (error) {
+      console.warn('Live gait broadcast is unavailable:', error);
+    }
+  }
+
+  _enqueueBroadcastSample(sample) {
+    if (!this.broadcastPublisher?.enqueueSample) {
+      return;
+    }
+
+    try {
+      this.broadcastPublisher.enqueueSample(sample);
+    } catch (error) {
+      console.warn('Failed to enqueue live gait sample:', error);
+    }
+  }
+
+  async _publishBroadcastStatus(status) {
+    if (!this.broadcastPublisher?.publishStatus) {
+      return;
+    }
+
+    try {
+      await this.broadcastPublisher.publishStatus(status);
+    } catch (error) {
+      console.warn('Failed to publish live gait status:', error);
+    }
   }
 }
 

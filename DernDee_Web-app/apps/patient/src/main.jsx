@@ -15,6 +15,7 @@ import Telemedicine from '@patient/components/Telemedicine.jsx'
 import History from '@patient/components/History.jsx'
 import TherapySelect from '@patient/components/TherapySelect.jsx'
 import GaitDashboard from '@patient/components/GaitDashboard.jsx'
+import PatientLiveGaitMirror from '@patient/components/PatientLiveGaitMirror.jsx'
 import GameClearance from '@patient/components/games/GameClearance.jsx'
 import GameBalance from '@patient/components/games/GameBalance.jsx'
 import GameRhythm from '@patient/components/games/GameRhythm.jsx'
@@ -113,6 +114,7 @@ registerDernDeePwa()
 ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode>
     <UserAuthContextProvider>
+      <PatientLiveGaitMirror />
       <RouterProvider router={router} />
     </UserAuthContextProvider>
   </React.StrictMode>,
