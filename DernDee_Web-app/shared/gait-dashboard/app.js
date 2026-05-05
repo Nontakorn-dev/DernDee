@@ -13,7 +13,7 @@ import {
   supportsRememberedBrowserBleDevices,
 } from '../gateway/realtimeTransport.js';
 
-const ANALYSIS_INTERVAL_MS = 1000;
+const ANALYSIS_INTERVAL_MS = 400;
 const MIN_ANALYSIS_SAMPLES = 300;
 const DEMO_PREFILL_SAMPLES = 400;
 const DASHBOARD_BLE_SLOT = 'RIGHT_SHANK';
