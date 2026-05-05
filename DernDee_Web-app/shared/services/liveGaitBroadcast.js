@@ -5,7 +5,7 @@ const LIVE_GAIT_SAMPLES_EVENT = 'samples'
 const LIVE_GAIT_STATUS_EVENT = 'status'
 const LIVE_GAIT_VIEWER_EVENT = 'viewer'
 const LIVE_GAIT_PROTOCOL_VERSION = 1
-const DEFAULT_BATCH_INTERVAL_MS = 200
+const DEFAULT_BATCH_INTERVAL_MS = 80
 const DEFAULT_MAX_BATCH_SIZE = 24
 const DOCTOR_VIEWER_ROLE = 'doctor-viewer'
 const PATIENT_PUBLISHER_ROLE = 'patient-publisher'
@@ -30,6 +30,7 @@ function toFiniteNumber(value) {
 function normalizeLiveSample(sample) {
   const accel = Array.isArray(sample?.raw_accel) ? sample.raw_accel : null
   const gyro = Array.isArray(sample?.raw_gyro) ? sample.raw_gyro : null
+  const timestampMs = toFiniteNumber(sample?.timestamp_ms ?? sample?.timestampMs ?? sample?.timestamp)
   const normalized = {
     ax: toFiniteNumber(sample?.ax ?? accel?.[0]),
     ay: toFiniteNumber(sample?.ay ?? accel?.[1]),
@@ -37,9 +38,10 @@ function normalizeLiveSample(sample) {
     gx: toFiniteNumber(sample?.gx ?? gyro?.[0]),
     gy: toFiniteNumber(sample?.gy ?? gyro?.[1]),
     gz: toFiniteNumber(sample?.gz ?? gyro?.[2]),
+    timestamp_ms: timestampMs,
   }
 
-  if (Object.values(normalized).some((value) => value == null)) {
+  if ([normalized.ax, normalized.ay, normalized.az, normalized.gx, normalized.gy, normalized.gz].some((value) => value == null)) {
     return null
   }
 
