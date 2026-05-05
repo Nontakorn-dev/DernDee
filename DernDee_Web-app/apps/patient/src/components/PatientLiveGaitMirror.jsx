@@ -10,13 +10,13 @@ function isPatientRole(user, profile) {
 
 const PatientLiveGaitMirror = () => {
   const { user, profile } = useUserAuth()
-  const activeSensorNameRef = useRef(null)
+  const activeSensorKeyRef = useRef(null)
   const activeSensorMountRef = useRef(null)
   const lastPublishedStatusRef = useRef('disconnected')
 
   useEffect(() => {
     if (!user?.uid || !isPatientRole(user, profile)) {
-      activeSensorNameRef.current = null
+      activeSensorKeyRef.current = null
       activeSensorMountRef.current = null
       lastPublishedStatusRef.current = 'disconnected'
       return undefined
@@ -25,7 +25,7 @@ const PatientLiveGaitMirror = () => {
     const publisher = createLiveGaitBroadcastPublisher({ patientId: user.uid })
 
     const resetActiveSensor = () => {
-      activeSensorNameRef.current = null
+      activeSensorKeyRef.current = null
       activeSensorMountRef.current = null
     }
 
@@ -65,21 +65,22 @@ const PatientLiveGaitMirror = () => {
         return
       }
 
+      const streamKey = payload.position_id || payload.name || null
       const isPreferredSensor = payload.sensor_mount === 'shank'
-      if (!activeSensorNameRef.current) {
-        activeSensorNameRef.current = payload.name ?? null
+      if (!activeSensorKeyRef.current) {
+        activeSensorKeyRef.current = streamKey
         activeSensorMountRef.current = payload.sensor_mount ?? 'unknown'
       } else if (
         isPreferredSensor
         && activeSensorMountRef.current !== 'shank'
-        && payload.name
-        && payload.name !== activeSensorNameRef.current
+        && streamKey
+        && streamKey !== activeSensorKeyRef.current
       ) {
-        activeSensorNameRef.current = payload.name
+        activeSensorKeyRef.current = streamKey
         activeSensorMountRef.current = 'shank'
       }
 
-      if (!payload.name || payload.name !== activeSensorNameRef.current) {
+      if (!streamKey || streamKey !== activeSensorKeyRef.current) {
         return
       }
 

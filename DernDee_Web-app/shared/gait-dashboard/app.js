@@ -22,7 +22,7 @@ class GatewayStreamClient {
   constructor() {
     this.ws = null;
     this.connected = false;
-    this.activeSensorName = null;
+    this.activeSensorKey = null;
     this.activeSensorMount = null;
     this.listeners = [];
     this.statusListeners = [];
@@ -65,7 +65,7 @@ class GatewayStreamClient {
 
       this.ws.onclose = () => {
         this.connected = false;
-        this.activeSensorName = null;
+        this.activeSensorKey = null;
         this.activeSensorMount = null;
         this._emitStatus('disconnected');
       };
@@ -86,7 +86,7 @@ class GatewayStreamClient {
 
     this.ws = null;
     this.connected = false;
-    this.activeSensorName = null;
+    this.activeSensorKey = null;
     this.activeSensorMount = null;
     this._emitStatus('disconnected');
   }
@@ -103,16 +103,17 @@ class GatewayStreamClient {
         return;
       }
 
+      const streamKey = payload.position_id || payload.name || null;
       const isPreferredSensor = payload.sensor_mount === 'shank';
-      if (!this.activeSensorName) {
-        this.activeSensorName = payload.name;
+      if (!this.activeSensorKey) {
+        this.activeSensorKey = streamKey;
         this.activeSensorMount = payload.sensor_mount || 'unknown';
-      } else if (isPreferredSensor && this.activeSensorMount !== 'shank' && payload.name !== this.activeSensorName) {
-        this.activeSensorName = payload.name;
+      } else if (isPreferredSensor && this.activeSensorMount !== 'shank' && streamKey && streamKey !== this.activeSensorKey) {
+        this.activeSensorKey = streamKey;
         this.activeSensorMount = 'shank';
       }
 
-      if (payload.name !== this.activeSensorName) {
+      if (!streamKey || streamKey !== this.activeSensorKey) {
         return;
       }
 

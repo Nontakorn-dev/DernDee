@@ -3,11 +3,14 @@ import { getSupabaseClient, isSupabaseConfigured } from '@shared/supabase/client
 const LIVE_GAIT_CHANNEL_PREFIX = 'live-gait-stream'
 const LIVE_GAIT_SAMPLES_EVENT = 'samples'
 const LIVE_GAIT_STATUS_EVENT = 'status'
+const LIVE_GAIT_VIEWER_EVENT = 'viewer'
 const LIVE_GAIT_PROTOCOL_VERSION = 1
 const DEFAULT_BATCH_INTERVAL_MS = 200
 const DEFAULT_MAX_BATCH_SIZE = 24
 const DOCTOR_VIEWER_ROLE = 'doctor-viewer'
 const PATIENT_PUBLISHER_ROLE = 'patient-publisher'
+const VIEWER_HEARTBEAT_INTERVAL_MS = 2000
+const VIEWER_HEARTBEAT_TIMEOUT_MS = 5000
 
 function getLiveGaitChannelName(patientId) {
   const normalizedPatientId = String(patientId || '').trim()
@@ -38,17 +41,6 @@ function normalizeLiveSample(sample) {
 
   if (Object.values(normalized).some((value) => value == null)) {
     return null
-  }
-
-  const timestampMs = toFiniteNumber(sample?.timestamp_ms ?? sample?.timestampMs)
-  const sequence = toFiniteNumber(sample?.seq)
-
-  if (timestampMs != null) {
-    normalized.timestamp_ms = timestampMs
-  }
-
-  if (sequence != null) {
-    normalized.seq = sequence
   }
 
   return normalized
@@ -121,10 +113,22 @@ export function createLiveGaitBroadcastPublisher(options = {}) {
   let pendingSamples = []
   let viewerCount = 0
   let lastStatus = 'disconnected'
+  const viewerHeartbeats = new Map()
 
-  function handlePresenceSync() {
+  function pruneViewerHeartbeats() {
+    const now = Date.now()
+
+    for (const [viewerId, expiresAt] of viewerHeartbeats.entries()) {
+      if (!Number.isFinite(expiresAt) || expiresAt <= now) {
+        viewerHeartbeats.delete(viewerId)
+      }
+    }
+  }
+
+  function recalculateViewerCount() {
     const previousViewerCount = viewerCount
-    viewerCount = countDoctorViewers(channel)
+    pruneViewerHeartbeats()
+    viewerCount = Math.max(countDoctorViewers(channel), viewerHeartbeats.size)
 
     if (viewerCount === 0) {
       pendingSamples = []
@@ -134,6 +138,23 @@ export function createLiveGaitBroadcastPublisher(options = {}) {
     if (previousViewerCount === 0 && lastStatus) {
       void publishStatus(lastStatus)
     }
+  }
+
+  function handlePresenceSync() {
+    recalculateViewerCount()
+  }
+
+  function handleViewerSignal(payload) {
+    const viewerId = String(payload?.viewerId || 'doctor-viewer')
+
+    if (payload?.state === 'closed') {
+      viewerHeartbeats.delete(viewerId)
+      recalculateViewerCount()
+      return
+    }
+
+    viewerHeartbeats.set(viewerId, Date.now() + VIEWER_HEARTBEAT_TIMEOUT_MS)
+    recalculateViewerCount()
   }
 
   async function connect() {
@@ -153,6 +174,9 @@ export function createLiveGaitBroadcastPublisher(options = {}) {
       presenceKey: `patient-publisher-${patientId}`,
     })
     channel
+      .on('broadcast', { event: LIVE_GAIT_VIEWER_EVENT }, ({ payload }) => {
+        handleViewerSignal(payload)
+      })
       .on('presence', { event: 'sync' }, () => {
         handlePresenceSync()
       })
@@ -202,6 +226,8 @@ export function createLiveGaitBroadcastPublisher(options = {}) {
   }
 
   async function flushSamples() {
+    recalculateViewerCount()
+
     if (!connected || !channel || viewerCount === 0 || pendingSamples.length === 0) {
       return
     }
@@ -227,6 +253,8 @@ export function createLiveGaitBroadcastPublisher(options = {}) {
   }
 
   function enqueueSample(sample) {
+    recalculateViewerCount()
+
     if (viewerCount === 0) {
       return
     }
@@ -250,6 +278,7 @@ export function createLiveGaitBroadcastPublisher(options = {}) {
     }
 
     lastStatus = status
+    recalculateViewerCount()
 
     if (!connected || !channel || viewerCount === 0) {
       return
@@ -278,6 +307,7 @@ export function createLiveGaitBroadcastPublisher(options = {}) {
     channel = null
     connected = false
     viewerCount = 0
+    viewerHeartbeats.clear()
 
     if (!channelToRemove) {
       pendingSamples = []
@@ -306,10 +336,12 @@ export class LiveGaitBroadcastStreamClient {
   constructor(options = {}) {
     this.patientId = String(options.patientId || '').trim()
     this.viewerId = String(options.viewerId || '').trim()
+    this.viewerKey = this.viewerId || `doctor-viewer-${Math.random().toString(36).slice(2)}`
     this.channel = null
     this.connected = false
     this.listeners = []
     this.statusListeners = []
+    this.viewerHeartbeatTimer = null
   }
 
   onData(callback) {
@@ -338,7 +370,7 @@ export class LiveGaitBroadcastStreamClient {
 
     const channelName = getLiveGaitChannelName(this.patientId)
     this.channel = createChannel(channelName, {
-      presenceKey: this.viewerId || `doctor-viewer-${Date.now()}`,
+      presenceKey: this.viewerKey,
     })
 
     this.channel
@@ -372,11 +404,14 @@ export class LiveGaitBroadcastStreamClient {
           try {
             await this.channel.track({
               role: DOCTOR_VIEWER_ROLE,
-              viewerId: this.viewerId || null,
+              viewerId: this.viewerKey,
               patientId: this.patientId,
               openedAt: Date.now(),
             })
+            await this._sendViewerSignal('open')
+            this._startViewerHeartbeat()
             this.connected = true
+            this._emitStatus('connected')
             settled = true
             resolve()
           } catch (error) {
@@ -406,12 +441,50 @@ export class LiveGaitBroadcastStreamClient {
 
   disconnect() {
     const channelToRemove = this.channel
+    this._stopViewerHeartbeat()
     this.channel = null
     this.connected = false
     this._emitStatus('disconnected')
 
     if (channelToRemove) {
+      void this._sendViewerSignal('closed', channelToRemove)
       void removeChannel(channelToRemove)
+    }
+  }
+
+  _startViewerHeartbeat() {
+    this._stopViewerHeartbeat()
+    this.viewerHeartbeatTimer = window.setInterval(() => {
+      void this._sendViewerSignal('heartbeat')
+    }, VIEWER_HEARTBEAT_INTERVAL_MS)
+  }
+
+  _stopViewerHeartbeat() {
+    if (this.viewerHeartbeatTimer) {
+      window.clearInterval(this.viewerHeartbeatTimer)
+      this.viewerHeartbeatTimer = null
+    }
+  }
+
+  async _sendViewerSignal(state, targetChannel = this.channel) {
+    if (!targetChannel) {
+      return
+    }
+
+    try {
+      await targetChannel.send({
+        type: 'broadcast',
+        event: LIVE_GAIT_VIEWER_EVENT,
+        payload: {
+          version: LIVE_GAIT_PROTOCOL_VERSION,
+          patientId: this.patientId,
+          viewerId: this.viewerKey,
+          state,
+          sentAtMs: Date.now(),
+        },
+      })
+    } catch {
+      // Ignore viewer heartbeat failures and let presence/subsequent heartbeats recover.
     }
   }
 

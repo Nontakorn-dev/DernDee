@@ -100,11 +100,31 @@ function decodePacket(buffer) {
   }
 }
 
-function inferSensorMount(senderName = '') {
+function inferSensorMount(senderName = '', positionId = '') {
+  if (positionId === 'LEFT_SHANK' || positionId === 'RIGHT_SHANK') {
+    return 'shank'
+  }
+
+  if (positionId === 'LEFT_THIGH' || positionId === 'RIGHT_THIGH') {
+    return 'thigh'
+  }
+
+  if (positionId === 'PELVIS') {
+    return 'pelvis'
+  }
+
   return senderName.includes('Shank') ? 'shank' : 'foot'
 }
 
-function inferSide(senderName = '') {
+function inferSide(senderName = '', positionId = '') {
+  if (positionId.startsWith('LEFT_')) {
+    return 'L'
+  }
+
+  if (positionId.startsWith('RIGHT_')) {
+    return 'R'
+  }
+
   if (senderName.includes('_L_') || senderName.includes('Left') || senderName.includes('L_Shank')) {
     return 'L'
   }
@@ -435,8 +455,9 @@ class BrowserBleManager {
           type: 'DATA',
           payload: {
             name: bluetoothDevice.name || target.expectedDeviceId,
-            side: inferSide(bluetoothDevice.name || target.expectedDeviceId),
-            sensor_mount: inferSensorMount(bluetoothDevice.name || target.expectedDeviceId),
+            position_id: positionId,
+            side: inferSide(bluetoothDevice.name || target.expectedDeviceId, positionId),
+            sensor_mount: inferSensorMount(bluetoothDevice.name || target.expectedDeviceId, positionId),
             timestamp_ms: decoded.timestamp_ms,
             raw_accel: decoded.raw_accel,
             raw_gyro: decoded.raw_gyro,
