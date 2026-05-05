@@ -170,10 +170,11 @@ export function createLiveGaitBroadcastPublisher(options = {}) {
       await disconnect()
     }
 
-    channel = createChannel(channelName, {
+    const nextChannel = createChannel(channelName, {
       presenceKey: `patient-publisher-${patientId}`,
     })
-    channel
+    channel = nextChannel
+    nextChannel
       .on('broadcast', { event: LIVE_GAIT_VIEWER_EVENT }, ({ payload }) => {
         handleViewerSignal(payload)
       })
@@ -190,14 +191,30 @@ export function createLiveGaitBroadcastPublisher(options = {}) {
     await new Promise((resolve, reject) => {
       let settled = false
 
-      channel.subscribe(async (status) => {
+      nextChannel.subscribe(async (status) => {
+        if (channel !== nextChannel) {
+          if (status === 'SUBSCRIBED' || status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') {
+            settled = true
+            await removeChannel(nextChannel)
+          }
+          return
+        }
+
         if (status === 'SUBSCRIBED') {
           try {
-            await channel.track({
+            await nextChannel.track({
               role: PATIENT_PUBLISHER_ROLE,
               patientId,
               openedAt: Date.now(),
             })
+
+            if (channel !== nextChannel) {
+              settled = true
+              await removeChannel(nextChannel)
+              resolve()
+              return
+            }
+
             connected = true
             settled = true
             handlePresenceSync()
@@ -218,7 +235,7 @@ export function createLiveGaitBroadcastPublisher(options = {}) {
           return
         }
 
-        if (status === 'CLOSED') {
+        if (status === 'CLOSED' && channel === nextChannel) {
           connected = false
         }
       })
@@ -369,11 +386,12 @@ export class LiveGaitBroadcastStreamClient {
     this._emitStatus('connecting')
 
     const channelName = getLiveGaitChannelName(this.patientId)
-    this.channel = createChannel(channelName, {
+    const nextChannel = createChannel(channelName, {
       presenceKey: this.viewerKey,
     })
+    this.channel = nextChannel
 
-    this.channel
+    nextChannel
       .on('broadcast', { event: LIVE_GAIT_SAMPLES_EVENT }, ({ payload }) => {
         const samples = Array.isArray(payload?.samples) ? payload.samples : []
 
@@ -399,15 +417,32 @@ export class LiveGaitBroadcastStreamClient {
     await new Promise((resolve, reject) => {
       let settled = false
 
-      this.channel.subscribe(async (status) => {
+      nextChannel.subscribe(async (status) => {
+        if (this.channel !== nextChannel) {
+          if (status === 'SUBSCRIBED' || status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') {
+            settled = true
+            await removeChannel(nextChannel)
+            resolve()
+          }
+          return
+        }
+
         if (status === 'SUBSCRIBED') {
           try {
-            await this.channel.track({
+            await nextChannel.track({
               role: DOCTOR_VIEWER_ROLE,
               viewerId: this.viewerKey,
               patientId: this.patientId,
               openedAt: Date.now(),
             })
+
+            if (this.channel !== nextChannel) {
+              settled = true
+              await removeChannel(nextChannel)
+              resolve()
+              return
+            }
+
             await this._sendViewerSignal('open')
             this._startViewerHeartbeat()
             this.connected = true
@@ -431,7 +466,7 @@ export class LiveGaitBroadcastStreamClient {
           return
         }
 
-        if (status === 'CLOSED') {
+        if (status === 'CLOSED' && this.channel === nextChannel) {
           this.connected = false
           this._emitStatus('disconnected')
         }

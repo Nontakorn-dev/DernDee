@@ -17,6 +17,7 @@ const ANALYSIS_INTERVAL_MS = 1000;
 const MIN_ANALYSIS_SAMPLES = 300;
 const DEMO_PREFILL_SAMPLES = 400;
 const DASHBOARD_BLE_SLOT = 'RIGHT_SHANK';
+const REMOTE_RETRY_DELAY_MS = 1500;
 
 class GatewayStreamClient {
   constructor() {
@@ -162,6 +163,7 @@ export class GaitLabDashboardApp {
     this.demoStream = null;
     this.analysisTimer = null;
     this.loadingTimer = null;
+    this.remoteRetryTimer = null;
     this.sampleCount = 0;
   }
 
@@ -251,6 +253,13 @@ export class GaitLabDashboardApp {
         console.error('Remote live stream failed:', error);
       }
       this.dashboard.updateStatus('error');
+
+      if (!this.remoteRetryTimer && this.mode === 'remote-broadcast') {
+        this.remoteRetryTimer = window.setTimeout(() => {
+          this.remoteRetryTimer = null;
+          void this.startRemote({ suppressErrorLog: true });
+        }, REMOTE_RETRY_DELAY_MS);
+      }
     }
   }
 
@@ -336,7 +345,12 @@ export class GaitLabDashboardApp {
       this.analysisTimer = null;
     }
 
-    if (this.stream.connected) {
+    if (this.remoteRetryTimer) {
+      window.clearTimeout(this.remoteRetryTimer);
+      this.remoteRetryTimer = null;
+    }
+
+    if (typeof this.stream.disconnect === 'function') {
       this.stream.disconnect();
     }
 

@@ -8,6 +8,8 @@ function isPatientRole(user, profile) {
   return (profile?.role || user?.role) === 'patient'
 }
 
+const LIVE_GAIT_RETRY_DELAY_MS = 2000
+
 const PatientLiveGaitMirror = () => {
   const { user, profile } = useUserAuth()
   const activeSensorKeyRef = useRef(null)
@@ -23,6 +25,8 @@ const PatientLiveGaitMirror = () => {
     }
 
     const publisher = createLiveGaitBroadcastPublisher({ patientId: user.uid })
+    let isCancelled = false
+    let reconnectTimerId = null
 
     const resetActiveSensor = () => {
       activeSensorKeyRef.current = null
@@ -38,11 +42,37 @@ const PatientLiveGaitMirror = () => {
       void publisher.publishStatus(status)
     }
 
-    void publisher.connect().then(() => {
-      publishStatus('disconnected')
-    }).catch((error) => {
-      console.warn('Live gait mirror is unavailable:', error)
-    })
+    const scheduleReconnect = () => {
+      if (isCancelled || reconnectTimerId) {
+        return
+      }
+
+      reconnectTimerId = window.setTimeout(() => {
+        reconnectTimerId = null
+        void connectPublisher()
+      }, LIVE_GAIT_RETRY_DELAY_MS)
+    }
+
+    const connectPublisher = async () => {
+      try {
+        await publisher.connect()
+
+        if (isCancelled) {
+          return
+        }
+
+        publishStatus('disconnected')
+      } catch (error) {
+        if (isCancelled) {
+          return
+        }
+
+        console.warn('Live gait mirror is unavailable:', error)
+        scheduleReconnect()
+      }
+    }
+
+    void connectPublisher()
 
     const unsubscribe = subscribeToRealtimeMessages((message) => {
       if (!message || typeof message !== 'object') {
@@ -89,6 +119,10 @@ const PatientLiveGaitMirror = () => {
     })
 
     return () => {
+      isCancelled = true
+      if (reconnectTimerId) {
+        window.clearTimeout(reconnectTimerId)
+      }
       unsubscribe()
       resetActiveSensor()
       lastPublishedStatusRef.current = 'disconnected'

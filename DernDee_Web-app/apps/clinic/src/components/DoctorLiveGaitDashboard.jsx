@@ -133,7 +133,7 @@ const DoctorLiveGaitDashboard = () => {
               className="header-title"
               style={{ fontWeight: 800, fontSize: '1.5rem', color: '#334155', textTransform: 'uppercase', letterSpacing: '0.05em', margin: 0 }}
             >
-              Doctor Live Dashboard
+              Doctor Live DashboardTTTT
             </div>
             <div style={{ fontSize: '0.9rem', color: '#64748b', fontWeight: 600 }}>
               {patient.name} ({patient.patientId})
