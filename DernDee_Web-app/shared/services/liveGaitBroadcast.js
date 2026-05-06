@@ -1,4 +1,5 @@
 import { getSupabaseClient, isSupabaseConfigured } from '@shared/supabase/client.js'
+import { normalizeRealtimeSensorSample } from '@shared/gateway/realtimeSensorUtils.js'
 
 const LIVE_GAIT_CHANNEL_PREFIX = 'live-gait-stream'
 const LIVE_GAIT_SAMPLES_EVENT = 'samples'
@@ -22,30 +23,8 @@ function getLiveGaitChannelName(patientId) {
   return `${LIVE_GAIT_CHANNEL_PREFIX}:${normalizedPatientId}`
 }
 
-function toFiniteNumber(value) {
-  const numericValue = Number(value)
-  return Number.isFinite(numericValue) ? numericValue : null
-}
-
 function normalizeLiveSample(sample) {
-  const accel = Array.isArray(sample?.raw_accel) ? sample.raw_accel : null
-  const gyro = Array.isArray(sample?.raw_gyro) ? sample.raw_gyro : null
-  const timestampMs = toFiniteNumber(sample?.timestamp_ms ?? sample?.timestampMs ?? sample?.timestamp)
-  const normalized = {
-    ax: toFiniteNumber(sample?.ax ?? accel?.[0]),
-    ay: toFiniteNumber(sample?.ay ?? accel?.[1]),
-    az: toFiniteNumber(sample?.az ?? accel?.[2]),
-    gx: toFiniteNumber(sample?.gx ?? gyro?.[0]),
-    gy: toFiniteNumber(sample?.gy ?? gyro?.[1]),
-    gz: toFiniteNumber(sample?.gz ?? gyro?.[2]),
-    timestamp_ms: timestampMs,
-  }
-
-  if ([normalized.ax, normalized.ay, normalized.az, normalized.gx, normalized.gy, normalized.gz].some((value) => value == null)) {
-    return null
-  }
-
-  return normalized
+  return normalizeRealtimeSensorSample(sample)
 }
 
 function flattenPresenceStateEntries(state) {

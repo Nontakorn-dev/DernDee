@@ -92,6 +92,12 @@ body {
   gap: 12px;
 }
 
+.header-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
 .header-logo {
   width: 36px;
   height: 36px;
@@ -114,6 +120,53 @@ body {
   display: flex;
   align-items: center;
   gap: 12px;
+}
+
+.sensor-side-summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.sensor-summary-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--border-light);
+  background: #f8fafc;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text-secondary);
+}
+
+.sensor-summary-pill.left {
+  border-color: rgba(33, 150, 243, 0.22);
+  background: rgba(33, 150, 243, 0.08);
+  color: #1565c0;
+}
+
+.sensor-summary-pill.right {
+  border-color: rgba(239, 83, 80, 0.22);
+  background: rgba(239, 83, 80, 0.08);
+  color: #c62828;
+}
+
+.sensor-summary-side {
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  font-size: 10px;
+}
+
+.sensor-summary-label {
+  font-weight: 600;
+}
+
+.sensor-summary-empty {
+  font-size: 12px;
+  color: var(--text-muted);
 }
 
 .connection-status {
@@ -317,6 +370,15 @@ body {
   justify-content: space-between;
   padding: 8px 0;
   border-bottom: 1px solid var(--border-subtle);
+  gap: 12px;
+}
+
+.stat-row > div {
+  display: flex;
+  align-items: baseline;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  max-width: 58%;
 }
 
 .stat-row:last-child {
@@ -343,6 +405,7 @@ body {
   font-weight: 700;
   color: var(--text-primary);
   transition: var(--transition-fast);
+  text-align: right;
 }
 
 .stat-value.updating {
@@ -433,6 +496,28 @@ body {
   font-weight: 600;
   border: 1px solid;
   animation: fadeInScale 0.3s ease-out;
+}
+
+.event-side {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  background: rgba(255, 255, 255, 0.65);
+}
+
+.event-side.left {
+  color: #1565c0;
+}
+
+.event-side.right {
+  color: #c62828;
 }
 
 .event-tag.hs {
@@ -559,6 +644,10 @@ body {
 
   .dashboard-lower-row {
     grid-template-columns: 1fr;
+  }
+
+  .sensor-side-summary {
+    width: 100%;
   }
 }
 

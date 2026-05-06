@@ -1,6 +1,7 @@
 import React, { useEffect, useRef } from 'react'
 
 import { useUserAuth } from '@shared/context/UserAuthContext.jsx'
+import { normalizeRealtimeSensorSample } from '@shared/gateway/realtimeSensorUtils.js'
 import { subscribeToRealtimeMessages } from '@shared/gateway/realtimeTransport.js'
 import { createLiveGaitBroadcastPublisher } from '@shared/services/liveGaitBroadcast.js'
 
@@ -12,14 +13,10 @@ const LIVE_GAIT_RETRY_DELAY_MS = 2000
 
 const PatientLiveGaitMirror = () => {
   const { user, profile } = useUserAuth()
-  const activeSensorKeyRef = useRef(null)
-  const activeSensorMountRef = useRef(null)
   const lastPublishedStatusRef = useRef('disconnected')
 
   useEffect(() => {
     if (!user?.uid || !isPatientRole(user, profile)) {
-      activeSensorKeyRef.current = null
-      activeSensorMountRef.current = null
       lastPublishedStatusRef.current = 'disconnected'
       return undefined
     }
@@ -27,11 +24,6 @@ const PatientLiveGaitMirror = () => {
     const publisher = createLiveGaitBroadcastPublisher({ patientId: user.uid })
     let isCancelled = false
     let reconnectTimerId = null
-
-    const resetActiveSensor = () => {
-      activeSensorKeyRef.current = null
-      activeSensorMountRef.current = null
-    }
 
     const publishStatus = (status) => {
       if (lastPublishedStatusRef.current === status) {
@@ -80,7 +72,6 @@ const PatientLiveGaitMirror = () => {
       }
 
       if (message.type === 'SYSTEM_RESET') {
-        resetActiveSensor()
         publishStatus('disconnected')
         return
       }
@@ -89,32 +80,13 @@ const PatientLiveGaitMirror = () => {
         return
       }
 
-      const payload = message.payload || {}
+      const sample = normalizeRealtimeSensorSample(message.payload || {})
 
-      if (!Array.isArray(payload.raw_accel) || !Array.isArray(payload.raw_gyro)) {
+      if (!sample) {
         return
       }
 
-      const streamKey = payload.position_id || payload.name || null
-      const isPreferredSensor = payload.sensor_mount === 'shank'
-      if (!activeSensorKeyRef.current) {
-        activeSensorKeyRef.current = streamKey
-        activeSensorMountRef.current = payload.sensor_mount ?? 'unknown'
-      } else if (
-        isPreferredSensor
-        && activeSensorMountRef.current !== 'shank'
-        && streamKey
-        && streamKey !== activeSensorKeyRef.current
-      ) {
-        activeSensorKeyRef.current = streamKey
-        activeSensorMountRef.current = 'shank'
-      }
-
-      if (!streamKey || streamKey !== activeSensorKeyRef.current) {
-        return
-      }
-
-      publisher.enqueueSample(payload)
+      publisher.enqueueSample(sample)
       publishStatus('connected')
     })
 
@@ -124,7 +96,6 @@ const PatientLiveGaitMirror = () => {
         window.clearTimeout(reconnectTimerId)
       }
       unsubscribe()
-      resetActiveSensor()
       lastPublishedStatusRef.current = 'disconnected'
       void publisher.disconnect()
     }

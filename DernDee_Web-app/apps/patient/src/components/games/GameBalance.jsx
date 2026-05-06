@@ -3,6 +3,11 @@ import { useNavigate } from 'react-router-dom';
 import { OrientationTracker } from '@shared/sensor/orientationTracker.js';
 import { useUserAuth } from '@shared/context/UserAuthContext.jsx';
 import { createRealtimeConnection } from '@shared/gateway/realtimeTransport.js';
+import {
+    getRealtimeSensorLabel,
+    getRealtimeSensorSideOrder,
+    normalizeRealtimeSensorSample,
+} from '@shared/gateway/realtimeSensorUtils.js';
 import { usePersistedGatewaySession } from '@shared/hooks/usePersistedGatewaySession.js';
 import { ArrowLeft, ArrowRight, Settings, Target, Play, Pause, Square, X, ChevronLeft, ChevronRight, ChevronUp, ChevronDown } from 'lucide-react';
 import derndeeLogo from '@shared/assets/images/derndee-logo.png';
@@ -20,6 +25,8 @@ const GAME_STATES = {
 const ZONE_A_THRESHOLD = 15; // Perfect (green)
 const ZONE_B_THRESHOLD = 35; // Warning (yellow)
 // Beyond Zone B = Critical (red)
+const MAX_VISIBLE_SENSORS = 2;
+const SENSOR_STALE_AFTER_MS = 2500;
 
 // === Quaternion math helpers ===
 function quatMultiply(a, b) {
@@ -50,6 +57,84 @@ function quatAngleDeg(a, b) {
     return 2 * Math.acos(w) * 180 / Math.PI;
 }
 
+function getDistanceFromCenter(x, y) {
+    return Math.sqrt(x * x + y * y);
+}
+
+function getZoneForDistance(distance) {
+    if (distance <= ZONE_A_THRESHOLD) return 'A';
+    if (distance <= ZONE_B_THRESHOLD) return 'B';
+    return 'C';
+}
+
+function sortSensorStates(left, right) {
+    const sideDelta = getRealtimeSensorSideOrder(left?.side) - getRealtimeSensorSideOrder(right?.side);
+    if (sideDelta !== 0) {
+        return sideDelta;
+    }
+
+    return (right?.lastSeenAt || 0) - (left?.lastSeenAt || 0);
+}
+
+function createSensorRuntime(sample) {
+    return {
+        sensorKey: sample.sensorKey,
+        label: getRealtimeSensorLabel(sample),
+        side: sample.side || null,
+        sensorMount: sample.sensorMount || 'unknown',
+        lastSeenAt: Date.now(),
+        tracker: new OrientationTracker(),
+        refQuaternion: null,
+        lastQuaternion: null,
+        calibrationSamples: [],
+        rawRoll: 0,
+        rawPitch: 0,
+        lastSmoothedRoll: 0,
+        lastSmoothedPitch: 0,
+        lastSmoothedYaw: 0,
+        yawBaseline: 0,
+        yawBaselineInit: false,
+        displayRoll: 0,
+        displayPitch: 0,
+        calibratedRoll: 0,
+        calibratedPitch: 0,
+        bubbleX: 0,
+        bubbleY: 0,
+        lastDisplayUpdate: 0,
+    };
+}
+
+function buildSensorView(sensorState) {
+    const distanceFromCenter = getDistanceFromCenter(sensorState.bubbleX, sensorState.bubbleY);
+
+    return {
+        key: sensorState.sensorKey,
+        label: sensorState.label,
+        side: sensorState.side,
+        sensorMount: sensorState.sensorMount,
+        displayRoll: sensorState.displayRoll,
+        displayPitch: sensorState.displayPitch,
+        calibratedRoll: sensorState.calibratedRoll,
+        calibratedPitch: sensorState.calibratedPitch,
+        bubbleX: sensorState.bubbleX,
+        bubbleY: sensorState.bubbleY,
+        distanceFromCenter,
+        zone: getZoneForDistance(distanceFromCenter),
+    };
+}
+
+function resolveVisibleSensorKeys(sensorRuntimeMap) {
+    const now = Date.now();
+    const activeSensors = Array.from(sensorRuntimeMap.values())
+        .filter((sensorState) => now - sensorState.lastSeenAt <= SENSOR_STALE_AFTER_MS)
+        .sort(sortSensorStates);
+
+    const shankSensors = activeSensors.filter((sensorState) => sensorState.sensorMount === 'shank');
+    const preferredSensors = shankSensors.length > 0 ? shankSensors : activeSensors;
+
+    return preferredSensors.slice(0, shankSensors.length > 0 ? MAX_VISIBLE_SENSORS : 1).map((sensorState) => sensorState.sensorKey);
+}
+
 const GameBalance = () => {
     const navigate = useNavigate();
     const { user } = useUserAuth();
@@ -67,25 +152,10 @@ const GameBalance = () => {
     const [offsetPitch, setOffsetPitch] = useState(0); // For display only
     const [isCalibrating, setIsCalibrating] = useState(false);
     const isCalibratingRef = useRef(false); // Ref for callback
-    const calibrationSamplesRef = useRef([]);
     const sensitivityRef = useRef(1.0);
 
     // === Real-time Sensor Data ===
-    const [rawRoll, setRawRoll] = useState(0);
-    const [rawPitch, setRawPitch] = useState(0);
-    const [calibratedRoll, setCalibratedRoll] = useState(0); // Display Calibrated Roll
-    const [calibratedPitch, setCalibratedPitch] = useState(0); // Display Calibrated Pitch
-    const [displayRoll, setDisplayRoll] = useState(0); // Throttled Display Roll
-    const [displayPitch, setDisplayPitch] = useState(0); // Throttled Display Pitch
-
-    // Computed position (after calibration and sensitivity)
-    const [bubbleX, setBubbleX] = useState(0); // -100 to 100 (%)
-    const [bubbleY, setBubbleY] = useState(0); // -100 to 100 (%)
-
-    // Smoothing Refs
-    const lastSmoothedRollRef = useRef(0);
-    const lastSmoothedPitchRef = useRef(0);
-    const lastDisplayUpdateRef = useRef(0);
+    const [sensorViews, setSensorViews] = useState([]);
 
     // === Metrics ===
     const [timeInZone, setTimeInZone] = useState(0); // seconds in green zone
@@ -101,21 +171,27 @@ const GameBalance = () => {
     const timerRef = useRef(null);
     const zoneTimerRef = useRef(null);
     const manualDisconnectRef = useRef(false);
-    const activeSensorNameRef = useRef(null);
-    const activeSensorMountRef = useRef(null);
-    const orientationTrackerRef = useRef(null);
-
-    if (!orientationTrackerRef.current) {
-        orientationTrackerRef.current = new OrientationTracker();
-    }
+    const sensorRuntimesRef = useRef(new Map());
+    const activeSensorKeysRef = useRef([]);
 
     // === Computed Values ===
-    const distanceFromCenter = Math.sqrt(bubbleX * bubbleX + bubbleY * bubbleY);
+    const controlSensorView = sensorViews.reduce((selected, sensorView) => {
+        if (!selected || sensorView.distanceFromCenter > selected.distanceFromCenter) {
+            return sensorView;
+        }
+
+        return selected;
+    }, null);
+    const bubbleX = controlSensorView?.bubbleX ?? 0;
+    const bubbleY = controlSensorView?.bubbleY ?? 0;
+    const displayRoll = controlSensorView?.displayRoll ?? 0;
+    const displayPitch = controlSensorView?.displayPitch ?? 0;
+    const distanceFromCenter = sensorViews.length
+        ? Math.max(...sensorViews.map((sensorView) => sensorView.distanceFromCenter))
+        : 0;
 
     const getZone = () => {
-        if (distanceFromCenter <= ZONE_A_THRESHOLD) return 'A'; // Perfect
-        if (distanceFromCenter <= ZONE_B_THRESHOLD) return 'B'; // Warning
-        return 'C'; // Critical
+        return getZoneForDistance(distanceFromCenter);
     };
 
     const zone = getZone();
@@ -163,11 +239,7 @@ const GameBalance = () => {
     });
 
     // === Calibration State ===
-    const refQuaternionRef = useRef(null); // Reference quaternion — set by Calibration page or Re-center
-    const lastQuaternionRef = useRef(null); // Always tracks latest quaternion from gateway
-    const lastSmoothedYawRef = useRef(0);
-    const yawBaselineRef = useRef(0); // Slow-moving yaw baseline for drift compensation
-    const yawBaselineInitRef = useRef(false); // Whether baseline has been initialized
+    const lastQuaternionRef = useRef(null); // Tracks latest quaternion from the primary visible sensor
     const autoCenterArmedRef = useRef(true); // Auto-center should only run once when entering the game
     const autoCenterFirstDataAtRef = useRef(null); // Warm-up time before checking stillness
     const autoCenterStableSinceRef = useRef(null); // How long the leg has stayed still
@@ -177,12 +249,43 @@ const GameBalance = () => {
     const calibrationSourceRef = useRef('manual'); // Track whether calibration was manual or automatic
     const startCalibrationRef = useRef(null); // Ref to call startCalibration from handleSensorData
 
+    const resetSensorRuntimeState = useCallback((sensorState) => {
+        sensorState.rawRoll = 0;
+        sensorState.rawPitch = 0;
+        sensorState.lastSmoothedRoll = 0;
+        sensorState.lastSmoothedPitch = 0;
+        sensorState.lastSmoothedYaw = 0;
+        sensorState.yawBaseline = 0;
+        sensorState.yawBaselineInit = false;
+        sensorState.displayRoll = 0;
+        sensorState.displayPitch = 0;
+        sensorState.calibratedRoll = 0;
+        sensorState.calibratedPitch = 0;
+        sensorState.bubbleX = 0;
+        sensorState.bubbleY = 0;
+        sensorState.lastDisplayUpdate = 0;
+    }, []);
+
+    const getVisibleSensorStates = useCallback(() => {
+        return activeSensorKeysRef.current
+            .map((sensorKey) => sensorRuntimesRef.current.get(sensorKey))
+            .filter(Boolean)
+            .sort(sortSensorStates);
+    }, []);
+
+    const syncVisibleSensorViews = useCallback(() => {
+        activeSensorKeysRef.current = resolveVisibleSensorKeys(sensorRuntimesRef.current);
+        const visibleSensorStates = getVisibleSensorStates();
+        setSensorViews(visibleSensorStates.map(buildSensorView));
+        return visibleSensorStates;
+    }, [getVisibleSensorStates]);
+
     // === WebSocket Connection ===
     useEffect(() => {
         manualDisconnectRef.current = false;
-        activeSensorNameRef.current = null;
-        activeSensorMountRef.current = null;
-        orientationTrackerRef.current?.reset();
+        sensorRuntimesRef.current.clear();
+        activeSensorKeysRef.current = [];
+        setSensorViews([]);
 
         const connectWebSocket = () => {
             try {
@@ -199,19 +302,25 @@ const GameBalance = () => {
 
                         // When Calibration page completes → capture current quaternion as reference
                         if (msg.type === 'CALIBRATION_DONE') {
-                            if (lastQuaternionRef.current) {
-                                refQuaternionRef.current = [...lastQuaternionRef.current];
-                                lastSmoothedRollRef.current = 0;
-                                lastSmoothedPitchRef.current = 0;
-                                lastSmoothedYawRef.current = 0;
-                                yawBaselineRef.current = 0;
-                                yawBaselineInitRef.current = false;
+                            let calibratedCount = 0;
+                            sensorRuntimesRef.current.forEach((sensorState) => {
+                                if (!sensorState.lastQuaternion) {
+                                    return;
+                                }
+
+                                sensorState.refQuaternion = [...sensorState.lastQuaternion];
+                                resetSensorRuntimeState(sensorState);
+                                calibratedCount += 1;
+                            });
+
+                            if (calibratedCount > 0) {
                                 autoCenterArmedRef.current = false;
                                 autoCenterFirstDataAtRef.current = null;
                                 autoCenterStableSinceRef.current = null;
                                 autoCenterDriftSinceRef.current = null;
                                 autoCenterCooldownUntilRef.current = 0;
                                 autoCenterPrevQuaternionRef.current = null;
+                                syncVisibleSensorViews();
                                 setGameState(GAME_STATES.READY);
                                 gameStateRef.current = GAME_STATES.READY;
                                 console.log('🎯 CALIBRATION_DONE → Reference quaternion set for Balance');
@@ -252,101 +361,109 @@ const GameBalance = () => {
                 wsRef.current.close();
             }
         };
-    }, [endSessionIfActive]);
+    }, [endSessionIfActive, resetSensorRuntimeState, syncVisibleSensorViews]);
 
     // === Handle Sensor Data ===
     const handleSensorData = useCallback((msg) => {
         if (msg.type !== 'DATA') return;
 
-        const payload = msg.payload;
-
-        if (!Array.isArray(payload?.raw_accel) || !Array.isArray(payload?.raw_gyro)) {
+        const sample = normalizeRealtimeSensorSample(msg.payload || {});
+        if (!sample) {
             return;
         }
 
-        const isPreferredSensor = payload?.sensor_mount === 'shank';
-        if (!activeSensorNameRef.current) {
-            activeSensorNameRef.current = payload?.name ?? null;
-            activeSensorMountRef.current = payload?.sensor_mount ?? 'unknown';
-        } else if (
-            isPreferredSensor
-            && activeSensorMountRef.current !== 'shank'
-            && payload?.name
-            && payload.name !== activeSensorNameRef.current
-        ) {
-            activeSensorNameRef.current = payload.name;
-            activeSensorMountRef.current = 'shank';
-            orientationTrackerRef.current?.reset();
+        const sensorRuntimeMap = sensorRuntimesRef.current;
+        let sensorState = sensorRuntimeMap.get(sample.sensorKey);
+
+        if (!sensorState) {
+            sensorState = createSensorRuntime(sample);
+            sensorRuntimeMap.set(sample.sensorKey, sensorState);
         }
 
-        if (!payload?.name || payload.name !== activeSensorNameRef.current) {
-            return;
-        }
+        sensorState.label = getRealtimeSensorLabel(sample);
+        sensorState.side = sample.side || null;
+        sensorState.sensorMount = sample.sensorMount || 'unknown';
+        sensorState.lastSeenAt = Date.now();
 
-        const [ax, ay, az] = payload.raw_accel;
-        const [gx, gy, gz] = payload.raw_gyro;
-        const orientation = orientationTrackerRef.current.update({
-            ax,
-            ay,
-            az,
-            gx,
-            gy,
-            gz,
-            timestampMs: payload.timestamp_ms,
+        const orientation = sensorState.tracker.update({
+            ax: sample.ax,
+            ay: sample.ay,
+            az: sample.az,
+            gx: sample.gx,
+            gy: sample.gy,
+            gz: sample.gz,
+            timestampMs: sample.timestampMs ?? sample.timestamp_ms,
         });
         const q = orientation.quaternion;
+        sensorState.lastQuaternion = [...q];
 
-        // Always track latest quaternion
-        lastQuaternionRef.current = [...q];
+        const visibleSensorStates = syncVisibleSensorViews();
+        const isVisibleSensor = activeSensorKeysRef.current.includes(sensorState.sensorKey);
+        const primarySensorState = visibleSensorStates[0] || sensorState;
+        const isPrimarySensor = primarySensorState?.sensorKey === sensorState.sensorKey;
 
-        const now = Date.now();
-        const gyroNorm = typeof orientation.gyroNormRad === 'number' ? orientation.gyroNormRad : null;
-        const prevQuaternion = autoCenterPrevQuaternionRef.current;
-        const quatDeltaDeg = prevQuaternion ? quatAngleDeg(prevQuaternion, q) : 0;
-        const prePlayState = gameStateRef.current === GAME_STATES.CALIBRATING || gameStateRef.current === GAME_STATES.READY;
-
-        autoCenterPrevQuaternionRef.current = [...q];
-
-        if (!autoCenterFirstDataAtRef.current) {
-            autoCenterFirstDataAtRef.current = now;
+        if (isPrimarySensor) {
+            lastQuaternionRef.current = [...q];
         }
 
-        const warmupDone = now - autoCenterFirstDataAtRef.current >= 2500;
-        const gyroStable = gyroNorm === null || gyroNorm < 0.12;
-        const quatStable = quatDeltaDeg < 0.25;
-        const isStill = prePlayState && warmupDone && gyroStable && quatStable;
+        const now = Date.now();
+        let isStill = false;
 
-        // Auto-center on game entry: wait for stable sensor data, then call startCalibration()
-        if (!refQuaternionRef.current && autoCenterArmedRef.current && !isCalibratingRef.current && now >= autoCenterCooldownUntilRef.current) {
-            if (isStill) {
-                if (!autoCenterStableSinceRef.current) {
-                    autoCenterStableSinceRef.current = now;
-                }
+        if (isPrimarySensor) {
+            const gyroNorm = typeof orientation.gyroNormRad === 'number' ? orientation.gyroNormRad : null;
+            const prevQuaternion = autoCenterPrevQuaternionRef.current;
+            const quatDeltaDeg = prevQuaternion ? quatAngleDeg(prevQuaternion, q) : 0;
+            const prePlayState = gameStateRef.current === GAME_STATES.CALIBRATING || gameStateRef.current === GAME_STATES.READY;
 
-                if (now - autoCenterStableSinceRef.current >= 800) {
-                    autoCenterStableSinceRef.current = null;
-                    autoCenterDriftSinceRef.current = null;
-                    autoCenterPrevQuaternionRef.current = null;
-                    console.log(`🎯 Auto-center: sensor stable (gyro=${gyroNorm?.toFixed?.(3) ?? 'n/a'}, quatΔ=${quatDeltaDeg.toFixed(3)}°) → calling startCalibration()`);
-                    if (startCalibrationRef.current) {
-                        startCalibrationRef.current('auto');
+            autoCenterPrevQuaternionRef.current = [...q];
+
+            if (!autoCenterFirstDataAtRef.current) {
+                autoCenterFirstDataAtRef.current = now;
+            }
+
+            const warmupDone = now - autoCenterFirstDataAtRef.current >= 2500;
+            const gyroStable = gyroNorm === null || gyroNorm < 0.12;
+            const quatStable = quatDeltaDeg < 0.25;
+            isStill = prePlayState && warmupDone && gyroStable && quatStable;
+
+            const visibleSensorsNeedCalibration = visibleSensorStates.some((visibleSensorState) => !visibleSensorState.refQuaternion);
+
+            if (visibleSensorsNeedCalibration && autoCenterArmedRef.current && !isCalibratingRef.current && now >= autoCenterCooldownUntilRef.current) {
+                if (isStill) {
+                    if (!autoCenterStableSinceRef.current) {
+                        autoCenterStableSinceRef.current = now;
                     }
+
+                    if (now - autoCenterStableSinceRef.current >= 800) {
+                        autoCenterStableSinceRef.current = null;
+                        autoCenterDriftSinceRef.current = null;
+                        autoCenterPrevQuaternionRef.current = null;
+                        console.log(`🎯 Auto-center: sensor stable (gyro=${gyroNorm?.toFixed?.(3) ?? 'n/a'}, quatΔ=${quatDeltaDeg.toFixed(3)}°) → calling startCalibration()`);
+                        if (startCalibrationRef.current) {
+                            startCalibrationRef.current('auto');
+                        }
+                    }
+                } else {
+                    autoCenterStableSinceRef.current = null;
                 }
-            } else {
-                autoCenterStableSinceRef.current = null;
             }
         }
 
-        // Collect samples during manual Re-center calibration
         if (isCalibratingRef.current) {
-            calibrationSamplesRef.current.push([...q]);
+            sensorState.calibrationSamples.push([...q]);
         }
 
-        // Need reference quaternion to compute relative orientation
-        if (!refQuaternionRef.current) return;
+        if (!isVisibleSensor) {
+            return;
+        }
+
+        if (!sensorState.refQuaternion) {
+            syncVisibleSensorViews();
+            return;
+        }
 
         // === Relative quaternion: how has orientation changed from reference? ===
-        const q_rel = quatMultiply(quatConjugate(refQuaternionRef.current), q);
+        const q_rel = quatMultiply(quatConjugate(sensorState.refQuaternion), q);
 
         // === Convert to rotation vector [rx, ry, rz] in radians ===
         const rv = quatToRotVec(q_rel);
@@ -361,17 +478,17 @@ const GameBalance = () => {
         const rawYawDeg = -rv[0] * RAD_TO_DEG;
 
         // === Yaw drift compensation: slow baseline tracks drift, fast movements pass through ===
-        if (!yawBaselineInitRef.current) {
-            yawBaselineRef.current = rawYawDeg;
-            yawBaselineInitRef.current = true;
+        if (!sensorState.yawBaselineInit) {
+            sensorState.yawBaseline = rawYawDeg;
+            sensorState.yawBaselineInit = true;
         } else {
             // Very slow tracking: baseline follows drift (~0.2% per frame at 100Hz)
-            yawBaselineRef.current += (rawYawDeg - yawBaselineRef.current) * 0.002;
+            sensorState.yawBaseline += (rawYawDeg - sensorState.yawBaseline) * 0.002;
         }
-        const yawDeg = rawYawDeg - yawBaselineRef.current;
+        const yawDeg = rawYawDeg - sensorState.yawBaseline;
 
-        setRawRoll(leanLeftDeg);
-        setRawPitch(leanFwdDeg);
+        sensorState.rawRoll = leanLeftDeg;
+        sensorState.rawPitch = leanFwdDeg;
 
         // === Apply sensitivity & dead zone ===
         const sens = sensitivityRef.current;
@@ -393,22 +510,22 @@ const GameBalance = () => {
 
         // === Smoothing (LERP) ===
         const smoothFactor = 0.18;
-        const smoothedLeanLeft = lastSmoothedRollRef.current + (targetLeanLeft - lastSmoothedRollRef.current) * smoothFactor;
-        const smoothedLeanFwd = lastSmoothedPitchRef.current + (targetLeanFwd - lastSmoothedPitchRef.current) * smoothFactor;
-        const smoothedYaw = lastSmoothedYawRef.current + (targetYaw - lastSmoothedYawRef.current) * smoothFactor;
+        const smoothedLeanLeft = sensorState.lastSmoothedRoll + (targetLeanLeft - sensorState.lastSmoothedRoll) * smoothFactor;
+        const smoothedLeanFwd = sensorState.lastSmoothedPitch + (targetLeanFwd - sensorState.lastSmoothedPitch) * smoothFactor;
+        const smoothedYaw = sensorState.lastSmoothedYaw + (targetYaw - sensorState.lastSmoothedYaw) * smoothFactor;
 
-        lastSmoothedRollRef.current = smoothedLeanLeft;
-        lastSmoothedPitchRef.current = smoothedLeanFwd;
-        lastSmoothedYawRef.current = smoothedYaw;
+        sensorState.lastSmoothedRoll = smoothedLeanLeft;
+        sensorState.lastSmoothedPitch = smoothedLeanFwd;
+        sensorState.lastSmoothedYaw = smoothedYaw;
 
-        setCalibratedRoll(smoothedLeanLeft);
-        setCalibratedPitch(smoothedLeanFwd);
+        sensorState.calibratedRoll = smoothedLeanLeft;
+        sensorState.calibratedPitch = smoothedLeanFwd;
 
         // Throttled Display Update (Every 700ms)
-        if (now - lastDisplayUpdateRef.current > 700) {
-            setDisplayRoll(smoothedLeanLeft);
-            setDisplayPitch(smoothedLeanFwd);
-            lastDisplayUpdateRef.current = now;
+        if (now - sensorState.lastDisplayUpdate > 700) {
+            sensorState.displayRoll = smoothedLeanLeft;
+            sensorState.displayPitch = smoothedLeanFwd;
+            sensorState.lastDisplayUpdate = now;
         }
 
         // === Map to ball position ===
@@ -424,40 +541,55 @@ const GameBalance = () => {
         newX += -Math.sin(yawRad) * yawAmplitude;
         newY += -Math.cos(yawRad) * yawAmplitude;
 
-        const centerDistance = Math.sqrt(newX * newX + newY * newY);
-
-        if (refQuaternionRef.current && autoCenterArmedRef.current && !isCalibratingRef.current && now >= autoCenterCooldownUntilRef.current) {
-            if (isStill && centerDistance > 10) {
-                if (!autoCenterDriftSinceRef.current) {
-                    autoCenterDriftSinceRef.current = now;
-                }
-
-                if (now - autoCenterDriftSinceRef.current >= 900) {
-                    autoCenterStableSinceRef.current = null;
-                    autoCenterDriftSinceRef.current = null;
-                    autoCenterPrevQuaternionRef.current = null;
-                    console.log(`🎯 Auto-center: bubble drifted to ${centerDistance.toFixed(1)}% while still → calling startCalibration() again`);
-                    if (startCalibrationRef.current) {
-                        startCalibrationRef.current('auto');
-                    }
-                }
-            } else {
-                autoCenterDriftSinceRef.current = null;
-            }
-        } else {
-            autoCenterDriftSinceRef.current = null;
-        }
+        const centerDistance = getDistanceFromCenter(newX, newY);
 
         // Clamp to [-100, 100]
         newX = Math.max(-100, Math.min(100, newX));
         newY = Math.max(-100, Math.min(100, newY));
 
-        setBubbleX(newX);
-        setBubbleY(newY);
+        sensorState.bubbleX = newX;
+        sensorState.bubbleY = newY;
+
+        if (isPrimarySensor) {
+            const allVisibleSensorsCalibrated = visibleSensorStates.length > 0
+                && visibleSensorStates.every((visibleSensorState) => !!visibleSensorState.refQuaternion);
+
+            if (allVisibleSensorsCalibrated && autoCenterArmedRef.current && !isCalibratingRef.current && now >= autoCenterCooldownUntilRef.current) {
+                if (isStill && centerDistance > 10) {
+                    if (!autoCenterDriftSinceRef.current) {
+                        autoCenterDriftSinceRef.current = now;
+                    }
+
+                    if (now - autoCenterDriftSinceRef.current >= 900) {
+                        autoCenterStableSinceRef.current = null;
+                        autoCenterDriftSinceRef.current = null;
+                        autoCenterPrevQuaternionRef.current = null;
+                        console.log(`🎯 Auto-center: bubble drifted to ${centerDistance.toFixed(1)}% while still → calling startCalibration() again`);
+                        if (startCalibrationRef.current) {
+                            startCalibrationRef.current('auto');
+                        }
+                    }
+                } else {
+                    autoCenterDriftSinceRef.current = null;
+                }
+            } else {
+                autoCenterDriftSinceRef.current = null;
+            }
+        }
+
+        const nextVisibleSensorStates = syncVisibleSensorViews();
 
         // Track deviation for average calculation
-        if (gameStateRef.current === GAME_STATES.PLAYING) {
-            const deviation = Math.sqrt(smoothedLeanLeft ** 2 + smoothedLeanFwd ** 2);
+        if (gameStateRef.current === GAME_STATES.PLAYING && isPrimarySensor) {
+            const deviations = nextVisibleSensorStates
+                .filter((visibleSensorState) => visibleSensorState.refQuaternion)
+                .map((visibleSensorState) => Math.sqrt(
+                    visibleSensorState.calibratedRoll ** 2 + visibleSensorState.calibratedPitch ** 2,
+                ));
+
+            const deviation = deviations.length
+                ? deviations.reduce((sum, value) => sum + value, 0) / deviations.length
+                : Math.sqrt(smoothedLeanLeft ** 2 + smoothedLeanFwd ** 2);
             deviationHistoryRef.current.push(deviation);
 
             if (deviationHistoryRef.current.length > 100) {
@@ -467,34 +599,39 @@ const GameBalance = () => {
             const avg = deviationHistoryRef.current.reduce((a, b) => a + b, 0) / deviationHistoryRef.current.length;
             setAvgDeviation(avg);
         }
-    }, []); // No deps needed since everything uses refs
+    }, [syncVisibleSensorViews]);
 
     // === Calibration ===
     // === Calibration Logic ===
     const finishCalibration = useCallback(() => {
-        const samples = calibrationSamplesRef.current;
-        if (samples.length > 0) {
-            // Use the last quaternion sample as new reference orientation
-            refQuaternionRef.current = [...samples[samples.length - 1]];
-            // Reset smoothing state so ball snaps to center
-            lastSmoothedRollRef.current = 0;
-            lastSmoothedPitchRef.current = 0;
-            lastSmoothedYawRef.current = 0;
-            yawBaselineRef.current = 0;
-            yawBaselineInitRef.current = false;
+        let calibratedCount = 0;
+
+        sensorRuntimesRef.current.forEach((sensorState) => {
+            if (!sensorState.calibrationSamples.length) {
+                return;
+            }
+
+            sensorState.refQuaternion = [...sensorState.calibrationSamples[sensorState.calibrationSamples.length - 1]];
+            sensorState.calibrationSamples = [];
+            resetSensorRuntimeState(sensorState);
+            calibratedCount += 1;
+        });
+
+        if (calibratedCount > 0) {
             autoCenterArmedRef.current = calibrationSourceRef.current === 'auto';
             autoCenterFirstDataAtRef.current = Date.now();
             autoCenterStableSinceRef.current = null;
             autoCenterDriftSinceRef.current = null;
             autoCenterPrevQuaternionRef.current = null;
+            syncVisibleSensorViews();
             console.log('✅ Re-centered: New reference quaternion set');
         }
 
         setIsCalibrating(false);
         isCalibratingRef.current = false;
-        setGameState(GAME_STATES.READY);
-        gameStateRef.current = GAME_STATES.READY;
-    }, []);
+        setGameState(calibratedCount > 0 ? GAME_STATES.READY : GAME_STATES.CALIBRATING);
+        gameStateRef.current = calibratedCount > 0 ? GAME_STATES.READY : GAME_STATES.CALIBRATING;
+    }, [resetSensorRuntimeState, syncVisibleSensorViews]);
 
     const startCalibration = (source = 'manual') => {
         calibrationSourceRef.current = source;
@@ -506,7 +643,9 @@ const GameBalance = () => {
         autoCenterPrevQuaternionRef.current = null;
         setIsCalibrating(true);
         isCalibratingRef.current = true;
-        calibrationSamplesRef.current = [];
+        sensorRuntimesRef.current.forEach((sensorState) => {
+            sensorState.calibrationSamples = [];
+        });
         setGameState(GAME_STATES.CALIBRATING);
         gameStateRef.current = GAME_STATES.CALIBRATING;
 
@@ -615,9 +754,12 @@ const GameBalance = () => {
     const resetSession = () => {
         setGameState(GAME_STATES.READY);
         gameStateRef.current = GAME_STATES.READY;
-        activeSensorNameRef.current = null;
-        activeSensorMountRef.current = null;
-        orientationTrackerRef.current?.reset();
+        sensorRuntimesRef.current.forEach((sensorState) => {
+            sensorState.tracker.reset();
+            sensorState.calibrationSamples = [];
+            resetSensorRuntimeState(sensorState);
+        });
+        syncVisibleSensorViews();
         setTimeInZone(0);
         setZoneStats({ A: 0, B: 0, C: 0 });
         setSessionTime(0);
@@ -643,6 +785,55 @@ const GameBalance = () => {
     };
 
     const zoneColors = getZoneColor();
+    const hasDualSensors = sensorViews.length > 1;
+    const activeBallViews = sensorViews.length > 0 ? sensorViews : [{
+        key: 'placeholder',
+        label: 'Sensor',
+        side: null,
+        bubbleX: 0,
+        bubbleY: 0,
+        distanceFromCenter: 0,
+        zone: 'A',
+        placeholder: true,
+    }];
+
+    const getSensorBubbleClasses = (sensorView) => {
+        if (sensorView.placeholder) {
+            return 'bg-gradient-to-br from-slate-300 to-slate-400 shadow-slate-200/60';
+        }
+
+        if (sensorView.side === 'L') {
+            return 'bg-gradient-to-br from-sky-400 to-blue-600 shadow-sky-300/50';
+        }
+
+        if (sensorView.side === 'R') {
+            return 'bg-gradient-to-br from-rose-400 to-red-600 shadow-rose-300/50';
+        }
+
+        return zone === 'A'
+            ? 'bg-gradient-to-br from-emerald-400 to-emerald-600 shadow-emerald-300/50'
+            : zone === 'B'
+                ? 'bg-gradient-to-br from-amber-400 to-amber-600 shadow-amber-300/50'
+                : 'bg-gradient-to-br from-red-400 to-red-600 shadow-red-300/50';
+    };
+
+    const getSensorBadgeClasses = (sensorView) => {
+        if (sensorView.side === 'L') {
+            return 'bg-sky-100 text-sky-700';
+        }
+
+        if (sensorView.side === 'R') {
+            return 'bg-rose-100 text-rose-700';
+        }
+
+        return 'bg-slate-100 text-slate-700';
+    };
+
+    const sensorModeLabel = hasDualSensors
+        ? 'Dual Shank Mode'
+        : sensorViews.length === 1
+            ? `${sensorViews[0].label} Active`
+            : 'Waiting for sensor';
 
     // === Direction Hints ===
     const getDirectionHint = () => {
@@ -754,6 +945,20 @@ const GameBalance = () => {
                 {/* LEFT: Game Board (Visuals) */}
                 <div className="lg:col-span-8 flex flex-col items-center justify-center min-h-[50vh] lg:min-h-[75vh]">
 
+                    <div className="mb-4 flex flex-wrap items-center justify-center gap-2 px-4 text-center">
+                        <div className="rounded-full bg-white/80 px-4 py-2 text-sm font-bold text-gray-700 shadow-sm">
+                            {sensorModeLabel}
+                        </div>
+                        {sensorViews.map((sensorView) => (
+                            <div
+                                key={sensorView.key}
+                                className={`rounded-full px-3 py-1.5 text-xs font-bold shadow-sm ${getSensorBadgeClasses(sensorView)}`}
+                            >
+                                {sensorView.side === 'L' ? 'Left' : sensorView.side === 'R' ? 'Right' : 'Sensor'}: {sensorView.label}
+                            </div>
+                        ))}
+                    </div>
+
                     {/* Timer (Mobile Only) */}
                     <div className="lg:hidden text-center mb-4">
                         <span className="text-4xl font-extrabold tracking-tight text-gray-800">
@@ -806,21 +1011,31 @@ const GameBalance = () => {
                         <div className="absolute h-full w-[1px] bg-gray-200/50"></div>
 
                         {/* THE BALL (Bubble) */}
-                        <div
-                            className={`absolute w-10 h-10 lg:w-16 lg:h-16 rounded-full shadow-2xl transition-all duration-100 ease-out border-4 border-white z-10 
-                            ${zone === 'A' ? 'bg-gradient-to-br from-emerald-400 to-emerald-600 shadow-emerald-300/50' :
-                                    zone === 'B' ? 'bg-gradient-to-br from-amber-400 to-amber-600 shadow-amber-300/50' :
-                                        'bg-gradient-to-br from-red-400 to-red-600 shadow-red-300/50'
-                                }`}
-                            style={{
-                                left: `calc(50% + ${bubbleX * 2.5}px - ${window.innerWidth >= 1024 ? 32 : 20}px)`,
-                                top: `calc(50% + ${bubbleY * 2.5}px - ${window.innerWidth >= 1024 ? 32 : 20}px)`,
-                                transform: zone === 'B' ? 'scale(1.05)' : 'scale(1)'
-                            }}
-                        >
-                            {/* Shine */}
-                            <div className="absolute top-1 left-2 w-3 h-3 bg-white/40 rounded-full"></div>
-                        </div>
+                        {activeBallViews.map((sensorView) => {
+                            const largeBall = !hasDualSensors;
+                            const ballRadius = typeof window !== 'undefined' && window.innerWidth >= 1024
+                                ? (largeBall ? 32 : 24)
+                                : (largeBall ? 20 : 14);
+
+                            return (
+                                <div
+                                    key={sensorView.key}
+                                    className={`absolute rounded-full shadow-2xl transition-all duration-100 ease-out border-4 border-white z-10 ${largeBall ? 'w-10 h-10 lg:w-16 lg:h-16' : 'w-7 h-7 lg:w-12 lg:h-12'} ${getSensorBubbleClasses(sensorView)}`}
+                                    style={{
+                                        left: `calc(50% + ${sensorView.bubbleX * 2.5}px - ${ballRadius}px)`,
+                                        top: `calc(50% + ${sensorView.bubbleY * 2.5}px - ${ballRadius}px)`,
+                                        transform: sensorView.zone === 'B' ? 'scale(1.05)' : 'scale(1)'
+                                    }}
+                                >
+                                    <div className="absolute top-1 left-2 w-3 h-3 bg-white/40 rounded-full"></div>
+                                    {!sensorView.placeholder && (
+                                        <div className={`absolute -bottom-6 left-1/2 -translate-x-1/2 rounded-full px-2 py-0.5 text-[10px] font-extrabold uppercase shadow-sm ${getSensorBadgeClasses(sensorView)}`}>
+                                            {sensorView.side === 'L' ? 'L' : sensorView.side === 'R' ? 'R' : 'S'}
+                                        </div>
+                                    )}
+                                </div>
+                            );
+                        })}
                     </div>
 
                     {/* Zone Status (Mobile) */}
@@ -854,29 +1069,63 @@ const GameBalance = () => {
                     </div>
 
                     {/* Detail Stats */}
-                    <div className="grid grid-cols-2 gap-4">
-                        {/* Roll Card */}
-                        <div className="bg-white rounded-2xl lg:rounded-3xl shadow-lg p-5 text-center flex flex-col items-center justify-center hover:scale-105 transition-transform">
-                            <div className="text-xs lg:text-sm text-gray-500 mb-1 font-semibold uppercase tracking-wide">Left / Right</div>
-                            <div className="text-3xl lg:text-4xl font-extrabold text-blue-600 tabular-nums">
-                                {Math.abs(displayRoll).toFixed(1)}°
-                            </div>
-                            <div className={`text-xs font-bold mt-1 px-2 py-0.5 rounded ${Math.abs(displayRoll) < 5 ? 'bg-emerald-100 text-emerald-600' : 'bg-blue-50 text-blue-500'}`}>
-                                {displayRoll > 0 ? 'Right' : displayRoll < 0 ? 'Left' : '-'}
-                            </div>
+                    {hasDualSensors ? (
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                            {sensorViews.map((sensorView) => (
+                                <div key={sensorView.key} className="bg-white rounded-2xl lg:rounded-3xl shadow-lg p-5 hover:scale-105 transition-transform">
+                                    <div className="flex items-center justify-between mb-4">
+                                        <div>
+                                            <div className="text-xs text-gray-500 font-semibold uppercase tracking-wide">{sensorView.label}</div>
+                                            <div className="text-sm font-bold text-gray-800">
+                                                {sensorView.side === 'L' ? 'Left Shank' : sensorView.side === 'R' ? 'Right Shank' : 'Sensor'}
+                                            </div>
+                                        </div>
+                                        <div className={`rounded-full px-2.5 py-1 text-xs font-extrabold ${getSensorBadgeClasses(sensorView)}`}>
+                                            {sensorView.zone === 'A' ? 'Stable' : sensorView.zone === 'B' ? 'Drifting' : 'Unstable'}
+                                        </div>
+                                    </div>
+                                    <div className="grid grid-cols-2 gap-3">
+                                        <div className="rounded-2xl bg-slate-50 p-3 text-center">
+                                            <div className="text-[11px] text-gray-500 font-semibold uppercase tracking-wide">Left / Right</div>
+                                            <div className="mt-1 text-2xl font-extrabold text-slate-800 tabular-nums">{Math.abs(sensorView.displayRoll).toFixed(1)}°</div>
+                                            <div className="mt-1 text-xs font-bold text-slate-500">
+                                                {sensorView.displayRoll > 0 ? 'Right' : sensorView.displayRoll < 0 ? 'Left' : '-'}
+                                            </div>
+                                        </div>
+                                        <div className="rounded-2xl bg-slate-50 p-3 text-center">
+                                            <div className="text-[11px] text-gray-500 font-semibold uppercase tracking-wide">Fwd / Back</div>
+                                            <div className="mt-1 text-2xl font-extrabold text-slate-800 tabular-nums">{Math.abs(sensorView.displayPitch).toFixed(1)}°</div>
+                                            <div className="mt-1 text-xs font-bold text-slate-500">
+                                                {sensorView.displayPitch > 0 ? 'Fwd' : sensorView.displayPitch < 0 ? 'Back' : '-'}
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            ))}
                         </div>
+                    ) : (
+                        <div className="grid grid-cols-2 gap-4">
+                            <div className="bg-white rounded-2xl lg:rounded-3xl shadow-lg p-5 text-center flex flex-col items-center justify-center hover:scale-105 transition-transform">
+                                <div className="text-xs lg:text-sm text-gray-500 mb-1 font-semibold uppercase tracking-wide">Left / Right</div>
+                                <div className="text-3xl lg:text-4xl font-extrabold text-blue-600 tabular-nums">
+                                    {Math.abs(displayRoll).toFixed(1)}°
+                                </div>
+                                <div className={`text-xs font-bold mt-1 px-2 py-0.5 rounded ${Math.abs(displayRoll) < 5 ? 'bg-emerald-100 text-emerald-600' : 'bg-blue-50 text-blue-500'}`}>
+                                    {displayRoll > 0 ? 'Right' : displayRoll < 0 ? 'Left' : '-'}
+                                </div>
+                            </div>
 
-                        {/* Pitch Card */}
-                        <div className="bg-white rounded-2xl lg:rounded-3xl shadow-lg p-5 text-center flex flex-col items-center justify-center hover:scale-105 transition-transform">
-                            <div className="text-xs lg:text-sm text-gray-500 mb-1 font-semibold uppercase tracking-wide">Fwd / Back</div>
-                            <div className="text-3xl lg:text-4xl font-extrabold text-blue-600 tabular-nums">
-                                {Math.abs(displayPitch).toFixed(1)}°
-                            </div>
-                            <div className={`text-xs font-bold mt-1 px-2 py-0.5 rounded ${Math.abs(displayPitch) < 5 ? 'bg-emerald-100 text-emerald-600' : 'bg-blue-50 text-blue-500'}`}>
-                                {displayPitch > 0 ? 'Fwd' : displayPitch < 0 ? 'Back' : '-'}
+                            <div className="bg-white rounded-2xl lg:rounded-3xl shadow-lg p-5 text-center flex flex-col items-center justify-center hover:scale-105 transition-transform">
+                                <div className="text-xs lg:text-sm text-gray-500 mb-1 font-semibold uppercase tracking-wide">Fwd / Back</div>
+                                <div className="text-3xl lg:text-4xl font-extrabold text-blue-600 tabular-nums">
+                                    {Math.abs(displayPitch).toFixed(1)}°
+                                </div>
+                                <div className={`text-xs font-bold mt-1 px-2 py-0.5 rounded ${Math.abs(displayPitch) < 5 ? 'bg-emerald-100 text-emerald-600' : 'bg-blue-50 text-blue-500'}`}>
+                                    {displayPitch > 0 ? 'Fwd' : displayPitch < 0 ? 'Back' : '-'}
+                                </div>
                             </div>
                         </div>
-                    </div>
+                    )}
 
                     {/* Target Stats (Score) */}
                     <div className="bg-white rounded-2xl lg:rounded-3xl shadow-lg p-6 flex items-center justify-between">

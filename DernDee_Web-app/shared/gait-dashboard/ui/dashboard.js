@@ -5,6 +5,81 @@
  * and connection status for the medical dashboard layout.
  */
 
+function formatMaybeNumber(value, digits = 1, fallback = '-') {
+  return Number.isFinite(value) ? value.toFixed(digits) : fallback;
+}
+
+function formatMetricBySide(entries, selector, digits = 1, suffix = '') {
+  return entries.map((entry) => {
+    const value = selector(entry.params || {});
+    const label = entry.side === 'L' ? 'L' : entry.side === 'R' ? 'R' : entry.label;
+    const formattedValue = Number.isFinite(value) ? value.toFixed(digits) : '-';
+    return `${label}: ${formattedValue}${suffix}`;
+  }).join(' / ');
+}
+
+function buildAverageParams(entries) {
+  if (!entries.length) {
+    return null;
+  }
+
+  const averaged = {
+    stepCount: 0,
+    strideCount: 0,
+    sessionDuration: 0,
+    cadence: 0,
+    stepTime: null,
+    strideTime: 0,
+    doubleSupport: null,
+    stepLength: 0,
+    strideLength: 0,
+    walkingSpeed: 0,
+    peakShankAngle: 0,
+    stancePct: 0,
+    swingPct: 0,
+  };
+
+  const numericFields = [
+    'sessionDuration',
+    'cadence',
+    'strideTime',
+    'stepLength',
+    'strideLength',
+    'walkingSpeed',
+    'peakShankAngle',
+    'stancePct',
+    'swingPct',
+  ];
+
+  numericFields.forEach((field) => {
+    const values = entries
+      .map((entry) => entry.params?.[field])
+      .filter(Number.isFinite);
+    averaged[field] = values.length
+      ? values.reduce((sum, value) => sum + value, 0) / values.length
+      : 0;
+  });
+
+  averaged.stepCount = Math.max(...entries.map((entry) => entry.params?.stepCount || 0));
+  averaged.strideCount = Math.max(...entries.map((entry) => entry.params?.strideCount || 0));
+
+  const stepTimeValues = entries
+    .map((entry) => entry.params?.stepTime)
+    .filter(Number.isFinite);
+  averaged.stepTime = stepTimeValues.length
+    ? stepTimeValues.reduce((sum, value) => sum + value, 0) / stepTimeValues.length
+    : null;
+
+  const doubleSupportValues = entries
+    .map((entry) => entry.params?.doubleSupport)
+    .filter(Number.isFinite);
+  averaged.doubleSupport = doubleSupportValues.length
+    ? doubleSupportValues.reduce((sum, value) => sum + value, 0) / doubleSupportValues.length
+    : null;
+
+  return averaged;
+}
+
 export class Dashboard {
   constructor() {
     this.paramElements = {};
@@ -38,6 +113,7 @@ export class Dashboard {
     this.statusIndicator = document.getElementById('status-indicator');
     this.statusText = document.getElementById('status-text');
     this.modeLabel = document.getElementById('mode-label');
+    this.sensorSummary = document.getElementById('sensor-side-summary');
   }
 
   updateParams(params) {
@@ -47,40 +123,97 @@ export class Dashboard {
 
     this._animateValue('stepCount', String(params.stepCount || 0));
     this._animateValue('strideCount', String(params.strideCount || 0));
-    this._animateValue('sessionDuration', (params.sessionDuration || 0).toFixed(1));
+    this._animateValue('sessionDuration', formatMaybeNumber(params.sessionDuration, 1, '0.0'));
 
-    this._animateValue('cadence', params.cadence.toFixed(1));
-    this._animateValue('stepTime', params.stepTime ? params.stepTime.toFixed(2) : '-');
-    this._animateValue('strideTime', params.strideTime.toFixed(2));
-    this._animateValue('doubleSupport', params.doubleSupport != null ? params.doubleSupport.toFixed(2) : '-');
+    this._animateValue('cadence', formatMaybeNumber(params.cadence, 1));
+    this._animateValue('stepTime', formatMaybeNumber(params.stepTime, 2));
+    this._animateValue('strideTime', formatMaybeNumber(params.strideTime, 2));
+    this._animateValue('doubleSupport', formatMaybeNumber(params.doubleSupport, 2));
 
-    this._animateValue('stepLength', params.stepLength.toFixed(2));
-    this._animateValue('strideLength', params.strideLength.toFixed(2));
-    this._animateValue('walkingSpeed', params.walkingSpeed.toFixed(2));
+    this._animateValue('stepLength', formatMaybeNumber(params.stepLength, 2));
+    this._animateValue('strideLength', formatMaybeNumber(params.strideLength, 2));
+    this._animateValue('walkingSpeed', formatMaybeNumber(params.walkingSpeed, 2));
 
-    this._animateValue('peakAngle', params.peakShankAngle.toFixed(1));
-    this._animateValue('stancePct', params.stancePct.toFixed(1));
-    this._animateValue('swingPct', params.swingPct.toFixed(1));
+    this._animateValue('peakAngle', formatMaybeNumber(params.peakShankAngle, 1));
+    this._animateValue('stancePct', formatMaybeNumber(params.stancePct, 1));
+    this._animateValue('swingPct', formatMaybeNumber(params.swingPct, 1));
 
     if (this.stanceBar) {
-      this.stanceBar.style.width = `${params.stancePct}%`;
-      this.swingBar.style.width = `${params.swingPct}%`;
-      this.stancePctLabel.textContent = `Stance ${params.stancePct.toFixed(1)}%`;
-      this.swingPctLabel.textContent = `Swing ${params.swingPct.toFixed(1)}%`;
+      this.stanceBar.style.width = `${params.stancePct || 0}%`;
+      this.swingBar.style.width = `${params.swingPct || 0}%`;
+      this.stancePctLabel.textContent = `Stance ${formatMaybeNumber(params.stancePct, 1, '0.0')}%`;
+      this.swingPctLabel.textContent = `Swing ${formatMaybeNumber(params.swingPct, 1, '0.0')}%`;
     }
   }
 
-  updateEvents(events) {
-    if (!this.eventList || !events.length) {
+  updateMultiSensorParams(entries) {
+    if (!entries?.length) {
+      return;
+    }
+
+    const averaged = buildAverageParams(entries);
+    this.updateParams(averaged);
+
+    this._animateValue('cadence', formatMetricBySide(entries, (params) => params.cadence, 1));
+    this._animateValue('stepTime', formatMetricBySide(entries, (params) => params.stepTime, 2));
+    this._animateValue('strideTime', formatMetricBySide(entries, (params) => params.strideTime, 2));
+    this._animateValue('doubleSupport', formatMetricBySide(entries, (params) => params.doubleSupport, 2));
+    this._animateValue('stepLength', formatMetricBySide(entries, (params) => params.stepLength, 2));
+    this._animateValue('strideLength', formatMetricBySide(entries, (params) => params.strideLength, 2));
+    this._animateValue('walkingSpeed', formatMetricBySide(entries, (params) => params.walkingSpeed, 2));
+    this._animateValue('peakAngle', formatMetricBySide(entries, (params) => params.peakShankAngle, 1));
+    this._animateValue('stancePct', formatMetricBySide(entries, (params) => params.stancePct, 1));
+    this._animateValue('swingPct', formatMetricBySide(entries, (params) => params.swingPct, 1));
+
+    const avgStance = averaged?.stancePct || 0;
+    const avgSwing = averaged?.swingPct || 0;
+    if (this.stanceBar) {
+      this.stanceBar.style.width = `${avgStance}%`;
+      this.swingBar.style.width = `${avgSwing}%`;
+      this.stancePctLabel.textContent = `Avg stance ${formatMaybeNumber(avgStance, 1, '0.0')}%`;
+      this.swingPctLabel.textContent = `Avg swing ${formatMaybeNumber(avgSwing, 1, '0.0')}%`;
+    }
+  }
+
+  updateSensorSummary(sensors = []) {
+    if (!this.sensorSummary) {
+      return;
+    }
+
+    if (!sensors.length) {
+      this.sensorSummary.innerHTML = '<span class="sensor-summary-empty">Waiting for sensor data</span>';
+      return;
+    }
+
+    this.sensorSummary.innerHTML = sensors.map((sensor) => {
+      const sideClass = sensor.side === 'L' ? 'left' : sensor.side === 'R' ? 'right' : 'neutral';
+      const sideLabel = sensor.side === 'L' ? 'Left' : sensor.side === 'R' ? 'Right' : 'Sensor';
+      return `<span class="sensor-summary-pill ${sideClass}">
+        <span class="sensor-summary-side">${sideLabel}</span>
+        <span class="sensor-summary-label">${sensor.label}</span>
+      </span>`;
+    }).join('');
+  }
+
+  updateEvents(events = []) {
+    if (!this.eventList) {
+      return;
+    }
+
+    if (!events.length) {
+      this.eventList.innerHTML = '';
       return;
     }
 
     const recentEvents = events.slice(-20);
-    this.eventList.innerHTML = recentEvents.map((e) => {
-      const typeClass = e.type.toLowerCase();
+    this.eventList.innerHTML = recentEvents.map((event) => {
+      const typeClass = event.type.toLowerCase();
+      const sideClass = event.side === 'L' ? 'left' : event.side === 'R' ? 'right' : 'neutral';
+      const sideLabel = event.side === 'L' ? 'L' : event.side === 'R' ? 'R' : 'Sensor';
       return `<span class="event-tag ${typeClass}">
-        <span>${e.type}</span>
-        <span style="opacity:0.7">${e.time.toFixed(2)}s</span>
+        <span class="event-side ${sideClass}">${sideLabel}</span>
+        <span>${event.type}</span>
+        <span style="opacity:0.7">${event.time.toFixed(2)}s</span>
       </span>`;
     }).join('');
   }

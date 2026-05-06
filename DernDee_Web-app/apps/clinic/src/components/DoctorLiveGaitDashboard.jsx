@@ -128,7 +128,7 @@ const DoctorLiveGaitDashboard = () => {
             style={{ height: '44px', objectFit: 'contain', filter: 'drop-shadow(0 4px 6px rgba(0,0,0,0.1))' }}
           />
           <div style={{ height: '32px', width: '2px', background: '#e2e8f0', borderRadius: '4px' }}></div>
-          <div>
+          <div className="header-meta">
             <div
               className="header-title"
               style={{ fontWeight: 800, fontSize: '1.5rem', color: '#334155', textTransform: 'uppercase', letterSpacing: '0.05em', margin: 0 }}
@@ -137,6 +137,9 @@ const DoctorLiveGaitDashboard = () => {
             </div>
             <div style={{ fontSize: '0.9rem', color: '#64748b', fontWeight: 600 }}>
               {patient.name} ({patient.patientId})
+            </div>
+            <div className="sensor-side-summary" id="sensor-side-summary">
+              <span className="sensor-summary-empty">Waiting for sensor data</span>
             </div>
           </div>
         </div>
