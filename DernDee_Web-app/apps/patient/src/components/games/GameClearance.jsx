@@ -86,7 +86,6 @@ const GameClearance = () => {
     const [sessionTime, setSessionTime] = useState(0);
     const [isConnected, setIsConnected] = useState(false);
     const [sessionMetrics, setSessionMetrics] = useState({});
-    const [sensorViews, setSensorViews] = useState([]);
 
     // === Rep Counting State Machine ===
     const [repState, setRepState] = useState('READY'); // READY, HIT_TARGET
@@ -126,13 +125,6 @@ const GameClearance = () => {
     const syncVisibleSensorViews = useCallback(() => {
         activeSensorKeysRef.current = resolveVisibleSensorKeys(sensorRuntimesRef.current);
         const visibleSensorStates = getVisibleSensorStates();
-        setSensorViews(visibleSensorStates.map((sensorState) => ({
-            key: sensorState.sensorKey,
-            label: sensorState.label,
-            side: sensorState.side,
-            currentHeight: sensorState.currentHeight,
-            stabilityScore: sensorState.stabilityScore,
-        })));
         return visibleSensorStates;
     }, [getVisibleSensorStates]);
 
@@ -142,7 +134,6 @@ const GameClearance = () => {
         });
         sensorRuntimesRef.current.clear();
         activeSensorKeysRef.current = [];
-        setSensorViews([]);
         setCurrentHeight(0);
         setStabilityScore(100);
     }, []);
@@ -570,20 +561,6 @@ const GameClearance = () => {
 
                 {/* LEFT: Capsule Gauge (Visual) */}
                 <div className="flex justify-center items-end" style={{ height: '70vh', minHeight: '500px' }}>
-                    <div className="absolute top-4 left-1/2 z-20 flex -translate-x-1/2 flex-wrap items-center justify-center gap-2 px-4 text-center">
-                        <div className="rounded-full bg-white/85 px-4 py-2 text-sm font-bold text-gray-700 shadow-sm">
-                            {sensorViews.length > 1 ? 'Dual Shank Tracking' : sensorViews.length === 1 ? `${sensorViews[0].label} Active` : 'Waiting for sensor'}
-                        </div>
-                        {sensorViews.map((sensorView) => (
-                            <div
-                                key={sensorView.key}
-                                className={`rounded-full px-3 py-1.5 text-xs font-bold shadow-sm ${sensorView.side === 'L' ? 'bg-sky-100 text-sky-700' : sensorView.side === 'R' ? 'bg-rose-100 text-rose-700' : 'bg-slate-100 text-slate-700'}`}
-                            >
-                                {sensorView.side === 'L' ? 'Left' : sensorView.side === 'R' ? 'Right' : 'Sensor'}: {sensorView.label}
-                            </div>
-                        ))}
-                    </div>
-
                     <div className="relative h-full w-full max-w-sm mx-auto flex justify-center">
                         {/* Scale Markers */}
                         <div className="absolute left-0 top-0 bottom-0 flex flex-col justify-between py-4 text-sm font-bold text-gray-400">

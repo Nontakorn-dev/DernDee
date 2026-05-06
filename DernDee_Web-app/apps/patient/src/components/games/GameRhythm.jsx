@@ -113,7 +113,6 @@ const GameRhythm = () => {
     const [detectedSteps, setDetectedSteps] = useState(0);
     const [isConnected, setIsConnected] = useState(false);
     const [sessionMetrics, setSessionMetrics] = useState({});
-    const [sensorViews, setSensorViews] = useState([]);
 
     // === Timing Refs ===
     const nextBeatTimeRef = useRef(0);
@@ -165,12 +164,6 @@ const GameRhythm = () => {
     const syncVisibleSensorViews = useCallback(() => {
         activeSensorKeysRef.current = resolveVisibleSensorKeys(sensorRuntimesRef.current);
         const visibleSensorStates = getVisibleSensorStates();
-        setSensorViews(visibleSensorStates.map((sensorState) => ({
-            key: sensorState.sensorKey,
-            label: sensorState.label,
-            side: sensorState.side,
-            sampleCount: sensorState.sampleCount,
-        })));
         return visibleSensorStates;
     }, [getVisibleSensorStates]);
 
@@ -218,7 +211,6 @@ const GameRhythm = () => {
         sensorRuntimesRef.current.clear();
         activeSensorKeysRef.current = [];
         setSessionMetrics({});
-        setSensorViews([]);
     }, [destroySensorRuntime]);
 
     const buildSessionSummary = useCallback(() => {
@@ -551,7 +543,6 @@ const GameRhythm = () => {
     // === Handle Sensor Data (Step Detection) ===
     const handleSensorData = useCallback((msg) => {
         if (msg.type !== 'DATA') return;
-        if (gameStateRef.current !== GAME_STATES.PLAYING) return;
 
         const sample = normalizeRealtimeSensorSample(msg.payload || {});
         if (!sample) {
@@ -571,6 +562,10 @@ const GameRhythm = () => {
 
         syncVisibleSensorViews();
         if (!activeSensorKeysRef.current.includes(sample.sensorKey)) {
+            return;
+        }
+
+        if (gameStateRef.current !== GAME_STATES.PLAYING) {
             return;
         }
 
@@ -800,11 +795,6 @@ const GameRhythm = () => {
     const guideProgressPercent = Math.max(0, Math.min(100, beatProgress * 100));
     const scoreProgressPercent = Math.max(0, Math.min(100, (score / TARGET_SCORE) * 100));
     const goalReached = score >= TARGET_SCORE;
-    const sensorModeLabel = sensorViews.length > 1
-        ? 'Dual Shank Rhythm'
-        : sensorViews.length === 1
-            ? `${sensorViews[0].label} Active`
-            : 'Waiting for sensor';
 
     return (
         <div className="min-h-screen bg-gradient-to-b from-blue-50 via-blue-100 to-blue-200">
@@ -897,20 +887,6 @@ const GameRhythm = () => {
 
                 {/* LEFT: Rhythm Ring (Visual) */}
                 <div className="lg:col-span-8 flex flex-col items-center justify-center min-h-[50vh] lg:min-h-[70vh]">
-                    <div className="mb-4 flex flex-wrap items-center justify-center gap-2 px-4 text-center">
-                        <div className="rounded-full bg-white/85 px-4 py-2 text-sm font-bold text-gray-700 shadow-sm">
-                            {sensorModeLabel}
-                        </div>
-                        {sensorViews.map((sensorView) => (
-                            <div
-                                key={sensorView.key}
-                                className={`rounded-full px-3 py-1.5 text-xs font-bold shadow-sm ${sensorView.side === 'L' ? 'bg-sky-100 text-sky-700' : sensorView.side === 'R' ? 'bg-rose-100 text-rose-700' : 'bg-slate-100 text-slate-700'}`}
-                            >
-                                {sensorView.side === 'L' ? 'Left' : sensorView.side === 'R' ? 'Right' : 'Sensor'}: {sensorView.label}
-                            </div>
-                        ))}
-                    </div>
-
                     <div className="w-full max-w-2xl mb-6 lg:mb-8 px-1 sm:px-2">
                         <div className="relative h-5 sm:h-6 rounded-full overflow-hidden bg-white/85 border border-blue-100 shadow-lg">
                             <div

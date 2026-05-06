@@ -28,9 +28,13 @@ const Calibration = () => {
     });
 
     const wsRef = useRef(null);
+    const manualDisconnectRef = useRef(false);
+    const reconnectTimeoutRef = useRef(null);
 
     // === WebSocket Connection ===
     useEffect(() => {
+        manualDisconnectRef.current = false;
+
         const connectWebSocket = () => {
             const ws = createRealtimeConnection();
             wsRef.current = ws;
@@ -44,8 +48,20 @@ const Calibration = () => {
             ws.onclose = () => {
                 console.log('❌ Disconnected from Backend');
                 setIsConnected(false);
-                // Attempt reconnect
-                setTimeout(connectWebSocket, 2000);
+
+                if (manualDisconnectRef.current) {
+                    return;
+                }
+
+                reconnectTimeoutRef.current = window.setTimeout(() => {
+                    reconnectTimeoutRef.current = null;
+
+                    if (manualDisconnectRef.current) {
+                        return;
+                    }
+
+                    connectWebSocket();
+                }, 2000);
             };
 
             ws.onerror = (error) => {
@@ -65,6 +81,11 @@ const Calibration = () => {
         connectWebSocket();
 
         return () => {
+            manualDisconnectRef.current = true;
+            if (reconnectTimeoutRef.current) {
+                window.clearTimeout(reconnectTimeoutRef.current);
+                reconnectTimeoutRef.current = null;
+            }
             if (wsRef.current) {
                 wsRef.current.close();
             }
@@ -216,6 +237,11 @@ const Calibration = () => {
     }, [isCalibrating]);
 
     const handleDisconnect = () => {
+        manualDisconnectRef.current = true;
+        if (reconnectTimeoutRef.current) {
+            window.clearTimeout(reconnectTimeoutRef.current);
+            reconnectTimeoutRef.current = null;
+        }
         if (wsRef.current) {
             wsRef.current.close();
         }

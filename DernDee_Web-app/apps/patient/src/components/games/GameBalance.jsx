@@ -618,7 +618,7 @@ const GameBalance = () => {
         });
 
         if (calibratedCount > 0) {
-            autoCenterArmedRef.current = calibrationSourceRef.current === 'auto';
+            autoCenterArmedRef.current = false;
             autoCenterFirstDataAtRef.current = Date.now();
             autoCenterStableSinceRef.current = null;
             autoCenterDriftSinceRef.current = null;
@@ -829,12 +829,6 @@ const GameBalance = () => {
         return 'bg-slate-100 text-slate-700';
     };
 
-    const sensorModeLabel = hasDualSensors
-        ? 'Dual Shank Mode'
-        : sensorViews.length === 1
-            ? `${sensorViews[0].label} Active`
-            : 'Waiting for sensor';
-
     // === Direction Hints ===
     const getDirectionHint = () => {
         if (zone === 'A') return null;
@@ -944,20 +938,6 @@ const GameBalance = () => {
 
                 {/* LEFT: Game Board (Visuals) */}
                 <div className="lg:col-span-8 flex flex-col items-center justify-center min-h-[50vh] lg:min-h-[75vh]">
-
-                    <div className="mb-4 flex flex-wrap items-center justify-center gap-2 px-4 text-center">
-                        <div className="rounded-full bg-white/80 px-4 py-2 text-sm font-bold text-gray-700 shadow-sm">
-                            {sensorModeLabel}
-                        </div>
-                        {sensorViews.map((sensorView) => (
-                            <div
-                                key={sensorView.key}
-                                className={`rounded-full px-3 py-1.5 text-xs font-bold shadow-sm ${getSensorBadgeClasses(sensorView)}`}
-                            >
-                                {sensorView.side === 'L' ? 'Left' : sensorView.side === 'R' ? 'Right' : 'Sensor'}: {sensorView.label}
-                            </div>
-                        ))}
-                    </div>
 
                     {/* Timer (Mobile Only) */}
                     <div className="lg:hidden text-center mb-4">
