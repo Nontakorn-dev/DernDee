@@ -9,15 +9,6 @@ function formatMaybeNumber(value, digits = 1, fallback = '-') {
   return Number.isFinite(value) ? value.toFixed(digits) : fallback;
 }
 
-function formatMetricBySide(entries, selector, digits = 1, suffix = '') {
-  return entries.map((entry) => {
-    const value = selector(entry.params || {});
-    const label = entry.side === 'L' ? 'L' : entry.side === 'R' ? 'R' : entry.label;
-    const formattedValue = Number.isFinite(value) ? value.toFixed(digits) : '-';
-    return `${label}: ${formattedValue}${suffix}`;
-  }).join(' / ');
-}
-
 function buildAverageParams(entries) {
   if (!entries.length) {
     return null;
@@ -153,26 +144,6 @@ export class Dashboard {
 
     const averaged = buildAverageParams(entries);
     this.updateParams(averaged);
-
-    this._animateValue('cadence', formatMetricBySide(entries, (params) => params.cadence, 1));
-    this._animateValue('stepTime', formatMetricBySide(entries, (params) => params.stepTime, 2));
-    this._animateValue('strideTime', formatMetricBySide(entries, (params) => params.strideTime, 2));
-    this._animateValue('doubleSupport', formatMetricBySide(entries, (params) => params.doubleSupport, 2));
-    this._animateValue('stepLength', formatMetricBySide(entries, (params) => params.stepLength, 2));
-    this._animateValue('strideLength', formatMetricBySide(entries, (params) => params.strideLength, 2));
-    this._animateValue('walkingSpeed', formatMetricBySide(entries, (params) => params.walkingSpeed, 2));
-    this._animateValue('peakAngle', formatMetricBySide(entries, (params) => params.peakShankAngle, 1));
-    this._animateValue('stancePct', formatMetricBySide(entries, (params) => params.stancePct, 1));
-    this._animateValue('swingPct', formatMetricBySide(entries, (params) => params.swingPct, 1));
-
-    const avgStance = averaged?.stancePct || 0;
-    const avgSwing = averaged?.swingPct || 0;
-    if (this.stanceBar) {
-      this.stanceBar.style.width = `${avgStance}%`;
-      this.swingBar.style.width = `${avgSwing}%`;
-      this.stancePctLabel.textContent = `Avg stance ${formatMaybeNumber(avgStance, 1, '0.0')}%`;
-      this.swingPctLabel.textContent = `Avg swing ${formatMaybeNumber(avgSwing, 1, '0.0')}%`;
-    }
   }
 
   updateSensorSummary(sensors = []) {

@@ -135,6 +135,18 @@ function resolveVisibleSensorKeys(sensorRuntimeMap) {
     return preferredSensors.slice(0, shankSensors.length > 0 ? MAX_VISIBLE_SENSORS : 1).map((sensorState) => sensorState.sensorKey);
 }
 
+function averageSensorMetric(sensorViews, metricKey, fallbackValue = 0) {
+    const values = sensorViews
+        .map((sensorView) => sensorView?.[metricKey])
+        .filter(Number.isFinite);
+
+    if (!values.length) {
+        return fallbackValue;
+    }
+
+    return values.reduce((total, value) => total + value, 0) / values.length;
+}
+
 const GameBalance = () => {
     const navigate = useNavigate();
     const { user } = useUserAuth();
@@ -186,6 +198,12 @@ const GameBalance = () => {
     const bubbleY = controlSensorView?.bubbleY ?? 0;
     const displayRoll = controlSensorView?.displayRoll ?? 0;
     const displayPitch = controlSensorView?.displayPitch ?? 0;
+    const combinedDisplayRoll = sensorViews.length > 1
+        ? averageSensorMetric(sensorViews, 'displayRoll', displayRoll)
+        : displayRoll;
+    const combinedDisplayPitch = sensorViews.length > 1
+        ? averageSensorMetric(sensorViews, 'displayPitch', displayPitch)
+        : displayPitch;
     const distanceFromCenter = sensorViews.length
         ? Math.max(...sensorViews.map((sensorView) => sensorView.distanceFromCenter))
         : 0;
@@ -1049,63 +1067,27 @@ const GameBalance = () => {
                     </div>
 
                     {/* Detail Stats */}
-                    {hasDualSensors ? (
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                            {sensorViews.map((sensorView) => (
-                                <div key={sensorView.key} className="bg-white rounded-2xl lg:rounded-3xl shadow-lg p-5 hover:scale-105 transition-transform">
-                                    <div className="flex items-center justify-between mb-4">
-                                        <div>
-                                            <div className="text-xs text-gray-500 font-semibold uppercase tracking-wide">{sensorView.label}</div>
-                                            <div className="text-sm font-bold text-gray-800">
-                                                {sensorView.side === 'L' ? 'Left Shank' : sensorView.side === 'R' ? 'Right Shank' : 'Sensor'}
-                                            </div>
-                                        </div>
-                                        <div className={`rounded-full px-2.5 py-1 text-xs font-extrabold ${getSensorBadgeClasses(sensorView)}`}>
-                                            {sensorView.zone === 'A' ? 'Stable' : sensorView.zone === 'B' ? 'Drifting' : 'Unstable'}
-                                        </div>
-                                    </div>
-                                    <div className="grid grid-cols-2 gap-3">
-                                        <div className="rounded-2xl bg-slate-50 p-3 text-center">
-                                            <div className="text-[11px] text-gray-500 font-semibold uppercase tracking-wide">Left / Right</div>
-                                            <div className="mt-1 text-2xl font-extrabold text-slate-800 tabular-nums">{Math.abs(sensorView.displayRoll).toFixed(1)}°</div>
-                                            <div className="mt-1 text-xs font-bold text-slate-500">
-                                                {sensorView.displayRoll > 0 ? 'Right' : sensorView.displayRoll < 0 ? 'Left' : '-'}
-                                            </div>
-                                        </div>
-                                        <div className="rounded-2xl bg-slate-50 p-3 text-center">
-                                            <div className="text-[11px] text-gray-500 font-semibold uppercase tracking-wide">Fwd / Back</div>
-                                            <div className="mt-1 text-2xl font-extrabold text-slate-800 tabular-nums">{Math.abs(sensorView.displayPitch).toFixed(1)}°</div>
-                                            <div className="mt-1 text-xs font-bold text-slate-500">
-                                                {sensorView.displayPitch > 0 ? 'Fwd' : sensorView.displayPitch < 0 ? 'Back' : '-'}
-                                            </div>
-                                        </div>
-                                    </div>
-                                </div>
-                            ))}
-                        </div>
-                    ) : (
-                        <div className="grid grid-cols-2 gap-4">
-                            <div className="bg-white rounded-2xl lg:rounded-3xl shadow-lg p-5 text-center flex flex-col items-center justify-center hover:scale-105 transition-transform">
-                                <div className="text-xs lg:text-sm text-gray-500 mb-1 font-semibold uppercase tracking-wide">Left / Right</div>
-                                <div className="text-3xl lg:text-4xl font-extrabold text-blue-600 tabular-nums">
-                                    {Math.abs(displayRoll).toFixed(1)}°
-                                </div>
-                                <div className={`text-xs font-bold mt-1 px-2 py-0.5 rounded ${Math.abs(displayRoll) < 5 ? 'bg-emerald-100 text-emerald-600' : 'bg-blue-50 text-blue-500'}`}>
-                                    {displayRoll > 0 ? 'Right' : displayRoll < 0 ? 'Left' : '-'}
-                                </div>
+                    <div className="grid grid-cols-2 gap-4">
+                        <div className="bg-white rounded-2xl lg:rounded-3xl shadow-lg p-5 text-center flex flex-col items-center justify-center hover:scale-105 transition-transform">
+                            <div className="text-xs lg:text-sm text-gray-500 mb-1 font-semibold uppercase tracking-wide">Left / Right</div>
+                            <div className="text-3xl lg:text-4xl font-extrabold text-blue-600 tabular-nums">
+                                {Math.abs(combinedDisplayRoll).toFixed(1)}°
                             </div>
+                            <div className={`text-xs font-bold mt-1 px-2 py-0.5 rounded ${Math.abs(combinedDisplayRoll) < 5 ? 'bg-emerald-100 text-emerald-600' : 'bg-blue-50 text-blue-500'}`}>
+                                {combinedDisplayRoll > 0 ? 'Right' : combinedDisplayRoll < 0 ? 'Left' : '-'}
+                            </div>
+                        </div>
 
-                            <div className="bg-white rounded-2xl lg:rounded-3xl shadow-lg p-5 text-center flex flex-col items-center justify-center hover:scale-105 transition-transform">
-                                <div className="text-xs lg:text-sm text-gray-500 mb-1 font-semibold uppercase tracking-wide">Fwd / Back</div>
-                                <div className="text-3xl lg:text-4xl font-extrabold text-blue-600 tabular-nums">
-                                    {Math.abs(displayPitch).toFixed(1)}°
-                                </div>
-                                <div className={`text-xs font-bold mt-1 px-2 py-0.5 rounded ${Math.abs(displayPitch) < 5 ? 'bg-emerald-100 text-emerald-600' : 'bg-blue-50 text-blue-500'}`}>
-                                    {displayPitch > 0 ? 'Fwd' : displayPitch < 0 ? 'Back' : '-'}
-                                </div>
+                        <div className="bg-white rounded-2xl lg:rounded-3xl shadow-lg p-5 text-center flex flex-col items-center justify-center hover:scale-105 transition-transform">
+                            <div className="text-xs lg:text-sm text-gray-500 mb-1 font-semibold uppercase tracking-wide">Fwd / Back</div>
+                            <div className="text-3xl lg:text-4xl font-extrabold text-blue-600 tabular-nums">
+                                {Math.abs(combinedDisplayPitch).toFixed(1)}°
+                            </div>
+                            <div className={`text-xs font-bold mt-1 px-2 py-0.5 rounded ${Math.abs(combinedDisplayPitch) < 5 ? 'bg-emerald-100 text-emerald-600' : 'bg-blue-50 text-blue-500'}`}>
+                                {combinedDisplayPitch > 0 ? 'Fwd' : combinedDisplayPitch < 0 ? 'Back' : '-'}
                             </div>
                         </div>
-                    )}
+                    </div>
 
                     {/* Target Stats (Score) */}
                     <div className="bg-white rounded-2xl lg:rounded-3xl shadow-lg p-6 flex items-center justify-between">
