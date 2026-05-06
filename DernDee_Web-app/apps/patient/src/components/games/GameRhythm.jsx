@@ -29,13 +29,14 @@ const MIN_ANALYSIS_SAMPLES = 300;
 const RHYTHM_JUDGMENT_OFFSET_MS = 200;
 const MAX_VISIBLE_SENSORS = 2;
 const SENSOR_STALE_AFTER_MS = 2500;
+const EPOCH_THRESHOLD_MS = 946684800000;
 
 function getTimingThresholds(bpm) {
     const beatInterval = 60000 / bpm;
     return {
-        perfect: Math.min(160, beatInterval * 0.18),
-        good: Math.min(300, beatInterval * 0.32),
-        assist: Math.min(420, beatInterval * 0.42)
+        perfect: Math.min(240, beatInterval * 0.26),
+        good: Math.min(380, beatInterval * 0.43),
+        assist: Math.min(500, beatInterval * 0.55)
     };
 }
 
@@ -77,6 +78,48 @@ function averageMetric(values) {
     }
 
     return numericValues.reduce((total, value) => total + value, 0) / numericValues.length;
+}
+
+function isAbsoluteTimestampMs(timestampMs) {
+    return Number.isFinite(timestampMs) && timestampMs >= EPOCH_THRESHOLD_MS;
+}
+
+function updateSensorClockOffset(sensorState, packetTimestampMs, arrivalTimeMs) {
+    if (!Number.isFinite(packetTimestampMs) || isAbsoluteTimestampMs(packetTimestampMs)) {
+        sensorState.lastPacketTimestampMs = packetTimestampMs;
+        return;
+    }
+
+    const nextOffsetMs = arrivalTimeMs - packetTimestampMs;
+    if (
+        !Number.isFinite(sensorState.packetClockOffsetMs)
+        || (
+            Number.isFinite(sensorState.lastPacketTimestampMs)
+            && packetTimestampMs < sensorState.lastPacketTimestampMs - 1000
+        )
+    ) {
+        sensorState.packetClockOffsetMs = nextOffsetMs;
+    } else {
+        sensorState.packetClockOffsetMs += (nextOffsetMs - sensorState.packetClockOffsetMs) * 0.15;
+    }
+
+    sensorState.lastPacketTimestampMs = packetTimestampMs;
+}
+
+function resolveDetectedStepTimeMs(sensorState, eventTimestampMs, fallbackTimeMs) {
+    if (!Number.isFinite(eventTimestampMs)) {
+        return fallbackTimeMs;
+    }
+
+    if (isAbsoluteTimestampMs(eventTimestampMs) && Number.isFinite(performance.timeOrigin)) {
+        return eventTimestampMs - performance.timeOrigin;
+    }
+
+    if (Number.isFinite(sensorState.packetClockOffsetMs)) {
+        return eventTimestampMs + sensorState.packetClockOffsetMs;
+    }
+
+    return fallbackTimeMs;
 }
 
 const GameRhythm = () => {
@@ -182,6 +225,8 @@ const GameRhythm = () => {
             side: sample.side || null,
             sensorMount: sample.sensorMount || 'unknown',
             lastSeenAt: Date.now(),
+            packetClockOffsetMs: null,
+            lastPacketTimestampMs: null,
             processor,
             stepDetector,
             sessionAnalyzer,
@@ -559,6 +604,7 @@ const GameRhythm = () => {
         sensorState.sensorMount = sample.sensorMount || 'unknown';
         sensorState.lastSeenAt = Date.now();
         sensorState.stepDetector?.setSensorMount?.(sensorState.sensorMount);
+        updateSensorClockOffset(sensorState, sample.timestamp_ms, performance.now());
 
         syncVisibleSensorViews();
         if (!activeSensorKeysRef.current.includes(sample.sensorKey)) {
@@ -591,7 +637,11 @@ const GameRhythm = () => {
         });
 
         if (detectorResult?.event === 'HEEL_STRIKE') {
-            registerDetectedStep(performance.now());
+            registerDetectedStep(resolveDetectedStepTimeMs(
+                sensorState,
+                detectorResult.eventTimestampMs,
+                performance.now(),
+            ));
         }
     }, [createSensorRuntime, registerDetectedStep, syncVisibleSensorViews]);
 
