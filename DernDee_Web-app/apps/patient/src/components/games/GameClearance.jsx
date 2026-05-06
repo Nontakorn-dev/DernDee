@@ -18,6 +18,7 @@ const DEFAULT_TARGET_HEIGHT = 5; // Default target in cm
 const BASELINE_HEIGHT = 5; // Standard baseline in cm
 const REP_RESET_THRESHOLD = 3; // Must go below 3cm to count next rep
 const REP_REARM_HOLD_MS = 140;
+const MIN_REP_INTERVAL_MS = 1000;
 const GATEWAY_HEIGHT_ALPHA = 0.6;
 const MAX_VISIBLE_SENSORS = 2;
 const SENSOR_STALE_AFTER_MS = 2500;
@@ -91,6 +92,7 @@ const GameClearance = () => {
     const [repState, setRepState] = useState('READY'); // READY, HIT_TARGET
     const repResetCandidateStartedAtRef = useRef(null);
     const repResetEligibleRef = useRef(false);
+    const lastRepCountAtRef = useRef(0);
 
     // === WebSocket ===
     const wsRef = useRef(null);
@@ -323,9 +325,14 @@ const GameClearance = () => {
     useEffect(() => {
         if (gameState !== GAME_STATES.PLAYING) return;
 
-        if (repState === 'READY' && currentHeight >= targetHeight) {
+        const now = Date.now();
+        const repCooldownElapsed = !lastRepCountAtRef.current
+            || (now - lastRepCountAtRef.current) >= MIN_REP_INTERVAL_MS;
+
+        if (repState === 'READY' && currentHeight >= targetHeight && repCooldownElapsed) {
             // Hit target! Count rep
             setRepState('HIT_TARGET');
+            lastRepCountAtRef.current = now;
             setReps(prev => prev + 1);
 
             // Haptic feedback
@@ -390,6 +397,7 @@ const GameClearance = () => {
         setRepState('READY');
         repResetCandidateStartedAtRef.current = null;
         repResetEligibleRef.current = false;
+        lastRepCountAtRef.current = 0;
         setSessionMetrics({});
         resetSensorTracking();
     };
@@ -421,6 +429,7 @@ const GameClearance = () => {
         setRepState('READY');
         repResetCandidateStartedAtRef.current = null;
         repResetEligibleRef.current = false;
+        lastRepCountAtRef.current = 0;
         setSessionMetrics({});
         resetSensorTracking();
     };
