@@ -5,6 +5,11 @@ import { RealtimeStepDetector } from '@shared/gait/realtimeStepDetector.js';
 import { GaitSessionAnalyzer } from '@shared/gait/sessionAnalyzer.js';
 import { useUserAuth } from '@shared/context/UserAuthContext.jsx';
 import { createRealtimeConnection } from '@shared/gateway/realtimeTransport.js';
+import {
+    getRealtimeSensorLabel,
+    getRealtimeSensorSideOrder,
+    normalizeRealtimeSensorSample,
+} from '@shared/gateway/realtimeSensorUtils.js';
 import { usePersistedGatewaySession } from '@shared/hooks/usePersistedGatewaySession.js';
 import { ArrowLeft, Settings, Music, Play, Pause, Square, X, Volume2, VolumeX, Activity } from 'lucide-react';
 import derndeeLogo from '@shared/assets/images/derndee-logo.png';
@@ -22,17 +27,8 @@ const TARGET_SCORE = 1000;
 const ANALYSIS_INTERVAL_MS = 1000;
 const MIN_ANALYSIS_SAMPLES = 300;
 const RHYTHM_JUDGMENT_OFFSET_MS = 200;
-
-function toSessionMetrics(summary) {
-    return {
-        total_steps: summary.totalSteps || 0,
-        cadence_spm: summary.cadenceSpm || 0,
-        avg_step_length_m: summary.avgStepLengthM || 0,
-        avg_stride_length_m: summary.avgStrideLengthM || 0,
-        avg_clearance_m: summary.avgClearanceM || 0,
-        avg_speed_mps: summary.avgSpeedMps || 0,
-    };
-}
+const MAX_VISIBLE_SENSORS = 2;
+const SENSOR_STALE_AFTER_MS = 2500;
 
 function getTimingThresholds(bpm) {
     const beatInterval = 60000 / bpm;
@@ -49,6 +45,38 @@ function getRhythmJudgmentOffsetMs(audioContext) {
         return Math.max(RHYTHM_JUDGMENT_OFFSET_MS, measuredLatencyMs);
     }
     return RHYTHM_JUDGMENT_OFFSET_MS;
+}
+
+function sortSensorStates(left, right) {
+    const sideDelta = getRealtimeSensorSideOrder(left?.side) - getRealtimeSensorSideOrder(right?.side);
+    if (sideDelta !== 0) {
+        return sideDelta;
+    }
+
+    return (right?.lastSeenAt || 0) - (left?.lastSeenAt || 0);
+}
+
+function resolveVisibleSensorKeys(sensorRuntimeMap) {
+    const now = Date.now();
+    const activeSensors = Array.from(sensorRuntimeMap.values())
+        .filter((sensorState) => now - sensorState.lastSeenAt <= SENSOR_STALE_AFTER_MS)
+        .sort(sortSensorStates);
+
+    const shankSensors = activeSensors.filter((sensorState) => sensorState.sensorMount === 'shank');
+    const preferredSensors = shankSensors.length > 0 ? shankSensors : activeSensors;
+
+    return preferredSensors
+        .slice(0, shankSensors.length > 0 ? MAX_VISIBLE_SENSORS : 1)
+        .map((sensorState) => sensorState.sensorKey);
+}
+
+function averageMetric(values) {
+    const numericValues = values.filter(Number.isFinite);
+    if (!numericValues.length) {
+        return null;
+    }
+
+    return numericValues.reduce((total, value) => total + value, 0) / numericValues.length;
 }
 
 const GameRhythm = () => {
@@ -85,6 +113,7 @@ const GameRhythm = () => {
     const [detectedSteps, setDetectedSteps] = useState(0);
     const [isConnected, setIsConnected] = useState(false);
     const [sessionMetrics, setSessionMetrics] = useState({});
+    const [sensorViews, setSensorViews] = useState([]);
 
     // === Timing Refs ===
     const nextBeatTimeRef = useRef(0);
@@ -98,35 +127,99 @@ const GameRhythm = () => {
     const feedbackTimerRef = useRef(null);
     const manualDisconnectRef = useRef(false);
     const analysisTimerRef = useRef(null);
-    const sampleCountRef = useRef(0);
-    const activeSensorNameRef = useRef(null);
-    const activeSensorMountRef = useRef(null);
-    const processorRef = useRef(null);
-    const stepDetectorRef = useRef(null);
-    const sessionAnalyzerRef = useRef(null);
+    const sensorRuntimesRef = useRef(new Map());
+    const activeSensorKeysRef = useRef([]);
 
     // === WebSocket ===
     const wsRef = useRef(null);
 
-    if (!processorRef.current) {
-        processorRef.current = createGaitProcessorClient();
-    }
-    if (!stepDetectorRef.current) {
-        stepDetectorRef.current = new RealtimeStepDetector({ sensorMount: 'shank' });
-    }
-    if (!sessionAnalyzerRef.current) {
-        sessionAnalyzerRef.current = new GaitSessionAnalyzer();
-    }
+    const getVisibleSensorStates = useCallback(() => {
+        return activeSensorKeysRef.current
+            .map((sensorKey) => sensorRuntimesRef.current.get(sensorKey))
+            .filter(Boolean)
+            .sort(sortSensorStates);
+    }, []);
+
+    const syncAggregatedSessionMetrics = useCallback(() => {
+        const visibleSensorStates = getVisibleSensorStates();
+        const summaries = visibleSensorStates
+            .map((sensorState) => sensorState.latestSummary)
+            .filter(Boolean);
+
+        if (!summaries.length) {
+            setSessionMetrics({});
+            return;
+        }
+
+        setSessionMetrics({
+            total_steps: summaries.reduce((total, summary) => total + (summary.totalSteps || 0), 0),
+            cadence_spm: averageMetric(summaries.map((summary) => summary.cadenceSpm)) || 0,
+            avg_step_length_m: averageMetric(summaries.map((summary) => summary.avgStepLengthM)),
+            avg_stride_length_m: averageMetric(summaries.map((summary) => summary.avgStrideLengthM)),
+            avg_clearance_m: averageMetric(summaries.map((summary) => summary.avgClearanceM)),
+            avg_speed_mps: averageMetric(summaries.map((summary) => summary.avgSpeedMps)),
+            symmetry_percent: averageMetric(summaries.map((summary) => summary.symmetryPercent)),
+        });
+    }, [getVisibleSensorStates]);
+
+    const syncVisibleSensorViews = useCallback(() => {
+        activeSensorKeysRef.current = resolveVisibleSensorKeys(sensorRuntimesRef.current);
+        const visibleSensorStates = getVisibleSensorStates();
+        setSensorViews(visibleSensorStates.map((sensorState) => ({
+            key: sensorState.sensorKey,
+            label: sensorState.label,
+            side: sensorState.side,
+            sampleCount: sensorState.sampleCount,
+        })));
+        return visibleSensorStates;
+    }, [getVisibleSensorStates]);
+
+    const destroySensorRuntime = useCallback((sensorState) => {
+        sensorState.unsubscribeParams?.();
+        sensorState.processor?.destroy?.();
+    }, []);
+
+    const createSensorRuntime = useCallback((sample) => {
+        const processor = createGaitProcessorClient();
+        const stepDetector = new RealtimeStepDetector({ sensorMount: sample.sensorMount || 'shank' });
+        const sessionAnalyzer = new GaitSessionAnalyzer();
+        const sensorState = {
+            sensorKey: sample.sensorKey,
+            label: getRealtimeSensorLabel(sample),
+            side: sample.side || null,
+            sensorMount: sample.sensorMount || 'unknown',
+            lastSeenAt: Date.now(),
+            processor,
+            stepDetector,
+            sessionAnalyzer,
+            sampleCount: 0,
+            latestSummary: null,
+            unsubscribeParams: null,
+        };
+
+        sensorState.unsubscribeParams = processor.onParams(({ params }) => {
+            if (!params || gameStateRef.current !== GAME_STATES.PLAYING) {
+                return;
+            }
+
+            sensorState.sessionAnalyzer.record(params);
+            sensorState.latestSummary = sensorState.sessionAnalyzer.getSummary();
+            syncAggregatedSessionMetrics();
+        });
+
+        sensorRuntimesRef.current.set(sample.sensorKey, sensorState);
+        return sensorState;
+    }, [syncAggregatedSessionMetrics]);
 
     const resetDerivedAnalysis = useCallback(() => {
-        processorRef.current?.reset();
-        stepDetectorRef.current?.reset();
-        sessionAnalyzerRef.current?.reset();
-        sampleCountRef.current = 0;
-        activeSensorNameRef.current = null;
-        activeSensorMountRef.current = null;
+        sensorRuntimesRef.current.forEach((sensorState) => {
+            destroySensorRuntime(sensorState);
+        });
+        sensorRuntimesRef.current.clear();
+        activeSensorKeysRef.current = [];
         setSessionMetrics({});
-    }, []);
+        setSensorViews([]);
+    }, [destroySensorRuntime]);
 
     const buildSessionSummary = useCallback(() => {
         const rhythmProgress = Math.round(Math.max(0, Math.min(100, (score / TARGET_SCORE) * 100)));
@@ -400,6 +493,7 @@ const GameRhythm = () => {
 
                 wsRef.current.onclose = () => {
                     setIsConnected(false);
+                    resetDerivedAnalysis();
 
                     if (manualDisconnectRef.current) {
                         return;
@@ -430,9 +524,11 @@ const GameRhythm = () => {
 
     useEffect(() => {
         analysisTimerRef.current = setInterval(() => {
-            if (sampleCountRef.current >= MIN_ANALYSIS_SAMPLES) {
-                processorRef.current?.analyze();
-            }
+            sensorRuntimesRef.current.forEach((sensorState) => {
+                if (sensorState.sampleCount >= MIN_ANALYSIS_SAMPLES) {
+                    sensorState.processor?.analyze?.();
+                }
+            });
         }, ANALYSIS_INTERVAL_MS);
 
         return () => {
@@ -444,87 +540,65 @@ const GameRhythm = () => {
     }, []);
 
     useEffect(() => {
-        const processor = processorRef.current;
-
-        const onParams = ({ params }) => {
-            if (!params || gameStateRef.current !== GAME_STATES.PLAYING) {
-                return;
-            }
-
-            sessionAnalyzerRef.current.record(params);
-            const nextSessionMetrics = toSessionMetrics(sessionAnalyzerRef.current.getSummary());
-            setSessionMetrics(nextSessionMetrics);
-        };
-
-        return processor.onParams(onParams);
-    }, []);
-
-    useEffect(() => {
         return () => {
-            processorRef.current?.destroy?.();
+            sensorRuntimesRef.current.forEach((sensorState) => {
+                destroySensorRuntime(sensorState);
+            });
+            sensorRuntimesRef.current.clear();
         };
-    }, []);
+    }, [destroySensorRuntime]);
 
     // === Handle Sensor Data (Step Detection) ===
     const handleSensorData = useCallback((msg) => {
         if (msg.type !== 'DATA') return;
         if (gameStateRef.current !== GAME_STATES.PLAYING) return;
 
-        const payload = msg.payload || {};
-        if (!Array.isArray(payload.raw_accel) || !Array.isArray(payload.raw_gyro)) {
+        const sample = normalizeRealtimeSensorSample(msg.payload || {});
+        if (!sample) {
             return;
         }
 
-        const isPreferredSensor = payload.sensor_mount === 'shank';
-        if (!activeSensorNameRef.current) {
-            activeSensorNameRef.current = payload.name ?? null;
-            activeSensorMountRef.current = payload.sensor_mount ?? 'unknown';
-            stepDetectorRef.current?.setSensorMount(activeSensorMountRef.current);
-        } else if (
-            isPreferredSensor
-            && activeSensorMountRef.current !== 'shank'
-            && payload.name
-            && payload.name !== activeSensorNameRef.current
-        ) {
-            activeSensorNameRef.current = payload.name;
-            activeSensorMountRef.current = 'shank';
-            resetDerivedAnalysis();
-            activeSensorNameRef.current = payload.name;
-            activeSensorMountRef.current = 'shank';
-            stepDetectorRef.current?.setSensorMount('shank');
+        let sensorState = sensorRuntimesRef.current.get(sample.sensorKey);
+        if (!sensorState) {
+            sensorState = createSensorRuntime(sample);
         }
 
-        if (!payload.name || payload.name !== activeSensorNameRef.current) {
+        sensorState.label = getRealtimeSensorLabel(sample);
+        sensorState.side = sample.side || null;
+        sensorState.sensorMount = sample.sensorMount || 'unknown';
+        sensorState.lastSeenAt = Date.now();
+        sensorState.stepDetector?.setSensorMount?.(sensorState.sensorMount);
+
+        syncVisibleSensorViews();
+        if (!activeSensorKeysRef.current.includes(sample.sensorKey)) {
             return;
         }
 
-        const [ax, ay, az] = payload.raw_accel;
-        const [gx, gy, gz] = payload.raw_gyro;
-        processorRef.current.addSample({
-            ax,
-            ay,
-            az,
-            gx,
-            gy,
-            gz,
-            timestampMs: payload.timestamp_ms,
-            side: payload.side,
-            sensorName: payload.name,
-            sensorMount: payload.sensor_mount,
+        sensorState.processor.addSample({
+            ax: sample.ax,
+            ay: sample.ay,
+            az: sample.az,
+            gx: sample.gx,
+            gy: sample.gy,
+            gz: sample.gz,
+            timestampMs: sample.timestamp_ms,
+            side: sample.side,
+            sensorName: sample.name,
+            sensorMount: sample.sensorMount,
         });
-        sampleCountRef.current += 1;
+        sensorState.sampleCount += 1;
 
-        const detectorResult = stepDetectorRef.current?.update({
-            gx,
-            gy,
-            gz,
-            timestampMs: payload.timestamp_ms,
+        const detectorResult = sensorState.stepDetector?.update({
+            gx: sample.gx,
+            gy: sample.gy,
+            gz: sample.gz,
+            timestampMs: sample.timestamp_ms,
         });
 
         if (detectorResult?.event === 'HEEL_STRIKE') {
             registerDetectedStep(performance.now());
         }
-    }, [registerDetectedStep, resetDerivedAnalysis]);
+    }, [createSensorRuntime, registerDetectedStep, syncVisibleSensorViews]);
 
     // === Auto Complete When Score Reaches Goal ===
     useEffect(() => {
@@ -726,6 +800,11 @@ const GameRhythm = () => {
     const guideProgressPercent = Math.max(0, Math.min(100, beatProgress * 100));
     const scoreProgressPercent = Math.max(0, Math.min(100, (score / TARGET_SCORE) * 100));
     const goalReached = score >= TARGET_SCORE;
+    const sensorModeLabel = sensorViews.length > 1
+        ? 'Dual Shank Rhythm'
+        : sensorViews.length === 1
+            ? `${sensorViews[0].label} Active`
+            : 'Waiting for sensor';
 
     return (
         <div className="min-h-screen bg-gradient-to-b from-blue-50 via-blue-100 to-blue-200">
@@ -818,6 +897,20 @@ const GameRhythm = () => {
 
                 {/* LEFT: Rhythm Ring (Visual) */}
                 <div className="lg:col-span-8 flex flex-col items-center justify-center min-h-[50vh] lg:min-h-[70vh]">
+                    <div className="mb-4 flex flex-wrap items-center justify-center gap-2 px-4 text-center">
+                        <div className="rounded-full bg-white/85 px-4 py-2 text-sm font-bold text-gray-700 shadow-sm">
+                            {sensorModeLabel}
+                        </div>
+                        {sensorViews.map((sensorView) => (
+                            <div
+                                key={sensorView.key}
+                                className={`rounded-full px-3 py-1.5 text-xs font-bold shadow-sm ${sensorView.side === 'L' ? 'bg-sky-100 text-sky-700' : sensorView.side === 'R' ? 'bg-rose-100 text-rose-700' : 'bg-slate-100 text-slate-700'}`}
+                            >
+                                {sensorView.side === 'L' ? 'Left' : sensorView.side === 'R' ? 'Right' : 'Sensor'}: {sensorView.label}
+                            </div>
+                        ))}
+                    </div>
+
                     <div className="w-full max-w-2xl mb-6 lg:mb-8 px-1 sm:px-2">
                         <div className="relative h-5 sm:h-6 rounded-full overflow-hidden bg-white/85 border border-blue-100 shadow-lg">
                             <div

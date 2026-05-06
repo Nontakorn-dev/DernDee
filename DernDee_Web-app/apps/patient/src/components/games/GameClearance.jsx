@@ -3,6 +3,11 @@ import { useNavigate } from 'react-router-dom';
 import { GatewayLiftEstimator } from '@shared/gait/gatewayLiftEstimator.js';
 import { useUserAuth } from '@shared/context/UserAuthContext.jsx';
 import { createRealtimeConnection } from '@shared/gateway/realtimeTransport.js';
+import {
+    getRealtimeSensorLabel,
+    getRealtimeSensorSideOrder,
+    normalizeRealtimeSensorSample,
+} from '@shared/gateway/realtimeSensorUtils.js';
 import { usePersistedGatewaySession } from '@shared/hooks/usePersistedGatewaySession.js';
 import { ArrowLeft, ArrowRight, Settings, Pause, Play, Square, X, Volume2, VolumeX, Vibrate } from 'lucide-react';
 import derndeeLogo from '@shared/assets/images/derndee-logo.png';
@@ -14,6 +19,8 @@ const BASELINE_HEIGHT = 5; // Standard baseline in cm
 const REP_RESET_THRESHOLD = 3; // Must go below 3cm to count next rep
 const REP_REARM_HOLD_MS = 140;
 const GATEWAY_HEIGHT_ALPHA = 0.6;
+const MAX_VISIBLE_SENSORS = 2;
+const SENSOR_STALE_AFTER_MS = 2500;
 
 const GAME_STATES = {
     READY: 'READY',
@@ -21,6 +28,43 @@ const GAME_STATES = {
     PAUSED: 'PAUSED',
     COMPLETED: 'COMPLETED'
 };
+
+function sortSensorStates(left, right) {
+    const sideDelta = getRealtimeSensorSideOrder(left?.side) - getRealtimeSensorSideOrder(right?.side);
+    if (sideDelta !== 0) {
+        return sideDelta;
+    }
+
+    return (right?.lastSeenAt || 0) - (left?.lastSeenAt || 0);
+}
+
+function resolveVisibleSensorKeys(sensorRuntimeMap) {
+    const now = Date.now();
+    const activeSensors = Array.from(sensorRuntimeMap.values())
+        .filter((sensorState) => now - sensorState.lastSeenAt <= SENSOR_STALE_AFTER_MS)
+        .sort(sortSensorStates);
+
+    const shankSensors = activeSensors.filter((sensorState) => sensorState.sensorMount === 'shank');
+    const preferredSensors = shankSensors.length > 0 ? shankSensors : activeSensors;
+
+    return preferredSensors
+        .slice(0, shankSensors.length > 0 ? MAX_VISIBLE_SENSORS : 1)
+        .map((sensorState) => sensorState.sensorKey);
+}
+
+function createClearanceSensorRuntime(sample) {
+    return {
+        sensorKey: sample.sensorKey,
+        label: getRealtimeSensorLabel(sample),
+        side: sample.side || null,
+        sensorMount: sample.sensorMount || 'unknown',
+        estimator: new GatewayLiftEstimator({ sensorMount: sample.sensorMount || 'shank' }),
+        currentHeight: 0,
+        stabilityScore: 100,
+        isStance: true,
+        lastSeenAt: Date.now(),
+    };
+}
 
 const GameClearance = () => {
     const navigate = useNavigate();
@@ -42,6 +86,7 @@ const GameClearance = () => {
     const [sessionTime, setSessionTime] = useState(0);
     const [isConnected, setIsConnected] = useState(false);
     const [sessionMetrics, setSessionMetrics] = useState({});
+    const [sensorViews, setSensorViews] = useState([]);
 
     // === Rep Counting State Machine ===
     const [repState, setRepState] = useState('READY'); // READY, HIT_TARGET
@@ -52,16 +97,11 @@ const GameClearance = () => {
     const wsRef = useRef(null);
     const timerRef = useRef(null);
     const manualDisconnectRef = useRef(false);
-    const activeSensorNameRef = useRef(null);
-    const activeSensorMountRef = useRef(null);
-    const gatewayLiftEstimatorRef = useRef(null);
+    const sensorRuntimesRef = useRef(new Map());
+    const activeSensorKeysRef = useRef([]);
 
     // === Audio ===
     const successSoundRef = useRef(null);
-
-    if (!gatewayLiftEstimatorRef.current) {
-        gatewayLiftEstimatorRef.current = new GatewayLiftEstimator({ sensorMount: 'shank' });
-    }
 
     // === Derived State ===
     const displayHeightPercent = Math.min(100, (currentHeight / MAX_SCALE_HEIGHT) * 100);
@@ -76,10 +116,35 @@ const GameClearance = () => {
 
     const gaugeState = getGaugeState();
 
-    const resetActiveSensorSelection = useCallback(() => {
-        activeSensorNameRef.current = null;
-        activeSensorMountRef.current = null;
-        gatewayLiftEstimatorRef.current?.reset();
+    const getVisibleSensorStates = useCallback(() => {
+        return activeSensorKeysRef.current
+            .map((sensorKey) => sensorRuntimesRef.current.get(sensorKey))
+            .filter(Boolean)
+            .sort(sortSensorStates);
+    }, []);
+
+    const syncVisibleSensorViews = useCallback(() => {
+        activeSensorKeysRef.current = resolveVisibleSensorKeys(sensorRuntimesRef.current);
+        const visibleSensorStates = getVisibleSensorStates();
+        setSensorViews(visibleSensorStates.map((sensorState) => ({
+            key: sensorState.sensorKey,
+            label: sensorState.label,
+            side: sensorState.side,
+            currentHeight: sensorState.currentHeight,
+            stabilityScore: sensorState.stabilityScore,
+        })));
+        return visibleSensorStates;
+    }, [getVisibleSensorStates]);
+
+    const resetSensorTracking = useCallback(() => {
+        sensorRuntimesRef.current.forEach((sensorState) => {
+            sensorState.estimator?.reset?.();
+        });
+        sensorRuntimesRef.current.clear();
+        activeSensorKeysRef.current = [];
+        setSensorViews([]);
+        setCurrentHeight(0);
+        setStabilityScore(100);
     }, []);
 
     const buildSessionSummary = useCallback(() => {
@@ -148,7 +213,7 @@ const GameClearance = () => {
 
                 wsRef.current.onclose = () => {
                     setIsConnected(false);
-                    resetActiveSensorSelection();
+                    resetSensorTracking();
 
                     if (manualDisconnectRef.current) {
                         return;
@@ -175,54 +240,41 @@ const GameClearance = () => {
                 wsRef.current.close();
             }
         };
-    }, [endSessionIfActive, resetActiveSensorSelection]);
+    }, [endSessionIfActive, resetSensorTracking]);
 
     // === Handle Sensor Data ===
     const handleSensorData = useCallback((msg) => {
         if (msg.type !== 'DATA') return;
 
-        const payload = msg.payload;
+        const sample = normalizeRealtimeSensorSample(msg.payload || {});
         const now = Date.now();
 
-        if (!Array.isArray(payload?.raw_accel) || !Array.isArray(payload?.raw_gyro)) {
+        if (!sample) {
             return;
         }
 
-        const isPreferredSensor = payload?.sensor_mount === 'shank';
-        let activeSensorChanged = false;
-        if (!activeSensorNameRef.current) {
-            activeSensorNameRef.current = payload?.name ?? null;
-            activeSensorMountRef.current = payload?.sensor_mount ?? 'unknown';
-            activeSensorChanged = true;
-        } else if (
-            isPreferredSensor
-            && activeSensorMountRef.current !== 'shank'
-            && payload?.name
-            && payload.name !== activeSensorNameRef.current
-        ) {
-            activeSensorNameRef.current = payload.name;
-            activeSensorMountRef.current = 'shank';
-            activeSensorChanged = true;
+        let sensorState = sensorRuntimesRef.current.get(sample.sensorKey);
+        if (!sensorState) {
+            sensorState = createClearanceSensorRuntime(sample);
+            sensorRuntimesRef.current.set(sample.sensorKey, sensorState);
         }
 
-        if (activeSensorChanged) {
-            gatewayLiftEstimatorRef.current?.reset();
-        }
+        sensorState.label = getRealtimeSensorLabel(sample);
+        sensorState.side = sample.side || null;
+        sensorState.sensorMount = sample.sensorMount || 'unknown';
+        sensorState.lastSeenAt = now;
+        sensorState.estimator?.setSensorMount?.(sensorState.sensorMount);
 
-        if (!payload?.name || payload.name !== activeSensorNameRef.current) {
-            return;
-        }
-
-        const localLiftState = gatewayLiftEstimatorRef.current?.updateFromRawSample({
-            raw_accel: payload.raw_accel,
-            raw_gyro: payload.raw_gyro,
-            timestamp_ms: payload.timestamp_ms,
-            sensor_mount: activeSensorMountRef.current ?? payload?.sensor_mount ?? 'unknown',
+        const localLiftState = sensorState.estimator?.updateFromRawSample({
+            raw_accel: sample.raw_accel,
+            raw_gyro: sample.raw_gyro,
+            timestamp_ms: sample.timestamp_ms,
+            sensor_mount: sensorState.sensorMount,
         });
 
         const positionSource = Array.isArray(localLiftState?.position)
             ? localLiftState.position
-            : payload?.position;
+            : sample?.position;
 
         const gatewayPositionZCm = Array.isArray(positionSource)
             ? Number(positionSource[2]) * 100 * sensitivity
@@ -233,15 +285,33 @@ const GameClearance = () => {
             const adjustedHeight = Math.min(MAX_SCALE_HEIGHT, Math.max(0, gatewayPositionZCm));
             const gatewayIsStance = typeof localLiftState?.is_stance === 'boolean'
                 ? localLiftState.is_stance
-                : Boolean(payload?.is_stance);
+                : Boolean(sample?.is_stance);
 
-            if (gatewayIsStance) {
-                setCurrentHeight(0);
+            sensorState.currentHeight = gatewayIsStance
+                ? 0
+                : (GATEWAY_HEIGHT_ALPHA * adjustedHeight) + ((1 - GATEWAY_HEIGHT_ALPHA) * sensorState.currentHeight);
+            sensorState.isStance = gatewayIsStance;
+
+            if (sample?.gait_metrics?.stability_score !== undefined) {
+                sensorState.stabilityScore = Math.round(sample.gait_metrics.stability_score);
             } else {
-                setCurrentHeight(prev => (GATEWAY_HEIGHT_ALPHA * adjustedHeight) + ((1 - GATEWAY_HEIGHT_ALPHA) * prev));
+                const localGyroNorm = Number.isFinite(localLiftState?.gyro_norm) ? localLiftState.gyro_norm : 0;
+                const stabilityPenalty = (localGyroNorm * 28) + (Math.abs(adjustedHeight - targetHeight) * 0.8);
+                sensorState.stabilityScore = Math.max(0, Math.min(100, Math.round(100 - stabilityPenalty)));
             }
 
-            const repResetHeightCandidate = gatewayIsStance || adjustedHeight < REP_RESET_THRESHOLD;
+            const visibleSensorStates = syncVisibleSensorViews();
+            const activeHeights = visibleSensorStates.map((visibleSensorState) => visibleSensorState.currentHeight || 0);
+            const maxHeight = activeHeights.length ? Math.max(...activeHeights) : 0;
+            const nextStabilityScore = visibleSensorStates.length
+                ? Math.round(visibleSensorStates.reduce((total, visibleSensorState) => total + (visibleSensorState.stabilityScore || 0), 0) / visibleSensorStates.length)
+                : 100;
+            const repResetHeightCandidate = visibleSensorStates.length
+                ? visibleSensorStates.every((visibleSensorState) => visibleSensorState.isStance || visibleSensorState.currentHeight < REP_RESET_THRESHOLD)
+                : (gatewayIsStance || adjustedHeight < REP_RESET_THRESHOLD);
+
+            setCurrentHeight(maxHeight);
+            setStabilityScore(nextStabilityScore);
 
             if (repResetHeightCandidate) {
                 if (!repResetCandidateStartedAtRef.current) {
@@ -254,17 +324,9 @@ const GameClearance = () => {
                 repResetEligibleRef.current = false;
             }
 
-            if (payload?.gait_metrics?.stability_score !== undefined) {
-                setStabilityScore(Math.round(payload.gait_metrics.stability_score));
-            } else {
-                const localGyroNorm = Number.isFinite(localLiftState?.gyro_norm) ? localLiftState.gyro_norm : 0;
-                const stabilityPenalty = (localGyroNorm * 28) + (Math.abs(adjustedHeight - targetHeight) * 0.8);
-                setStabilityScore(Math.max(0, Math.min(100, Math.round(100 - stabilityPenalty))));
-            }
-
             return;
         }
-    }, [sensitivity, targetHeight]);
+    }, [sensitivity, syncVisibleSensorViews, targetHeight]);
 
     // === Rep Counting Logic (State Machine) ===
     useEffect(() => {
@@ -338,7 +400,7 @@ const GameClearance = () => {
         repResetCandidateStartedAtRef.current = null;
         repResetEligibleRef.current = false;
         setSessionMetrics({});
-        resetActiveSensorSelection();
+        resetSensorTracking();
     };
 
     const pauseSession = () => {
@@ -369,7 +431,7 @@ const GameClearance = () => {
         repResetCandidateStartedAtRef.current = null;
         repResetEligibleRef.current = false;
         setSessionMetrics({});
-        resetActiveSensorSelection();
+        resetSensorTracking();
     };
 
     // === Get Gauge Colors ===
@@ -508,6 +570,20 @@ const GameClearance = () => {
 
                 {/* LEFT: Capsule Gauge (Visual) */}
                 <div className="flex justify-center items-end" style={{ height: '70vh', minHeight: '500px' }}>
+                    <div className="absolute top-4 left-1/2 z-20 flex -translate-x-1/2 flex-wrap items-center justify-center gap-2 px-4 text-center">
+                        <div className="rounded-full bg-white/85 px-4 py-2 text-sm font-bold text-gray-700 shadow-sm">
+                            {sensorViews.length > 1 ? 'Dual Shank Tracking' : sensorViews.length === 1 ? `${sensorViews[0].label} Active` : 'Waiting for sensor'}
+                        </div>
+                        {sensorViews.map((sensorView) => (
+                            <div
+                                key={sensorView.key}
+                                className={`rounded-full px-3 py-1.5 text-xs font-bold shadow-sm ${sensorView.side === 'L' ? 'bg-sky-100 text-sky-700' : sensorView.side === 'R' ? 'bg-rose-100 text-rose-700' : 'bg-slate-100 text-slate-700'}`}
+                            >
+                                {sensorView.side === 'L' ? 'Left' : sensorView.side === 'R' ? 'Right' : 'Sensor'}: {sensorView.label}
+                            </div>
+                        ))}
+                    </div>
+
                     <div className="relative h-full w-full max-w-sm mx-auto flex justify-center">
                         {/* Scale Markers */}
                         <div className="absolute left-0 top-0 bottom-0 flex flex-col justify-between py-4 text-sm font-bold text-gray-400">
