@@ -27,6 +27,7 @@ const ZONE_B_THRESHOLD = 35; // Warning (yellow)
 // Beyond Zone B = Critical (red)
 const MAX_VISIBLE_SENSORS = 2;
 const SENSOR_STALE_AFTER_MS = 2500;
+const GYRO_LOW_PASS_ALPHA = 0.18;
 
 // === Quaternion math helpers ===
 function quatMultiply(a, b) {
@@ -67,6 +68,15 @@ function getZoneForDistance(distance) {
     return 'C';
 }
 
+function averageTailComponent(samples, component) {
+    if (!samples.length) {
+        return 0;
+    }
+
+    const tailSamples = samples.slice(Math.floor(samples.length / 2));
+    return tailSamples.reduce((sum, sample) => sum + sample[component], 0) / tailSamples.length;
+}
+
 function sortSensorStates(left, right) {
     const sideDelta = getRealtimeSensorSideOrder(left?.side) - getRealtimeSensorSideOrder(right?.side);
     if (sideDelta !== 0) {
@@ -87,6 +97,14 @@ function createSensorRuntime(sample) {
         refQuaternion: null,
         lastQuaternion: null,
         calibrationSamples: [],
+        calibrationGyroSamples: [],
+        gyroFilterReady: false,
+        filteredGx: 0,
+        filteredGy: 0,
+        filteredGz: 0,
+        gyroBiasX: 0,
+        gyroBiasY: 0,
+        gyroBiasZ: 0,
         rawRoll: 0,
         rawPitch: 0,
         lastSmoothedRoll: 0,
@@ -268,6 +286,10 @@ const GameBalance = () => {
     const startCalibrationRef = useRef(null); // Ref to call startCalibration from handleSensorData
 
     const resetSensorRuntimeState = useCallback((sensorState) => {
+        sensorState.gyroFilterReady = false;
+        sensorState.filteredGx = 0;
+        sensorState.filteredGy = 0;
+        sensorState.filteredGz = 0;
         sensorState.rawRoll = 0;
         sensorState.rawPitch = 0;
         sensorState.lastSmoothedRoll = 0;
@@ -403,13 +425,28 @@ const GameBalance = () => {
         sensorState.sensorMount = sample.sensorMount || 'unknown';
         sensorState.lastSeenAt = Date.now();
 
+        const correctedGx = sample.gx - sensorState.gyroBiasX;
+        const correctedGy = sample.gy - sensorState.gyroBiasY;
+        const correctedGz = sample.gz - sensorState.gyroBiasZ;
+
+        if (!sensorState.gyroFilterReady) {
+            sensorState.filteredGx = correctedGx;
+            sensorState.filteredGy = correctedGy;
+            sensorState.filteredGz = correctedGz;
+            sensorState.gyroFilterReady = true;
+        } else {
+            sensorState.filteredGx += (correctedGx - sensorState.filteredGx) * GYRO_LOW_PASS_ALPHA;
+            sensorState.filteredGy += (correctedGy - sensorState.filteredGy) * GYRO_LOW_PASS_ALPHA;
+            sensorState.filteredGz += (correctedGz - sensorState.filteredGz) * GYRO_LOW_PASS_ALPHA;
+        }
+
         const orientation = sensorState.tracker.update({
             ax: sample.ax,
             ay: sample.ay,
             az: sample.az,
-            gx: sample.gx,
-            gy: sample.gy,
-            gz: sample.gz,
+            gx: sensorState.filteredGx,
+            gy: sensorState.filteredGy,
+            gz: sensorState.filteredGz,
             timestampMs: sample.timestampMs ?? sample.timestamp_ms,
         });
         const q = orientation.quaternion;
@@ -469,6 +506,11 @@ const GameBalance = () => {
 
         if (isCalibratingRef.current) {
             sensorState.calibrationSamples.push([...q]);
+            sensorState.calibrationGyroSamples.push({
+                gx: sample.gx,
+                gy: sample.gy,
+                gz: sample.gz,
+            });
         }
 
         if (!isVisibleSensor) {
@@ -630,7 +672,13 @@ const GameBalance = () => {
             }
 
             sensorState.refQuaternion = [...sensorState.calibrationSamples[sensorState.calibrationSamples.length - 1]];
+            if (sensorState.calibrationGyroSamples.length) {
+                sensorState.gyroBiasX = averageTailComponent(sensorState.calibrationGyroSamples, 'gx');
+                sensorState.gyroBiasY = averageTailComponent(sensorState.calibrationGyroSamples, 'gy');
+                sensorState.gyroBiasZ = averageTailComponent(sensorState.calibrationGyroSamples, 'gz');
+            }
             sensorState.calibrationSamples = [];
+            sensorState.calibrationGyroSamples = [];
             resetSensorRuntimeState(sensorState);
             calibratedCount += 1;
         });
@@ -663,6 +711,7 @@ const GameBalance = () => {
         isCalibratingRef.current = true;
         sensorRuntimesRef.current.forEach((sensorState) => {
             sensorState.calibrationSamples = [];
+            sensorState.calibrationGyroSamples = [];
         });
         setGameState(GAME_STATES.CALIBRATING);
         gameStateRef.current = GAME_STATES.CALIBRATING;
@@ -775,6 +824,7 @@ const GameBalance = () => {
         sensorRuntimesRef.current.forEach((sensorState) => {
             sensorState.tracker.reset();
             sensorState.calibrationSamples = [];
+            sensorState.calibrationGyroSamples = [];
             resetSensorRuntimeState(sensorState);
         });
         syncVisibleSensorViews();
