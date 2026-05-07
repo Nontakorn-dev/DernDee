@@ -44,11 +44,15 @@ const TARGET_REACHING_GOAL_STARS = 6;
 const TARGET_REACHING_HIT_RADIUS = 24;
 const TARGET_REACHING_TARGET_HOLD_MS = 0;
 const TARGET_REACHING_CENTER_HOLD_MS = 220;
+const STAGE_ANNOUNCEMENT_DURATION_MS = 1800;
+const MISSION_COMPLETE_ANNOUNCEMENT_DURATION_MS = 2600;
 const TARGET_REACHING_POINTS = [
-    { id: 'TOP', label: 'Top', x: 0, y: -68 },
-    { id: 'RIGHT', label: 'Right', x: 68, y: 0 },
-    { id: 'BOTTOM', label: 'Bottom', x: 0, y: 68 },
-    { id: 'LEFT', label: 'Left', x: -68, y: 0 },
+    { id: 'RIGHT_INNER', label: 'Inner Right', side: 'RIGHT', x: 24, y: -28 },
+    { id: 'RIGHT_MID', label: 'Mid Right', side: 'RIGHT', x: 44, y: -46 },
+    { id: 'RIGHT_OUTER', label: 'Outer Right', side: 'RIGHT', x: 66, y: -64 },
+    { id: 'LEFT_INNER', label: 'Inner Left', side: 'LEFT', x: -24, y: -28 },
+    { id: 'LEFT_MID', label: 'Mid Left', side: 'LEFT', x: -44, y: -46 },
+    { id: 'LEFT_OUTER', label: 'Outer Left', side: 'LEFT', x: -66, y: -64 },
 ];
 
 // === Quaternion math helpers ===
@@ -99,10 +103,44 @@ function averageTailComponent(samples, component) {
     return tailSamples.reduce((sum, sample) => sum + sample[component], 0) / tailSamples.length;
 }
 
-function pickNextTargetPoint(excludeId = null) {
-    const candidates = TARGET_REACHING_POINTS.filter((targetPoint) => targetPoint.id !== excludeId);
-    const availableTargets = candidates.length ? candidates : TARGET_REACHING_POINTS;
-    return availableTargets[Math.floor(Math.random() * availableTargets.length)] || TARGET_REACHING_POINTS[0];
+function shuffleList(items) {
+    const shuffledItems = [...items];
+
+    for (let index = shuffledItems.length - 1; index > 0; index -= 1) {
+        const swapIndex = Math.floor(Math.random() * (index + 1));
+        [shuffledItems[index], shuffledItems[swapIndex]] = [shuffledItems[swapIndex], shuffledItems[index]];
+    }
+
+    return shuffledItems;
+}
+
+function buildTargetMissionQueue() {
+    const leftTargetIds = shuffleList(
+        TARGET_REACHING_POINTS
+            .filter((targetPoint) => targetPoint.side === 'LEFT')
+            .map((targetPoint) => targetPoint.id)
+    );
+    const rightTargetIds = shuffleList(
+        TARGET_REACHING_POINTS
+            .filter((targetPoint) => targetPoint.side === 'RIGHT')
+            .map((targetPoint) => targetPoint.id)
+    );
+    const leftFirst = Math.random() < 0.5;
+    const firstSideTargetIds = leftFirst ? leftTargetIds : rightTargetIds;
+    const secondSideTargetIds = leftFirst ? rightTargetIds : leftTargetIds;
+    const missionQueue = [];
+
+    for (let index = 0; index < Math.max(firstSideTargetIds.length, secondSideTargetIds.length); index += 1) {
+        if (firstSideTargetIds[index]) {
+            missionQueue.push(firstSideTargetIds[index]);
+        }
+
+        if (secondSideTargetIds[index]) {
+            missionQueue.push(secondSideTargetIds[index]);
+        }
+    }
+
+    return missionQueue;
 }
 
 function sortSensorStates(left, right) {
@@ -222,11 +260,13 @@ const GameBalance = () => {
     const [avgDeviation, setAvgDeviation] = useState(0); // average angle deviation
     const [starsCollected, setStarsCollected] = useState(0);
     const [targetMissionPhase, setTargetMissionPhase] = useState(TARGET_MISSION_PHASES.TO_TARGET);
+    const [targetMissionQueue, setTargetMissionQueue] = useState(() => buildTargetMissionQueue());
     const [currentTargetId, setCurrentTargetId] = useState(TARGET_REACHING_POINTS[0].id);
     const [sessionTime, setSessionTime] = useState(0);
     const deviationHistoryRef = useRef([]);
     const [isConnected, setIsConnected] = useState(false);
     const [sessionMetrics, setSessionMetrics] = useState({});
+    const [statusAnnouncement, setStatusAnnouncement] = useState(null);
 
     // === WebSocket ===
     const wsRef = useRef(null);
@@ -237,6 +277,9 @@ const GameBalance = () => {
     const activeSensorKeysRef = useRef([]);
     const targetReachedAtRef = useRef(null);
     const centerReturnAtRef = useRef(null);
+    const announcementTimeoutRef = useRef(null);
+    const previousSelectedLevelRef = useRef(GAME_LEVELS.STATIC_HOLD);
+    const previousTargetMissionPhaseRef = useRef(TARGET_MISSION_PHASES.TO_TARGET);
 
     // === Computed Values ===
     const controlSensorView = sensorViews.reduce((selected, sensorView) => {
@@ -284,13 +327,36 @@ const GameBalance = () => {
                 ? 'text-amber-600 bg-amber-50'
                 : 'text-fuchsia-600 bg-fuchsia-50';
 
+    const clearStatusAnnouncement = useCallback(() => {
+        if (announcementTimeoutRef.current) {
+            clearTimeout(announcementTimeoutRef.current);
+            announcementTimeoutRef.current = null;
+        }
+
+        setStatusAnnouncement(null);
+    }, []);
+
+    const showStatusAnnouncement = useCallback((announcement, durationMs) => {
+        if (announcementTimeoutRef.current) {
+            clearTimeout(announcementTimeoutRef.current);
+        }
+
+        setStatusAnnouncement(announcement);
+        announcementTimeoutRef.current = setTimeout(() => {
+            setStatusAnnouncement(null);
+            announcementTimeoutRef.current = null;
+        }, durationMs);
+    }, []);
+
     const resetTargetMission = useCallback((level = selectedLevel) => {
+        const nextTargetMissionQueue = buildTargetMissionQueue();
         targetReachedAtRef.current = null;
         centerReturnAtRef.current = null;
         setStarsCollected(0);
         setTargetMissionPhase(TARGET_MISSION_PHASES.TO_TARGET);
+        setTargetMissionQueue(nextTargetMissionQueue);
         if (level === GAME_LEVELS.TARGET_REACHING) {
-            setCurrentTargetId(pickNextTargetPoint().id);
+            setCurrentTargetId(nextTargetMissionQueue[0] || TARGET_REACHING_POINTS[0].id);
         } else {
             setCurrentTargetId(TARGET_REACHING_POINTS[0].id);
         }
@@ -811,7 +877,7 @@ const GameBalance = () => {
 
     // === Session Timer ===
     useEffect(() => {
-        if (gameState === GAME_STATES.PLAYING) {
+        if (gameState === GAME_STATES.PLAYING && !isTargetMissionComplete) {
             timerRef.current = setInterval(() => {
                 setSessionTime(prev => prev + 1);
             }, 1000);
@@ -826,7 +892,7 @@ const GameBalance = () => {
                 clearInterval(timerRef.current);
             }
         };
-    }, [gameState]);
+    }, [gameState, isTargetMissionComplete]);
 
     useEffect(() => {
         if (!isTargetLevel || gameState !== GAME_STATES.PLAYING) {
@@ -871,9 +937,13 @@ const GameBalance = () => {
                 }
 
                 if (now - centerReturnAtRef.current >= TARGET_REACHING_CENTER_HOLD_MS) {
-                    const nextTargetPoint = pickNextTargetPoint(currentTargetPoint.id);
-                    setCurrentTargetId(nextTargetPoint.id);
-                    setTargetMissionPhase(TARGET_MISSION_PHASES.TO_TARGET);
+                    const nextTargetId = targetMissionQueue[starsCollected];
+                    if (nextTargetId) {
+                        setCurrentTargetId(nextTargetId);
+                        setTargetMissionPhase(TARGET_MISSION_PHASES.TO_TARGET);
+                    } else {
+                        setTargetMissionPhase(TARGET_MISSION_PHASES.COMPLETE);
+                    }
                     targetReachedAtRef.current = null;
                     centerReturnAtRef.current = null;
                 }
@@ -881,7 +951,7 @@ const GameBalance = () => {
                 centerReturnAtRef.current = null;
             }
         }
-    }, [bubbleX, bubbleY, currentTargetPoint, gameState, isTargetLevel, starsCollected, targetMissionPhase, zone]);
+    }, [bubbleX, bubbleY, currentTargetPoint, gameState, isTargetLevel, starsCollected, targetMissionPhase, targetMissionQueue, zone]);
 
     useEffect(() => {
         if (gameState !== GAME_STATES.PLAYING || selectedLevel !== GAME_LEVELS.STATIC_HOLD) {
@@ -896,10 +966,57 @@ const GameBalance = () => {
         resetTargetMission(GAME_LEVELS.TARGET_REACHING);
     }, [gameState, resetTargetMission, selectedLevel, timeInZone]);
 
+    useEffect(() => {
+        const previousSelectedLevel = previousSelectedLevelRef.current;
+
+        if (
+            gameState === GAME_STATES.PLAYING
+            && previousSelectedLevel !== selectedLevel
+            && selectedLevel === GAME_LEVELS.TARGET_REACHING
+        ) {
+            showStatusAnnouncement({
+                accent: 'fuchsia',
+                eyebrow: 'New Stage',
+                title: 'Level 2',
+                subtitle: `Collect ${TARGET_REACHING_GOAL_STARS} stars and return to center`,
+            }, STAGE_ANNOUNCEMENT_DURATION_MS);
+        }
+
+        previousSelectedLevelRef.current = selectedLevel;
+    }, [gameState, selectedLevel, showStatusAnnouncement]);
+
+    useEffect(() => {
+        const previousTargetMissionPhase = previousTargetMissionPhaseRef.current;
+
+        if (
+            gameState === GAME_STATES.PLAYING
+            && isTargetLevel
+            && previousTargetMissionPhase !== TARGET_MISSION_PHASES.COMPLETE
+            && targetMissionPhase === TARGET_MISSION_PHASES.COMPLETE
+        ) {
+            showStatusAnnouncement({
+                accent: 'emerald',
+                eyebrow: 'Mission Clear',
+                title: 'Mission Complete',
+                subtitle: `All ${TARGET_REACHING_GOAL_STARS} stars collected`,
+            }, MISSION_COMPLETE_ANNOUNCEMENT_DURATION_MS);
+        }
+
+        previousTargetMissionPhaseRef.current = targetMissionPhase;
+    }, [gameState, isTargetLevel, showStatusAnnouncement, targetMissionPhase]);
+
+    useEffect(() => {
+        return () => {
+            if (announcementTimeoutRef.current) {
+                clearTimeout(announcementTimeoutRef.current);
+            }
+        };
+    }, []);
+
     // === Time In Zone Counter ===
     // === Zone Stats Counter ===
     useEffect(() => {
-        if (gameState === GAME_STATES.PLAYING) {
+        if (gameState === GAME_STATES.PLAYING && !isTargetMissionComplete) {
             zoneTimerRef.current = setInterval(() => {
                 const currentZone = zone; // Capture current zone
 
@@ -926,7 +1043,7 @@ const GameBalance = () => {
                 clearInterval(zoneTimerRef.current);
             }
         };
-    }, [gameState, zone]);
+    }, [gameState, isTargetMissionComplete, zone]);
 
     // === Sync sensitivity ref with state ===
     useEffect(() => {
@@ -938,6 +1055,7 @@ const GameBalance = () => {
         autoCenterArmedRef.current = false;
         autoCenterStableSinceRef.current = null;
         autoCenterDriftSinceRef.current = null;
+        clearStatusAnnouncement();
         setSelectedLevel(GAME_LEVELS.STATIC_HOLD);
         setGameState(GAME_STATES.PLAYING);
         gameStateRef.current = GAME_STATES.PLAYING;
@@ -973,6 +1091,7 @@ const GameBalance = () => {
     };
 
     const resetSession = () => {
+        clearStatusAnnouncement();
         setSelectedLevel(GAME_LEVELS.STATIC_HOLD);
         setGameState(GAME_STATES.READY);
         gameStateRef.current = GAME_STATES.READY;
@@ -1180,6 +1299,24 @@ const GameBalance = () => {
                             <div className="border-r border-gray-100"></div>
                             <div></div>
                         </div>
+
+                        {statusAnnouncement && (
+                            <div className="absolute inset-0 z-30 flex items-center justify-center bg-white/35 backdrop-blur-[2px] pointer-events-none">
+                                <div className={`mx-6 rounded-3xl border px-6 py-5 text-center shadow-2xl ${statusAnnouncement.accent === 'emerald'
+                                    ? 'border-emerald-200 bg-emerald-50/95 text-emerald-700'
+                                    : 'border-fuchsia-200 bg-fuchsia-50/95 text-fuchsia-700'}`}>
+                                    <div className="text-[11px] font-black uppercase tracking-[0.35em] text-gray-500">
+                                        {statusAnnouncement.eyebrow}
+                                    </div>
+                                    <div className="mt-2 text-3xl lg:text-5xl font-black tracking-tight">
+                                        {statusAnnouncement.title}
+                                    </div>
+                                    <div className="mt-2 text-sm lg:text-base font-bold text-gray-600">
+                                        {statusAnnouncement.subtitle}
+                                    </div>
+                                </div>
+                            </div>
+                        )}
 
                         {/* === Directional Feedback Overlays === */}
                         {/* Top: Lean Fwd (When bubble is at Bottom / Y > 15) */}
