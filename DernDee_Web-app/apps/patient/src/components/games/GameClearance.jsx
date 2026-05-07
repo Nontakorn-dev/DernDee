@@ -22,6 +22,9 @@ const MIN_REP_INTERVAL_MS = 1000;
 const GATEWAY_HEIGHT_ALPHA = 0.6;
 const MAX_VISIBLE_SENSORS = 2;
 const SENSOR_STALE_AFTER_MS = 2500;
+const VISUAL_FLOOR_SNAP_THRESHOLD = BASELINE_HEIGHT;
+const VISUAL_FLOOR_HOLD_MS = 180;
+const VISUAL_POST_HIT_HOLD_MS = 180;
 
 const GAME_STATES = {
     READY: 'READY',
@@ -81,6 +84,7 @@ const GameClearance = () => {
 
     // === Real-time Data ===
     const [currentHeight, setCurrentHeight] = useState(0);
+    const [displayHeight, setDisplayHeight] = useState(0);
     const [reps, setReps] = useState(0);
     const [totalReps, setTotalReps] = useState(20); // Goal
     const [stabilityScore, setStabilityScore] = useState(100);
@@ -93,6 +97,9 @@ const GameClearance = () => {
     const repResetCandidateStartedAtRef = useRef(null);
     const repResetEligibleRef = useRef(false);
     const lastRepCountAtRef = useRef(0);
+    const visualPeakLockRef = useRef(false);
+    const visualFloorCandidateStartedAtRef = useRef(null);
+    const visualFloorSnapEligibleRef = useRef(false);
 
     // === WebSocket ===
     const wsRef = useRef(null);
@@ -105,13 +112,13 @@ const GameClearance = () => {
     const successSoundRef = useRef(null);
 
     // === Derived State ===
-    const displayHeightPercent = Math.min(100, (currentHeight / MAX_SCALE_HEIGHT) * 100);
+    const displayHeightPercent = Math.min(100, (displayHeight / MAX_SCALE_HEIGHT) * 100);
     const targetLinePercent = (targetHeight / MAX_SCALE_HEIGHT) * 100;
 
     // Determine gauge state based on height
     const getGaugeState = () => {
-        if (currentHeight >= targetHeight) return 'SUCCESS';
-        if (currentHeight >= targetHeight * 0.5) return 'APPROACHING';
+        if (displayHeight >= targetHeight) return 'SUCCESS';
+        if (displayHeight >= targetHeight * 0.5) return 'APPROACHING';
         return 'IDLE';
     };
 
@@ -136,7 +143,10 @@ const GameClearance = () => {
         });
         sensorRuntimesRef.current.clear();
         activeSensorKeysRef.current = [];
+        visualFloorCandidateStartedAtRef.current = null;
+        visualFloorSnapEligibleRef.current = false;
         setCurrentHeight(0);
+        setDisplayHeight(0);
         setStabilityScore(100);
     }, []);
 
@@ -302,6 +312,9 @@ const GameClearance = () => {
             const repResetHeightCandidate = visibleSensorStates.length
                 ? visibleSensorStates.every((visibleSensorState) => visibleSensorState.isStance || visibleSensorState.currentHeight < REP_RESET_THRESHOLD)
                 : (gatewayIsStance || adjustedHeight < REP_RESET_THRESHOLD);
+            const visualFloorCandidate = visibleSensorStates.length
+                ? visibleSensorStates.every((visibleSensorState) => visibleSensorState.isStance || visibleSensorState.currentHeight < VISUAL_FLOOR_SNAP_THRESHOLD)
+                : (gatewayIsStance || adjustedHeight < VISUAL_FLOOR_SNAP_THRESHOLD);
 
             setCurrentHeight(maxHeight);
             setStabilityScore(nextStabilityScore);
@@ -315,6 +328,17 @@ const GameClearance = () => {
             } else {
                 repResetCandidateStartedAtRef.current = null;
                 repResetEligibleRef.current = false;
+            }
+
+            if (visualFloorCandidate) {
+                if (!visualFloorCandidateStartedAtRef.current) {
+                    visualFloorCandidateStartedAtRef.current = now;
+                }
+
+                visualFloorSnapEligibleRef.current = (now - visualFloorCandidateStartedAtRef.current) >= VISUAL_FLOOR_HOLD_MS;
+            } else {
+                visualFloorCandidateStartedAtRef.current = null;
+                visualFloorSnapEligibleRef.current = false;
             }
 
             return;
@@ -349,6 +373,55 @@ const GameClearance = () => {
             setRepState('READY');
         }
     }, [currentHeight, repState, targetHeight, gameState, soundEnabled, vibrationEnabled]);
+
+    // Keep the gauge responsive, but suppress upward visual bounce after a rep has already been counted.
+    useEffect(() => {
+        if (gameState === GAME_STATES.READY || gameState === GAME_STATES.COMPLETED) {
+            visualPeakLockRef.current = false;
+            setDisplayHeight(currentHeight);
+            return;
+        }
+
+        const cooldownActive = !!lastRepCountAtRef.current
+            && (Date.now() - lastRepCountAtRef.current) < MIN_REP_INTERVAL_MS;
+        const cooldownElapsedMs = lastRepCountAtRef.current
+            ? (Date.now() - lastRepCountAtRef.current)
+            : Infinity;
+
+        setDisplayHeight((previousHeight) => {
+            if (cooldownActive && cooldownElapsedMs >= VISUAL_POST_HIT_HOLD_MS) {
+                visualPeakLockRef.current = false;
+                return 0;
+            }
+
+            if (visualFloorSnapEligibleRef.current) {
+                visualPeakLockRef.current = false;
+                return 0;
+            }
+
+            if (currentHeight < REP_RESET_THRESHOLD && repResetEligibleRef.current) {
+                visualPeakLockRef.current = false;
+                return 0;
+            }
+
+            if (repState !== 'HIT_TARGET') {
+                visualPeakLockRef.current = false;
+                const followFactor = currentHeight >= previousHeight ? 0.55 : 0.24;
+                return previousHeight + ((currentHeight - previousHeight) * followFactor);
+            }
+
+            if (currentHeight < previousHeight - 0.12) {
+                visualPeakLockRef.current = true;
+            }
+
+            if (visualPeakLockRef.current && currentHeight > previousHeight) {
+                return previousHeight;
+            }
+
+            const followFactor = currentHeight >= previousHeight ? 0.45 : 0.18;
+            return previousHeight + ((currentHeight - previousHeight) * followFactor);
+        });
+    }, [currentHeight, gameState, repState]);
 
     // === Session Timer ===
     useEffect(() => {
@@ -392,12 +465,16 @@ const GameClearance = () => {
     const startSession = () => {
         setGameState(GAME_STATES.PLAYING);
         setCurrentHeight(0);
+        setDisplayHeight(0);
         setReps(0);
         setSessionTime(0);
         setRepState('READY');
         repResetCandidateStartedAtRef.current = null;
         repResetEligibleRef.current = false;
         lastRepCountAtRef.current = 0;
+        visualPeakLockRef.current = false;
+        visualFloorCandidateStartedAtRef.current = null;
+        visualFloorSnapEligibleRef.current = false;
         setSessionMetrics({});
         resetSensorTracking();
     };
@@ -426,10 +503,14 @@ const GameClearance = () => {
         setReps(0);
         setSessionTime(0);
         setCurrentHeight(0);
+        setDisplayHeight(0);
         setRepState('READY');
         repResetCandidateStartedAtRef.current = null;
         repResetEligibleRef.current = false;
         lastRepCountAtRef.current = 0;
+        visualPeakLockRef.current = false;
+        visualFloorCandidateStartedAtRef.current = null;
+        visualFloorSnapEligibleRef.current = false;
         setSessionMetrics({});
         resetSensorTracking();
     };
@@ -637,8 +718,8 @@ const GameClearance = () => {
                                     gaugeState === 'APPROACHING' ? 'text-amber-500' :
                                         'text-blue-500'
                                     }`}>
-                                    {Math.floor(currentHeight)}
-                                    <span className="text-xl text-gray-400 ml-1">.{Math.round((currentHeight % 1) * 10)} cm</span>
+                                    {Math.floor(displayHeight)}
+                                    <span className="text-xl text-gray-400 ml-1">.{Math.round((displayHeight % 1) * 10)} cm</span>
                                 </div>
                             </div>
                         </div>
