@@ -9,7 +9,7 @@ import {
     normalizeRealtimeSensorSample,
 } from '@shared/gateway/realtimeSensorUtils.js';
 import { usePersistedGatewaySession } from '@shared/hooks/usePersistedGatewaySession.js';
-import { ArrowLeft, ArrowRight, Settings, Target, Play, Pause, Square, X, ChevronLeft, ChevronRight, ChevronUp, ChevronDown } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Settings, Target, Play, Pause, Square, Star, X, ChevronLeft, ChevronRight, ChevronUp, ChevronDown } from 'lucide-react';
 import derndeeLogo from '@shared/assets/images/derndee-logo.png';
 
 // === CONSTANTS ===
@@ -21,6 +21,17 @@ const GAME_STATES = {
     COMPLETED: 'COMPLETED'
 };
 
+const GAME_LEVELS = {
+    STATIC_HOLD: 'STATIC_HOLD',
+    TARGET_REACHING: 'TARGET_REACHING',
+};
+
+const TARGET_MISSION_PHASES = {
+    TO_TARGET: 'TO_TARGET',
+    RETURN_CENTER: 'RETURN_CENTER',
+    COMPLETE: 'COMPLETE',
+};
+
 // Zone thresholds (distance from center in %)
 const ZONE_A_THRESHOLD = 15; // Perfect (green)
 const ZONE_B_THRESHOLD = 35; // Warning (yellow)
@@ -28,6 +39,17 @@ const ZONE_B_THRESHOLD = 35; // Warning (yellow)
 const MAX_VISIBLE_SENSORS = 2;
 const SENSOR_STALE_AFTER_MS = 2500;
 const GYRO_LOW_PASS_ALPHA = 0.18;
+const STATIC_HOLD_GOAL_SECONDS = 10;
+const TARGET_REACHING_GOAL_STARS = 6;
+const TARGET_REACHING_HIT_RADIUS = 24;
+const TARGET_REACHING_TARGET_HOLD_MS = 0;
+const TARGET_REACHING_CENTER_HOLD_MS = 220;
+const TARGET_REACHING_POINTS = [
+    { id: 'TOP', label: 'Top', x: 0, y: -68 },
+    { id: 'RIGHT', label: 'Right', x: 68, y: 0 },
+    { id: 'BOTTOM', label: 'Bottom', x: 0, y: 68 },
+    { id: 'LEFT', label: 'Left', x: -68, y: 0 },
+];
 
 // === Quaternion math helpers ===
 function quatMultiply(a, b) {
@@ -75,6 +97,12 @@ function averageTailComponent(samples, component) {
 
     const tailSamples = samples.slice(Math.floor(samples.length / 2));
     return tailSamples.reduce((sum, sample) => sum + sample[component], 0) / tailSamples.length;
+}
+
+function pickNextTargetPoint(excludeId = null) {
+    const candidates = TARGET_REACHING_POINTS.filter((targetPoint) => targetPoint.id !== excludeId);
+    const availableTargets = candidates.length ? candidates : TARGET_REACHING_POINTS;
+    return availableTargets[Math.floor(Math.random() * availableTargets.length)] || TARGET_REACHING_POINTS[0];
 }
 
 function sortSensorStates(left, right) {
@@ -171,6 +199,7 @@ const GameBalance = () => {
 
     // === Game State ===
     const [gameState, setGameState] = useState(GAME_STATES.CALIBRATING);
+    const [selectedLevel, setSelectedLevel] = useState(GAME_LEVELS.STATIC_HOLD);
     const [showSettings, setShowSettings] = useState(false);
     const [sensitivity, setSensitivity] = useState(1.0); // For display
     const gameStateRef = useRef(GAME_STATES.CALIBRATING);
@@ -191,6 +220,9 @@ const GameBalance = () => {
     const [timeInZone, setTimeInZone] = useState(0); // seconds in green zone
     const [zoneStats, setZoneStats] = useState({ A: 0, B: 0, C: 0 }); // Time in each zone
     const [avgDeviation, setAvgDeviation] = useState(0); // average angle deviation
+    const [starsCollected, setStarsCollected] = useState(0);
+    const [targetMissionPhase, setTargetMissionPhase] = useState(TARGET_MISSION_PHASES.TO_TARGET);
+    const [currentTargetId, setCurrentTargetId] = useState(TARGET_REACHING_POINTS[0].id);
     const [sessionTime, setSessionTime] = useState(0);
     const deviationHistoryRef = useRef([]);
     const [isConnected, setIsConnected] = useState(false);
@@ -203,6 +235,8 @@ const GameBalance = () => {
     const manualDisconnectRef = useRef(false);
     const sensorRuntimesRef = useRef(new Map());
     const activeSensorKeysRef = useRef([]);
+    const targetReachedAtRef = useRef(null);
+    const centerReturnAtRef = useRef(null);
 
     // === Computed Values ===
     const controlSensorView = sensorViews.reduce((selected, sensorView) => {
@@ -225,6 +259,42 @@ const GameBalance = () => {
     const distanceFromCenter = sensorViews.length
         ? Math.max(...sensorViews.map((sensorView) => sensorView.distanceFromCenter))
         : 0;
+    const currentTargetPoint = TARGET_REACHING_POINTS.find((targetPoint) => targetPoint.id === currentTargetId) || TARGET_REACHING_POINTS[0];
+    const isTargetLevel = selectedLevel === GAME_LEVELS.TARGET_REACHING;
+    const isTargetMissionComplete = isTargetLevel && targetMissionPhase === TARGET_MISSION_PHASES.COMPLETE;
+    const levelGoalReached = selectedLevel === GAME_LEVELS.STATIC_HOLD
+        ? timeInZone >= STATIC_HOLD_GOAL_SECONDS
+        : starsCollected >= TARGET_REACHING_GOAL_STARS;
+    const missionProgressPercent = selectedLevel === GAME_LEVELS.STATIC_HOLD
+        ? Math.min(100, (timeInZone / STATIC_HOLD_GOAL_SECONDS) * 100)
+        : Math.min(100, (starsCollected / TARGET_REACHING_GOAL_STARS) * 100);
+    const missionLevelLabel = selectedLevel === GAME_LEVELS.STATIC_HOLD ? 'Level 1' : 'Level 2';
+    const missionStatusLabel = selectedLevel === GAME_LEVELS.STATIC_HOLD
+        ? (levelGoalReached ? 'Goal Reached' : 'Hold the center')
+        : (isTargetMissionComplete
+            ? 'Mission Cleared'
+            : targetMissionPhase === TARGET_MISSION_PHASES.RETURN_CENTER
+                ? 'Return to center'
+                : `Reach ${currentTargetPoint.label}`);
+    const missionStatusTone = levelGoalReached
+        ? 'text-emerald-600 bg-emerald-50'
+        : selectedLevel === GAME_LEVELS.STATIC_HOLD
+            ? 'text-blue-600 bg-blue-50'
+            : targetMissionPhase === TARGET_MISSION_PHASES.RETURN_CENTER
+                ? 'text-amber-600 bg-amber-50'
+                : 'text-fuchsia-600 bg-fuchsia-50';
+
+    const resetTargetMission = useCallback((level = selectedLevel) => {
+        targetReachedAtRef.current = null;
+        centerReturnAtRef.current = null;
+        setStarsCollected(0);
+        setTargetMissionPhase(TARGET_MISSION_PHASES.TO_TARGET);
+        if (level === GAME_LEVELS.TARGET_REACHING) {
+            setCurrentTargetId(pickNextTargetPoint().id);
+        } else {
+            setCurrentTargetId(TARGET_REACHING_POINTS[0].id);
+        }
+    }, [selectedLevel]);
 
     const getZone = () => {
         return getZoneForDistance(distanceFromCenter);
@@ -235,6 +305,9 @@ const GameBalance = () => {
     const buildSessionSummary = useCallback(() => {
         const trackedDuration = zoneStats.A + zoneStats.B + zoneStats.C;
         const zoneAPercent = trackedDuration > 0 ? Math.round((zoneStats.A / trackedDuration) * 100) : 0;
+        const goalProgressScore = selectedLevel === GAME_LEVELS.STATIC_HOLD
+            ? Math.round(Math.min(100, (timeInZone / STATIC_HOLD_GOAL_SECONDS) * 100))
+            : Math.round(Math.min(100, (starsCollected / TARGET_REACHING_GOAL_STARS) * 100));
 
         return {
             total_steps: Number.isFinite(sessionMetrics?.total_steps) ? sessionMetrics.total_steps : 0,
@@ -243,22 +316,26 @@ const GameBalance = () => {
             avg_step_length_m: Number.isFinite(sessionMetrics?.avg_step_length_m) ? sessionMetrics.avg_step_length_m : null,
             avg_stride_length_m: Number.isFinite(sessionMetrics?.avg_stride_length_m) ? sessionMetrics.avg_stride_length_m : null,
             avg_clearance_m: Number.isFinite(sessionMetrics?.avg_clearance_m) ? sessionMetrics.avg_clearance_m : null,
-            symmetry_score: Number.isFinite(sessionMetrics?.symmetry_percent) ? sessionMetrics.symmetry_percent : zoneAPercent,
+            symmetry_score: Number.isFinite(sessionMetrics?.symmetry_percent) ? sessionMetrics.symmetry_percent : (selectedLevel === GAME_LEVELS.STATIC_HOLD ? zoneAPercent : goalProgressScore),
         };
-    }, [sessionMetrics, zoneStats]);
+    }, [selectedLevel, sessionMetrics, starsCollected, timeInZone, zoneStats]);
 
     const buildSessionDetails = useCallback(() => {
         const trackedDuration = zoneStats.A + zoneStats.B + zoneStats.C;
         const centerHoldPercent = trackedDuration > 0 ? Math.round((zoneStats.A / trackedDuration) * 100) : 0;
 
         return {
+            level_mode: selectedLevel,
             time_in_zone_a_seconds: Number(zoneStats.A.toFixed(1)),
             time_in_zone_b_seconds: Number(zoneStats.B.toFixed(1)),
             time_in_zone_c_seconds: Number(zoneStats.C.toFixed(1)),
             center_hold_percent: centerHoldPercent,
+            center_hold_goal_seconds: STATIC_HOLD_GOAL_SECONDS,
+            stars_collected: starsCollected,
+            stars_goal: TARGET_REACHING_GOAL_STARS,
             avg_deviation_deg: Number(avgDeviation.toFixed(1)),
         };
-    }, [avgDeviation, zoneStats]);
+    }, [avgDeviation, selectedLevel, starsCollected, zoneStats]);
 
     const { endSessionIfActive } = usePersistedGatewaySession({
         wsRef,
@@ -271,6 +348,7 @@ const GameBalance = () => {
         buildDetails: buildSessionDetails,
         metadata: {
             game_label: 'Magic Plate',
+            level_mode: selectedLevel,
         },
     });
 
@@ -537,13 +615,19 @@ const GameBalance = () => {
         const leanFwdDeg = -rv[1] * RAD_TO_DEG;
         const rawYawDeg = -rv[0] * RAD_TO_DEG;
 
-        // === Yaw drift compensation: slow baseline tracks drift, fast movements pass through ===
+        // === Yaw drift compensation: baseline should only adapt near neutral ===
         if (!sensorState.yawBaselineInit) {
             sensorState.yawBaseline = rawYawDeg;
             sensorState.yawBaselineInit = true;
         } else {
-            // Very slow tracking: baseline follows drift (~0.2% per frame at 100Hz)
-            sensorState.yawBaseline += (rawYawDeg - sensorState.yawBaseline) * 0.002;
+            const yawOffsetDeg = rawYawDeg - sensorState.yawBaseline;
+            const nearNeutralPose = Math.abs(leanLeftDeg) < 4 && Math.abs(leanFwdDeg) < 4 && Math.abs(yawOffsetDeg) < 6;
+            const allowYawBaselineAdapt = gameStateRef.current !== GAME_STATES.PLAYING || nearNeutralPose;
+
+            if (allowYawBaselineAdapt) {
+                // Very slow tracking: baseline follows idle drift but does not chase an intentional held pose.
+                sensorState.yawBaseline += yawOffsetDeg * 0.002;
+            }
         }
         const yawDeg = rawYawDeg - sensorState.yawBaseline;
 
@@ -744,6 +828,74 @@ const GameBalance = () => {
         };
     }, [gameState]);
 
+    useEffect(() => {
+        if (!isTargetLevel || gameState !== GAME_STATES.PLAYING) {
+            targetReachedAtRef.current = null;
+            centerReturnAtRef.current = null;
+            return;
+        }
+
+        if (targetMissionPhase === TARGET_MISSION_PHASES.COMPLETE) {
+            return;
+        }
+
+        const now = Date.now();
+
+        if (targetMissionPhase === TARGET_MISSION_PHASES.TO_TARGET) {
+            const targetDistance = getDistanceFromCenter(bubbleX - currentTargetPoint.x, bubbleY - currentTargetPoint.y);
+            if (targetDistance <= TARGET_REACHING_HIT_RADIUS) {
+                if (!targetReachedAtRef.current) {
+                    targetReachedAtRef.current = now;
+                }
+
+                if (now - targetReachedAtRef.current >= TARGET_REACHING_TARGET_HOLD_MS) {
+                    const nextStarCount = starsCollected + 1;
+                    setStarsCollected(nextStarCount);
+                    setTargetMissionPhase(nextStarCount >= TARGET_REACHING_GOAL_STARS
+                        ? TARGET_MISSION_PHASES.COMPLETE
+                        : TARGET_MISSION_PHASES.RETURN_CENTER);
+                    targetReachedAtRef.current = null;
+                    centerReturnAtRef.current = null;
+                }
+            } else {
+                targetReachedAtRef.current = null;
+            }
+
+            return;
+        }
+
+        if (targetMissionPhase === TARGET_MISSION_PHASES.RETURN_CENTER) {
+            if (zone === 'A') {
+                if (!centerReturnAtRef.current) {
+                    centerReturnAtRef.current = now;
+                }
+
+                if (now - centerReturnAtRef.current >= TARGET_REACHING_CENTER_HOLD_MS) {
+                    const nextTargetPoint = pickNextTargetPoint(currentTargetPoint.id);
+                    setCurrentTargetId(nextTargetPoint.id);
+                    setTargetMissionPhase(TARGET_MISSION_PHASES.TO_TARGET);
+                    targetReachedAtRef.current = null;
+                    centerReturnAtRef.current = null;
+                }
+            } else {
+                centerReturnAtRef.current = null;
+            }
+        }
+    }, [bubbleX, bubbleY, currentTargetPoint, gameState, isTargetLevel, starsCollected, targetMissionPhase, zone]);
+
+    useEffect(() => {
+        if (gameState !== GAME_STATES.PLAYING || selectedLevel !== GAME_LEVELS.STATIC_HOLD) {
+            return;
+        }
+
+        if (timeInZone < STATIC_HOLD_GOAL_SECONDS) {
+            return;
+        }
+
+        setSelectedLevel(GAME_LEVELS.TARGET_REACHING);
+        resetTargetMission(GAME_LEVELS.TARGET_REACHING);
+    }, [gameState, resetTargetMission, selectedLevel, timeInZone]);
+
     // === Time In Zone Counter ===
     // === Zone Stats Counter ===
     useEffect(() => {
@@ -786,10 +938,12 @@ const GameBalance = () => {
         autoCenterArmedRef.current = false;
         autoCenterStableSinceRef.current = null;
         autoCenterDriftSinceRef.current = null;
+        setSelectedLevel(GAME_LEVELS.STATIC_HOLD);
         setGameState(GAME_STATES.PLAYING);
         gameStateRef.current = GAME_STATES.PLAYING;
         setTimeInZone(0);
         setZoneStats({ A: 0, B: 0, C: 0 });
+        resetTargetMission(GAME_LEVELS.STATIC_HOLD);
         setSessionTime(0);
         setAvgDeviation(0);
         setSessionMetrics({});
@@ -819,6 +973,7 @@ const GameBalance = () => {
     };
 
     const resetSession = () => {
+        setSelectedLevel(GAME_LEVELS.STATIC_HOLD);
         setGameState(GAME_STATES.READY);
         gameStateRef.current = GAME_STATES.READY;
         sensorRuntimesRef.current.forEach((sensorState) => {
@@ -830,6 +985,7 @@ const GameBalance = () => {
         syncVisibleSensorViews();
         setTimeInZone(0);
         setZoneStats({ A: 0, B: 0, C: 0 });
+        resetTargetMission(GAME_LEVELS.STATIC_HOLD);
         setSessionTime(0);
         setAvgDeviation(0);
         setSessionMetrics({});
@@ -911,6 +1067,7 @@ const GameBalance = () => {
     };
 
     const directionHints = getDirectionHint();
+    const showTargetPoint = isTargetLevel && !isTargetMissionComplete;
 
     return (
         <div className="min-h-screen bg-gradient-to-b from-blue-50 via-blue-100 to-blue-200">
@@ -1043,7 +1200,7 @@ const GameBalance = () => {
                         </div>
 
                         {/* Center Target Zone (Green - A) */}
-                        <div className={`absolute w-1/3 h-1/3 rounded-full border-4 transition-all duration-300 ${zone === 'A'
+                        <div className={`absolute w-1/3 h-1/3 rounded-full border-4 transition-all duration-300 ${(zone === 'A' || (isTargetLevel && targetMissionPhase === TARGET_MISSION_PHASES.RETURN_CENTER))
                             ? 'bg-emerald-100/50 border-emerald-400 shadow-[0_0_30px_rgba(52,211,153,0.3)]'
                             : 'bg-gray-50 border-gray-200'
                             }`}></div>
@@ -1057,6 +1214,24 @@ const GameBalance = () => {
                         {/* Crosshairs */}
                         <div className="absolute w-full h-[1px] bg-gray-200/50"></div>
                         <div className="absolute h-full w-[1px] bg-gray-200/50"></div>
+
+                        {/* Level 2 Target */}
+                        {showTargetPoint && (
+                            <div
+                                className={`absolute z-10 flex flex-col items-center justify-center transition-all duration-200 ${targetMissionPhase === TARGET_MISSION_PHASES.RETURN_CENTER ? 'opacity-20 scale-90' : 'opacity-100 scale-100'}`}
+                                style={{
+                                    left: `calc(50% + ${currentTargetPoint.x * 2.5}px - 26px)`,
+                                    top: `calc(50% + ${currentTargetPoint.y * 2.5}px - 26px)`,
+                                }}
+                            >
+                                <div className="w-12 h-12 rounded-full bg-fuchsia-100 border-2 border-fuchsia-300 shadow-lg flex items-center justify-center text-fuchsia-600">
+                                    <Star className="w-6 h-6 fill-current" />
+                                </div>
+                                <span className="mt-2 rounded-full bg-white/90 px-2 py-0.5 text-[11px] font-extrabold uppercase tracking-wide text-fuchsia-600 shadow-sm">
+                                    {currentTargetPoint.label}
+                                </span>
+                            </div>
+                        )}
 
                         {/* THE BALL (Bubble) */}
                         {activeBallViews.map((sensorView) => {
@@ -1088,11 +1263,14 @@ const GameBalance = () => {
 
                     {/* Zone Status (Mobile) */}
                     <div className="lg:hidden flex items-center gap-2 px-6 py-2 bg-white rounded-full shadow-lg mt-6">
-                        <div className={`w-3 h-3 rounded-full ${zone === 'A' ? 'bg-emerald-500 animate-pulse' :
-                            zone === 'B' ? 'bg-amber-500' : 'bg-red-500'
+                        <div className={`w-3 h-3 rounded-full ${levelGoalReached
+                            ? 'bg-emerald-500 animate-pulse'
+                            : selectedLevel === GAME_LEVELS.STATIC_HOLD
+                                ? (zone === 'A' ? 'bg-emerald-500 animate-pulse' : zone === 'B' ? 'bg-amber-500' : 'bg-red-500')
+                                : (targetMissionPhase === TARGET_MISSION_PHASES.RETURN_CENTER ? 'bg-amber-500' : 'bg-fuchsia-500')
                             }`}></div>
                         <span className="font-bold text-gray-700">
-                            {zone === 'A' ? 'Perfect' : zone === 'B' ? 'Warning' : 'Unstable'}
+                            {missionStatusLabel}
                         </span>
                     </div>
                 </div>
@@ -1106,12 +1284,15 @@ const GameBalance = () => {
                         <div className="text-6xl font-black text-gray-800 tabular-nums">
                             {formatTime(sessionTime)}
                         </div>
-                        <div className="mt-6 flex items-center justify-center gap-3 px-6 py-3 bg-gray-50 rounded-2xl">
-                            <div className={`w-4 h-4 rounded-full ${zone === 'A' ? 'bg-emerald-500 animate-pulse' :
-                                zone === 'B' ? 'bg-amber-500' : 'bg-red-500'
+                        <div className={`mt-6 flex items-center justify-center gap-3 px-6 py-3 rounded-2xl ${levelGoalReached ? 'bg-emerald-50' : 'bg-gray-50'}`}>
+                            <div className={`w-4 h-4 rounded-full ${levelGoalReached
+                                ? 'bg-emerald-500 animate-pulse'
+                                : selectedLevel === GAME_LEVELS.STATIC_HOLD
+                                    ? (zone === 'A' ? 'bg-emerald-500 animate-pulse' : zone === 'B' ? 'bg-amber-500' : 'bg-red-500')
+                                    : (targetMissionPhase === TARGET_MISSION_PHASES.RETURN_CENTER ? 'bg-amber-500' : 'bg-fuchsia-500')
                                 }`}></div>
                             <span className="text-xl font-bold text-gray-700">
-                                {zone === 'A' ? 'Perfect Balance' : zone === 'B' ? 'Drifting' : 'Unstable'}
+                                {missionStatusLabel}
                             </span>
                         </div>
                     </div>
@@ -1142,13 +1323,32 @@ const GameBalance = () => {
                     {/* Target Stats (Score) */}
                     <div className="bg-white rounded-2xl lg:rounded-3xl shadow-lg p-6 flex items-center justify-between">
                         <div className="text-left">
-                            <div className="text-sm text-gray-400 font-bold uppercase">Time in Zone</div>
+                            <div className="text-xs text-gray-400 font-bold uppercase mb-1">{missionLevelLabel}</div>
+                            <div className="text-sm text-gray-400 font-bold uppercase">
+                                {selectedLevel === GAME_LEVELS.STATIC_HOLD ? 'Center Hold' : 'Stars Collected'}
+                            </div>
                             <div className="text-2xl font-black text-gray-800">
-                                {timeInZone.toFixed(1)}<span className="text-lg text-gray-500 ml-1">s</span>
+                                {selectedLevel === GAME_LEVELS.STATIC_HOLD ? (
+                                    <>
+                                        {timeInZone.toFixed(1)}<span className="text-lg text-gray-500 ml-1">/ {STATIC_HOLD_GOAL_SECONDS}s</span>
+                                    </>
+                                ) : (
+                                    <>
+                                        {starsCollected}<span className="text-lg text-gray-500 ml-1">/ {TARGET_REACHING_GOAL_STARS}</span>
+                                    </>
+                                )}
+                            </div>
+                            <div className={`mt-2 inline-flex rounded-full px-3 py-1 text-xs font-bold ${missionStatusTone}`}>
+                                {missionStatusLabel}
                             </div>
                         </div>
-                        <div className="h-12 w-12 rounded-full bg-emerald-100 flex items-center justify-center text-emerald-600">
-                            <Target className="w-6 h-6" />
+                        <div className="flex flex-col items-end gap-2">
+                            <div className={`h-12 w-12 rounded-full flex items-center justify-center ${selectedLevel === GAME_LEVELS.STATIC_HOLD ? 'bg-emerald-100 text-emerald-600' : 'bg-fuchsia-100 text-fuchsia-600'}`}>
+                                {selectedLevel === GAME_LEVELS.STATIC_HOLD ? <Target className="w-6 h-6" /> : <Star className="w-6 h-6 fill-current" />}
+                            </div>
+                            <div className="w-28 h-2 rounded-full bg-gray-100 overflow-hidden">
+                                <div className={`h-full transition-all duration-300 ${selectedLevel === GAME_LEVELS.STATIC_HOLD ? 'bg-emerald-500' : 'bg-fuchsia-500'}`} style={{ width: `${missionProgressPercent}%` }}></div>
+                            </div>
                         </div>
                     </div>
 
