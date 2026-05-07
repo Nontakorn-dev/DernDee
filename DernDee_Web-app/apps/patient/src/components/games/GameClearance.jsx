@@ -24,7 +24,7 @@ const MAX_VISIBLE_SENSORS = 2;
 const SENSOR_STALE_AFTER_MS = 2500;
 const VISUAL_FLOOR_SNAP_THRESHOLD = BASELINE_HEIGHT;
 const VISUAL_FLOOR_HOLD_MS = 180;
-const VISUAL_POST_HIT_HOLD_MS = 180;
+const VISUAL_POST_HIT_HOLD_MS = 500;
 
 const GAME_STATES = {
     READY: 'READY',
@@ -85,6 +85,7 @@ const GameClearance = () => {
     // === Real-time Data ===
     const [currentHeight, setCurrentHeight] = useState(0);
     const [displayHeight, setDisplayHeight] = useState(0);
+    const [averageClearanceCm, setAverageClearanceCm] = useState(0);
     const [reps, setReps] = useState(0);
     const [totalReps, setTotalReps] = useState(20); // Goal
     const [stabilityScore, setStabilityScore] = useState(100);
@@ -100,6 +101,10 @@ const GameClearance = () => {
     const visualPeakLockRef = useRef(false);
     const visualFloorCandidateStartedAtRef = useRef(null);
     const visualFloorSnapEligibleRef = useRef(false);
+    const activeRepPeakHeightRef = useRef(0);
+    const pendingAverageClearanceCommitRef = useRef(false);
+    const averageClearanceTotalCmRef = useRef(0);
+    const averageClearanceCountRef = useRef(0);
 
     // === WebSocket ===
     const wsRef = useRef(null);
@@ -123,6 +128,38 @@ const GameClearance = () => {
     };
 
     const gaugeState = getGaugeState();
+    const displayedAverageClearanceCm = Number.isFinite(sessionMetrics?.avg_clearance_m)
+        ? sessionMetrics.avg_clearance_m * 100
+        : averageClearanceCm;
+    const averageClearanceToneClass = displayedAverageClearanceCm >= targetHeight
+        ? 'text-emerald-500'
+        : displayedAverageClearanceCm >= targetHeight * 0.7
+            ? 'text-amber-500'
+            : 'text-blue-500';
+
+    const resetAverageClearanceTracking = useCallback(() => {
+        activeRepPeakHeightRef.current = 0;
+        pendingAverageClearanceCommitRef.current = false;
+        averageClearanceTotalCmRef.current = 0;
+        averageClearanceCountRef.current = 0;
+        setAverageClearanceCm(0);
+    }, []);
+
+    const commitAverageClearancePeak = useCallback(() => {
+        if (!pendingAverageClearanceCommitRef.current) {
+            return;
+        }
+
+        const peakHeightCm = activeRepPeakHeightRef.current;
+        if (peakHeightCm > 0) {
+            averageClearanceTotalCmRef.current += peakHeightCm;
+            averageClearanceCountRef.current += 1;
+            setAverageClearanceCm(averageClearanceTotalCmRef.current / averageClearanceCountRef.current);
+        }
+
+        activeRepPeakHeightRef.current = 0;
+        pendingAverageClearanceCommitRef.current = false;
+    }, []);
 
     const getVisibleSensorStates = useCallback(() => {
         return activeSensorKeysRef.current
@@ -145,10 +182,11 @@ const GameClearance = () => {
         activeSensorKeysRef.current = [];
         visualFloorCandidateStartedAtRef.current = null;
         visualFloorSnapEligibleRef.current = false;
+        resetAverageClearanceTracking();
         setCurrentHeight(0);
         setDisplayHeight(0);
         setStabilityScore(100);
-    }, []);
+    }, [resetAverageClearanceTracking]);
 
     const buildSessionSummary = useCallback(() => {
         const cadenceFromReps = sessionTime > 0 ? Math.round((reps / sessionTime) * 60) : 0;
@@ -161,10 +199,12 @@ const GameClearance = () => {
             cadence_spm: Number.isFinite(sessionMetrics?.cadence_spm) ? sessionMetrics.cadence_spm : cadenceFromReps,
             avg_step_length_m: Number.isFinite(sessionMetrics?.avg_step_length_m) ? sessionMetrics.avg_step_length_m : null,
             avg_stride_length_m: Number.isFinite(sessionMetrics?.avg_stride_length_m) ? sessionMetrics.avg_stride_length_m : null,
-            avg_clearance_m: Number.isFinite(sessionMetrics?.avg_clearance_m) ? sessionMetrics.avg_clearance_m : targetHeight / 100,
+            avg_clearance_m: Number.isFinite(sessionMetrics?.avg_clearance_m)
+                ? sessionMetrics.avg_clearance_m
+                : (averageClearanceCm > 0 ? averageClearanceCm / 100 : targetHeight / 100),
             symmetry_score: Number.isFinite(sessionMetrics?.symmetry_percent) ? sessionMetrics.symmetry_percent : derivedQualityScore,
         };
-    }, [reps, sessionMetrics, sessionTime, stabilityScore, targetHeight, totalReps]);
+    }, [averageClearanceCm, reps, sessionMetrics, sessionTime, stabilityScore, targetHeight, totalReps]);
 
     const buildSessionDetails = useCallback(() => {
         const goalProgressPercent = totalReps > 0 ? Math.round((reps / totalReps) * 100) : 0;
@@ -345,6 +385,16 @@ const GameClearance = () => {
         }
     }, [sensitivity, syncVisibleSensorViews, targetHeight]);
 
+    useEffect(() => {
+        if (gameState !== GAME_STATES.PLAYING) {
+            return;
+        }
+
+        if (currentHeight > activeRepPeakHeightRef.current) {
+            activeRepPeakHeightRef.current = currentHeight;
+        }
+    }, [currentHeight, gameState]);
+
     // === Rep Counting Logic (State Machine) ===
     useEffect(() => {
         if (gameState !== GAME_STATES.PLAYING) return;
@@ -355,6 +405,8 @@ const GameClearance = () => {
 
         if (repState === 'READY' && currentHeight >= targetHeight && repCooldownElapsed) {
             // Hit target! Count rep
+            activeRepPeakHeightRef.current = Math.max(activeRepPeakHeightRef.current, currentHeight);
+            pendingAverageClearanceCommitRef.current = true;
             setRepState('HIT_TARGET');
             lastRepCountAtRef.current = now;
             setReps(prev => prev + 1);
@@ -370,9 +422,10 @@ const GameClearance = () => {
             }
         } else if (repState === 'HIT_TARGET' && repResetEligibleRef.current && currentHeight < REP_RESET_THRESHOLD) {
             // Re-arm only after the foot has been back down briefly to avoid double counts within one lift.
+            commitAverageClearancePeak();
             setRepState('READY');
         }
-    }, [currentHeight, repState, targetHeight, gameState, soundEnabled, vibrationEnabled]);
+    }, [commitAverageClearancePeak, currentHeight, repState, targetHeight, gameState, soundEnabled, vibrationEnabled]);
 
     // Keep the gauge responsive, but suppress upward visual bounce after a rep has already been counted.
     useEffect(() => {
@@ -466,6 +519,7 @@ const GameClearance = () => {
         setGameState(GAME_STATES.PLAYING);
         setCurrentHeight(0);
         setDisplayHeight(0);
+        resetAverageClearanceTracking();
         setReps(0);
         setSessionTime(0);
         setRepState('READY');
@@ -488,6 +542,7 @@ const GameClearance = () => {
     };
 
     const stopSession = () => {
+        commitAverageClearancePeak();
         setGameState(GAME_STATES.COMPLETED);
         if (timerRef.current) {
             clearInterval(timerRef.current);
@@ -504,6 +559,7 @@ const GameClearance = () => {
         setSessionTime(0);
         setCurrentHeight(0);
         setDisplayHeight(0);
+        resetAverageClearanceTracking();
         setRepState('READY');
         repResetCandidateStartedAtRef.current = null;
         repResetEligibleRef.current = false;
@@ -757,12 +813,12 @@ const GameClearance = () => {
                     {/* Stats Grid */}
                     <div className="hidden lg:grid grid-cols-2 gap-4">
                         <div className="bg-white rounded-3xl shadow-lg p-5 flex flex-col items-center justify-center">
-                            <div className="text-sm font-bold text-gray-400 uppercase tracking-wide mb-1">Stability Score</div>
-                            <div className={`text-4xl lg:text-5xl font-black ${stabilityScore >= 80 ? 'text-emerald-500' : stabilityScore >= 50 ? 'text-amber-500' : 'text-red-500'}`}>
-                                {stabilityScore}%
+                            <div className="text-sm font-bold text-gray-400 uppercase tracking-wide mb-1">Average Clearance</div>
+                            <div className={`text-4xl lg:text-5xl font-black ${averageClearanceToneClass}`}>
+                                {displayedAverageClearanceCm.toFixed(1)}<span className="text-2xl text-gray-400 ml-1">cm</span>
                             </div>
                             <div className="mt-2 text-xs font-bold px-2 py-1 bg-gray-100 rounded text-gray-500">
-                                {stabilityScore >= 80 ? 'Excellent' : 'Needs Focus'}
+                                {averageClearanceCountRef.current > 0 ? 'Live average per rep' : 'Waiting for first rep'}
                             </div>
                         </div>
 
