@@ -14,6 +14,8 @@ const STEP_LENGTH_MAX_M = 1.25;
 const STANCE_ENTRY_THRESHOLD_MIN = 3;
 const STANCE_ENTRY_THRESHOLD_MAX = 12;
 const STANCE_ENTRY_VALLEY_THRESHOLD_MAX = 40;
+const SUSTAINED_QUIET_SECONDS = 0.12;
+const SUSTAINED_QUIET_SAMPLES = Math.max(4, Math.round(SUSTAINED_QUIET_SECONDS * SAMPLE_RATE));
 
 function clamp(value, min, max) {
   return Math.max(min, Math.min(max, value));
@@ -66,20 +68,30 @@ function resolveAdaptiveStanceThreshold(smoothedAngVel, cycle, peakIdx) {
   return adaptiveThreshold;
 }
 
+function buildIntegrationWindow(cycleStartIdx, endIdx, timestamps, threshold, source) {
+  return {
+    startIdx: cycleStartIdx,
+    endIdx,
+    startTime: Number.isFinite(timestamps?.[cycleStartIdx]) ? timestamps[cycleStartIdx] : null,
+    endTime: Number.isFinite(timestamps?.[endIdx]) ? timestamps[endIdx] : null,
+    threshold,
+    source,
+  };
+}
+
 function findStepIntegrationWindow(smoothedAngVel, timestamps, cycle) {
   const cycleStartIdx = cycle?.hsStart?.index;
   const cycleEndIdx = cycle?.hsEnd?.index;
 
   if (!Number.isInteger(cycleStartIdx) || !Number.isInteger(cycleEndIdx) || cycleEndIdx <= cycleStartIdx) {
     const fallbackIdx = cycleEndIdx ?? cycleStartIdx ?? 0;
-    return {
-      startIdx: cycleStartIdx ?? fallbackIdx,
-      endIdx: fallbackIdx,
-      startTime: Number.isFinite(timestamps?.[cycleStartIdx]) ? timestamps[cycleStartIdx] : null,
-      endTime: Number.isFinite(timestamps?.[fallbackIdx]) ? timestamps[fallbackIdx] : null,
-      threshold: STANCE_ENTRY_ANGULAR_VELOCITY_ABS,
-      source: 'fallback',
-    };
+    return buildIntegrationWindow(
+      cycleStartIdx ?? fallbackIdx,
+      fallbackIdx,
+      timestamps,
+      STANCE_ENTRY_ANGULAR_VELOCITY_ABS,
+      'fallback',
+    );
   }
 
   let peakIdx = cycleStartIdx;
@@ -100,6 +112,7 @@ function findStepIntegrationWindow(smoothedAngVel, timestamps, cycle) {
 
   const searchStartIdx = Math.min(cycleEndIdx, Math.max(cycleStartIdx + 1, peakIdx + 1));
 
+  let lastValleyIdx = null;
   for (let i = searchStartIdx + 1; i < cycleEndIdx; i += 1) {
     const prevAbs = Math.abs(smoothedAngVel[i - 1]);
     const currentAbs = Math.abs(smoothedAngVel[i]);
@@ -110,17 +123,47 @@ function findStepIntegrationWindow(smoothedAngVel, timestamps, cycle) {
       && currentAbs <= prevAbs
       && currentAbs <= nextAbs
     ) {
-      return {
-        startIdx: cycleStartIdx,
-        endIdx: i,
-        startTime: Number.isFinite(timestamps?.[cycleStartIdx]) ? timestamps[cycleStartIdx] : null,
-        endTime: Number.isFinite(timestamps?.[i]) ? timestamps[i] : null,
-        threshold: adaptiveThreshold,
-        source: 'post-peak-valley',
-      };
+      lastValleyIdx = i;
     }
   }
 
+  if (Number.isInteger(lastValleyIdx)) {
+    return buildIntegrationWindow(
+      cycleStartIdx,
+      lastValleyIdx,
+      timestamps,
+      adaptiveThreshold,
+      'post-peak-valley',
+    );
+  }
+
+  let quietRunStartIdx = null;
+  let lastSustainedQuietStartIdx = null;
+  for (let i = searchStartIdx; i <= cycleEndIdx; i += 1) {
+    if (Math.abs(smoothedAngVel[i]) <= adaptiveThreshold) {
+      if (quietRunStartIdx === null) {
+        quietRunStartIdx = i;
+      }
+
+      if ((i - quietRunStartIdx + 1) >= SUSTAINED_QUIET_SAMPLES) {
+        lastSustainedQuietStartIdx = quietRunStartIdx;
+      }
+    } else {
+      quietRunStartIdx = null;
+    }
+  }
+
+  if (Number.isInteger(lastSustainedQuietStartIdx)) {
+    return buildIntegrationWindow(
+      cycleStartIdx,
+      lastSustainedQuietStartIdx,
+      timestamps,
+      adaptiveThreshold,
+      'sustained-quiet-start',
+    );
+  }
+
+  let lastThresholdIdx = null;
   for (let i = searchStartIdx; i < cycleEndIdx; i += 1) {
     const currentValue = smoothedAngVel[i];
     const nextValue = smoothedAngVel[i + 1];
@@ -130,28 +173,35 @@ function findStepIntegrationWindow(smoothedAngVel, timestamps, cycle) {
     const nextSupportsStanceEntry = nextAbs <= adaptiveThreshold || (currentValue >= 0 && nextValue <= 0);
 
     if (withinThreshold && nextSupportsStanceEntry) {
-        return {
-          startIdx: cycleStartIdx,
-          endIdx: i,
-          startTime: Number.isFinite(timestamps?.[cycleStartIdx]) ? timestamps[cycleStartIdx] : null,
-          endTime: Number.isFinite(timestamps?.[i]) ? timestamps[i] : null,
-          threshold: adaptiveThreshold,
-          source: 'adaptive-stance-entry',
-        };
+      lastThresholdIdx = i;
     }
   }
 
+  if (Number.isInteger(lastThresholdIdx)) {
+    return buildIntegrationWindow(
+      cycleStartIdx,
+      lastThresholdIdx,
+      timestamps,
+      adaptiveThreshold,
+      'adaptive-stance-entry',
+    );
+  }
+
+  let lastZeroCrossingIdx = null;
   for (let i = searchStartIdx; i < cycleEndIdx; i += 1) {
     if (smoothedAngVel[i] >= 0 && smoothedAngVel[i + 1] <= 0) {
-      return {
-        startIdx: cycleStartIdx,
-        endIdx: i,
-        startTime: Number.isFinite(timestamps?.[cycleStartIdx]) ? timestamps[cycleStartIdx] : null,
-        endTime: Number.isFinite(timestamps?.[i]) ? timestamps[i] : null,
-        threshold: adaptiveThreshold,
-        source: 'zero-crossing-fallback',
-      };
+      lastZeroCrossingIdx = i;
     }
+  }
+
+  if (Number.isInteger(lastZeroCrossingIdx)) {
+    return buildIntegrationWindow(
+      cycleStartIdx,
+      lastZeroCrossingIdx,
+      timestamps,
+      adaptiveThreshold,
+      'zero-crossing-fallback',
+    );
   }
 
   let minAbsIdx = searchStartIdx;
@@ -165,24 +215,22 @@ function findStepIntegrationWindow(smoothedAngVel, timestamps, cycle) {
   }
 
   if (Number.isFinite(minAbsValue)) {
-    return {
-      startIdx: cycleStartIdx,
-      endIdx: minAbsIdx,
-      startTime: Number.isFinite(timestamps?.[cycleStartIdx]) ? timestamps[cycleStartIdx] : null,
-      endTime: Number.isFinite(timestamps?.[minAbsIdx]) ? timestamps[minAbsIdx] : null,
-      threshold: adaptiveThreshold,
-      source: 'min-abs-fallback',
-    };
+    return buildIntegrationWindow(
+      cycleStartIdx,
+      minAbsIdx,
+      timestamps,
+      adaptiveThreshold,
+      'min-abs-fallback',
+    );
   }
 
-  return {
-    startIdx: cycleStartIdx,
-    endIdx: cycleEndIdx,
-    startTime: Number.isFinite(timestamps?.[cycleStartIdx]) ? timestamps[cycleStartIdx] : null,
-    endTime: Number.isFinite(timestamps?.[cycleEndIdx]) ? timestamps[cycleEndIdx] : null,
-    threshold: adaptiveThreshold,
-    source: 'hs-end-fallback',
-  };
+  return buildIntegrationWindow(
+    cycleStartIdx,
+    cycleEndIdx,
+    timestamps,
+    adaptiveThreshold,
+    'hs-end-fallback',
+  );
 }
 
 function normalizeTimestampField(sample) {
@@ -303,6 +351,7 @@ export class GaitProcessor {
     const { events, cycles } = this.eventDetector.detect(angVelDeg, timestamps);
     const smoothedAngVel = movingAverage(angVelDeg, 5);
     const stepLengths = [];
+    const strideLengths = [];
     const strideTimes = [];
     const stancePcts = [];
     const swingPcts = [];
@@ -335,13 +384,15 @@ export class GaitProcessor {
         cycleAngles.push(shankAngle[j]);
       }
 
-      const { strideLength: integratedStepLength, clearance } = this.velocityIntegrator.computeStrideMetrics(
+      const { strideLength: integratedStrideLength, clearance } = this.velocityIntegrator.computeStrideMetrics(
         cycleAy,
         cycleAz,
         cycleAngles,
       );
 
-      stepLengths.push(Math.max(STEP_LENGTH_MIN_M, Math.min(STEP_LENGTH_MAX_M, integratedStepLength)));
+      const strideLength = Math.max(STEP_LENGTH_MIN_M, Math.min(STEP_LENGTH_MAX_M, integratedStrideLength));
+      strideLengths.push(strideLength);
+      stepLengths.push(strideLength / 2);
       clearances.push(Math.max(0, Math.min(0.3, clearance)));
     }
 
@@ -362,7 +413,7 @@ export class GaitProcessor {
     const lastCycle = cycles[lastIdx];
     const lastIntegrationWindow = integrationWindows[lastIdx] ?? null;
     const stepLengthLast = stepLengths[lastIdx];
-    const strideLengthLast = stepLengthLast * 2;
+    const strideLengthLast = strideLengths[lastIdx];
     const strideTimeLast = strideTimes[lastIdx];
     const stancePctLast = stancePcts[lastIdx];
     const swingPctLast = swingPcts[lastIdx];
