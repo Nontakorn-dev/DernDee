@@ -1,5 +1,35 @@
 import { deg2rad, trapezoidalIntegrate } from './signalUtils.js';
 
+function average(values) {
+  if (!values.length) {
+    return 0;
+  }
+
+  return values.reduce((sum, value) => sum + value, 0) / values.length;
+}
+
+function normalizeWindow(window, sampleCount) {
+  const startIdx = Math.max(0, Math.round(window?.startIdx ?? 0));
+  const endIdx = Math.min(sampleCount - 1, Math.round(window?.endIdx ?? -1));
+  if (endIdx < startIdx) {
+    return null;
+  }
+
+  return { startIdx, endIdx };
+}
+
+function averageInWindow(values, window) {
+  const samples = [];
+  for (let i = window.startIdx; i <= window.endIdx; i += 1) {
+    samples.push(values[i]);
+  }
+  return average(samples);
+}
+
+function averageIndexInWindow(window) {
+  return (window.startIdx + window.endIdx) / 2;
+}
+
 export class VelocityIntegrator {
   constructor(options = {}) {
     this.sampleRate = options.sampleRate || 100;
@@ -18,7 +48,7 @@ export class VelocityIntegrator {
     return { aVert, aHoriz };
   }
 
-  computeStrideMetrics(ayArray, azArray, angles) {
+  computeStrideMetrics(ayArray, azArray, angles, options = {}) {
     const sampleCount = ayArray.length;
     if (sampleCount < 2) {
       return {
@@ -31,6 +61,14 @@ export class VelocityIntegrator {
       };
     }
 
+    const integrationStartIdx = Math.max(0, Math.min(sampleCount - 1, Math.round(options.integrationStartIdx ?? 0)));
+    const integrationEndIdx = Math.max(integrationStartIdx, Math.min(sampleCount - 1, Math.round(options.integrationEndIdx ?? (sampleCount - 1))));
+    const stanceWindows = Array.isArray(options.stanceWindows)
+      ? options.stanceWindows
+        .map((window) => normalizeWindow(window, sampleCount))
+        .filter(Boolean)
+      : [];
+
     const aHoriz = new Array(sampleCount);
     const aVertLinear = new Array(sampleCount);
 
@@ -40,11 +78,96 @@ export class VelocityIntegrator {
       aVertLinear[i] = world.aVert - this.gravity;
     }
 
-    let velocity = trapezoidalIntegrate(aHoriz, this.dt);
+    const horizontalBiasSamples = [];
+    const verticalBiasSamples = [];
+    for (const stanceWindow of stanceWindows) {
+      const startIdx = Math.max(0, Math.round(stanceWindow?.startIdx ?? 0));
+      const endIdx = Math.min(sampleCount - 1, Math.round(stanceWindow?.endIdx ?? -1));
+
+      if (endIdx < startIdx) {
+        continue;
+      }
+
+      for (let i = startIdx; i <= endIdx; i += 1) {
+        horizontalBiasSamples.push(aHoriz[i]);
+        verticalBiasSamples.push(aVertLinear[i]);
+      }
+    }
+
+    const horizontalBias = average(horizontalBiasSamples);
+    const verticalBias = average(verticalBiasSamples);
+
+    const correctedHoriz = aHoriz.map((value) => value - horizontalBias);
+    const correctedVert = aVertLinear.map((value) => value - verticalBias);
+
+    if (stanceWindows.length >= 2) {
+      const leftStanceWindow = stanceWindows[0];
+      const rightStanceWindow = stanceWindows[stanceWindows.length - 1];
+
+      let velocityFull = trapezoidalIntegrate(correctedHoriz, this.dt);
+      velocityFull = this.correctDriftWithStanceBoundaries(velocityFull, leftStanceWindow, rightStanceWindow);
+      velocityFull = this.enforceZeroVelocityInStanceWindows(velocityFull, stanceWindows);
+      const displacementFull = trapezoidalIntegrate(velocityFull, this.dt);
+
+      let verticalVelocityFull = trapezoidalIntegrate(correctedVert, this.dt);
+      verticalVelocityFull = this.correctDriftWithStanceBoundaries(verticalVelocityFull, leftStanceWindow, rightStanceWindow);
+      verticalVelocityFull = this.enforceZeroVelocityInStanceWindows(verticalVelocityFull, stanceWindows);
+      const verticalDisplacementFull = trapezoidalIntegrate(verticalVelocityFull, this.dt);
+
+      const startDisplacement = averageInWindow(displacementFull, leftStanceWindow);
+      const endDisplacement = averageInWindow(displacementFull, rightStanceWindow);
+      const leftVerticalBaseline = averageInWindow(verticalDisplacementFull, leftStanceWindow);
+      const rightVerticalBaseline = averageInWindow(verticalDisplacementFull, rightStanceWindow);
+      const verticalBaseline = Math.min(leftVerticalBaseline, rightVerticalBaseline);
+
+      let swingMaxVertical = -Infinity;
+      for (let i = integrationStartIdx; i <= integrationEndIdx; i += 1) {
+        swingMaxVertical = Math.max(swingMaxVertical, verticalDisplacementFull[i]);
+      }
+
+      const velocity = velocityFull.slice(integrationStartIdx, integrationEndIdx + 1);
+      const displacementOffset = displacementFull[integrationStartIdx] ?? 0;
+      const displacement = displacementFull
+        .slice(integrationStartIdx, integrationEndIdx + 1)
+        .map((value) => value - displacementOffset);
+      const verticalVelocity = verticalVelocityFull.slice(integrationStartIdx, integrationEndIdx + 1);
+      const verticalDisplacement = verticalDisplacementFull
+        .slice(integrationStartIdx, integrationEndIdx + 1)
+        .map((value) => value - verticalBaseline);
+
+      return {
+        strideLength: Math.abs(endDisplacement - startDisplacement),
+        clearance: Math.max(0, swingMaxVertical - verticalBaseline),
+        velocity,
+        displacement,
+        verticalVelocity,
+        verticalDisplacement,
+      };
+    }
+
+    const swingHoriz = [];
+    const swingVert = [];
+    for (let i = integrationStartIdx; i <= integrationEndIdx; i += 1) {
+      swingHoriz.push(correctedHoriz[i]);
+      swingVert.push(correctedVert[i]);
+    }
+
+    if (swingHoriz.length < 2) {
+      return {
+        strideLength: 0,
+        clearance: 0,
+        velocity: [],
+        displacement: [],
+        verticalVelocity: [],
+        verticalDisplacement: [],
+      };
+    }
+
+    let velocity = trapezoidalIntegrate(swingHoriz, this.dt);
     velocity = this.correctDrift(velocity);
     const displacement = trapezoidalIntegrate(velocity, this.dt);
 
-    let verticalVelocity = trapezoidalIntegrate(aVertLinear, this.dt);
+    let verticalVelocity = trapezoidalIntegrate(swingVert, this.dt);
     verticalVelocity = this.correctDrift(verticalVelocity);
     const verticalDisplacement = trapezoidalIntegrate(verticalVelocity, this.dt);
 
@@ -81,6 +204,36 @@ export class VelocityIntegrator {
     const corrected = new Array(sampleCount);
     for (let i = 0; i < sampleCount; i += 1) {
       corrected[i] = velocity[i] - (vStart + driftPerSample * i);
+    }
+
+    return corrected;
+  }
+
+  correctDriftWithStanceBoundaries(velocity, leftWindow, rightWindow) {
+    const leftAnchorIndex = averageIndexInWindow(leftWindow);
+    const rightAnchorIndex = averageIndexInWindow(rightWindow);
+    if (!Number.isFinite(leftAnchorIndex) || !Number.isFinite(rightAnchorIndex) || rightAnchorIndex <= leftAnchorIndex) {
+      return this.correctDrift(velocity);
+    }
+
+    const leftAnchorVelocity = averageInWindow(velocity, leftWindow);
+    const rightAnchorVelocity = averageInWindow(velocity, rightWindow);
+    const slope = (rightAnchorVelocity - leftAnchorVelocity) / (rightAnchorIndex - leftAnchorIndex);
+
+    const corrected = new Array(velocity.length);
+    for (let i = 0; i < velocity.length; i += 1) {
+      corrected[i] = velocity[i] - (leftAnchorVelocity + (slope * (i - leftAnchorIndex)));
+    }
+
+    return corrected;
+  }
+
+  enforceZeroVelocityInStanceWindows(velocity, stanceWindows) {
+    const corrected = [...velocity];
+    for (const stanceWindow of stanceWindows) {
+      for (let i = stanceWindow.startIdx; i <= stanceWindow.endIdx; i += 1) {
+        corrected[i] = 0;
+      }
     }
 
     return corrected;

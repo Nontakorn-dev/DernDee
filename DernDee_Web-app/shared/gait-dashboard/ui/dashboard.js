@@ -9,6 +9,12 @@ function formatMaybeNumber(value, digits = 1, fallback = '-') {
   return Number.isFinite(value) ? value.toFixed(digits) : fallback;
 }
 
+function formatPercentLabel(label, value) {
+  return Number.isFinite(value)
+    ? `${label} ${value.toFixed(1)}%`
+    : `${label} -`;
+}
+
 function buildAverageParams(entries) {
   if (!entries.length) {
     return null;
@@ -46,9 +52,10 @@ function buildAverageParams(entries) {
     const values = entries
       .map((entry) => entry.params?.[field])
       .filter(Number.isFinite);
+    const unresolvedIsMeaningful = field === 'stancePct' || field === 'swingPct';
     averaged[field] = values.length
       ? values.reduce((sum, value) => sum + value, 0) / values.length
-      : 0;
+      : (unresolvedIsMeaningful ? null : 0);
   });
 
   averaged.stepCount = Math.max(...entries.map((entry) => entry.params?.stepCount || 0));
@@ -130,10 +137,10 @@ export class Dashboard {
     this._animateValue('swingPct', formatMaybeNumber(params.swingPct, 1));
 
     if (this.stanceBar) {
-      this.stanceBar.style.width = `${params.stancePct || 0}%`;
-      this.swingBar.style.width = `${params.swingPct || 0}%`;
-      this.stancePctLabel.textContent = `Stance ${formatMaybeNumber(params.stancePct, 1, '0.0')}%`;
-      this.swingPctLabel.textContent = `Swing ${formatMaybeNumber(params.swingPct, 1, '0.0')}%`;
+      this.stanceBar.style.width = `${Number.isFinite(params.stancePct) ? params.stancePct : 0}%`;
+      this.swingBar.style.width = `${Number.isFinite(params.swingPct) ? params.swingPct : 0}%`;
+      this.stancePctLabel.textContent = formatPercentLabel('Stance', params.stancePct);
+      this.swingPctLabel.textContent = formatPercentLabel('Swing', params.swingPct);
     }
   }
 

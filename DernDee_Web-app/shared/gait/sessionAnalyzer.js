@@ -37,6 +37,7 @@ export class GaitSessionAnalyzer {
       raw_payload: {
         cadence_spm: params.cadence ?? null,
         peak_shank_angle_deg: params.peakShankAngle ?? null,
+        temporal_source: params.temporalSource ?? null,
         sensor_name: params.sensorName ?? null,
         sensor_mount: params.sensorMount ?? null,
       },
