@@ -12,17 +12,14 @@ import {
 } from '@shared/gateway/realtimeSensorUtils.js';
 import { usePersistedGatewaySession } from '@shared/hooks/usePersistedGatewaySession.js';
 import {
-    Activity,
     ArrowLeft,
     Footprints,
     Pause,
     Play,
     Settings,
-    Shield,
     Square,
     Volume2,
     VolumeX,
-    Waves,
     X,
 } from 'lucide-react';
 import derndeeLogo from '@shared/assets/images/derndee-logo.png';
@@ -54,11 +51,21 @@ const FEEDBACK_RESET_MS = 950;
 const SAFE_TARGET_THRESHOLD_CM = 35;
 
 const STONE_SLOT_LAYOUT = [
-    { left: '14%', bottom: '12%', scale: 1.0 },
-    { left: '28%', bottom: '28%', scale: 0.96 },
-    { left: '44%', bottom: '44%', scale: 0.93 },
-    { left: '61%', bottom: '60%', scale: 0.9 },
-    { left: '76%', bottom: '76%', scale: 0.87 },
+    { left: '50%', bottom: '7%', scale: 1.08 },
+    { left: '52%', bottom: '29%', scale: 0.96 },
+    { left: '49%', bottom: '51%', scale: 0.86 },
+    { left: '53%', bottom: '73%', scale: 0.76 },
+    { left: '50%', bottom: '95%', scale: 0.66 },
+];
+
+const WATER_SCENERY = [
+    { type: 'pebble', left: '9%', top: '38%', scale: 1.0 },
+    { type: 'reeds', left: '88%', top: '24%', scale: 1.0 },
+    { type: 'pebbles', left: '92%', top: '31%', scale: 1.0 },
+    { type: 'lily', left: '86%', top: '56%', scale: 1.0 },
+    { type: 'reeds', left: '7%', top: '70%', scale: 0.9 },
+    { type: 'pebbles', left: '5%', top: '79%', scale: 0.95 },
+    { type: 'lily', left: '13%', top: '84%', scale: 0.72 },
 ];
 
 function sortSensorStates(left, right) {
@@ -110,13 +117,13 @@ function formatPercent(value) {
 function getFeedbackToneClasses(tone) {
     switch (tone) {
         case 'emerald':
-            return 'bg-emerald-500 text-white shadow-[0_12px_30px_rgba(16,185,129,0.25)]';
+            return 'stepping-stones-feedback-badge--emerald';
         case 'amber':
-            return 'bg-amber-400 text-slate-900 shadow-[0_12px_28px_rgba(245,158,11,0.22)]';
+            return 'stepping-stones-feedback-badge--amber';
         case 'red':
-            return 'bg-rose-500 text-white shadow-[0_12px_30px_rgba(225,29,72,0.22)]';
+            return 'stepping-stones-feedback-badge--red';
         default:
-            return 'bg-white text-slate-800 shadow-[0_12px_30px_rgba(47,111,222,0.12)]';
+            return 'stepping-stones-feedback-badge--sky';
     }
 }
 
@@ -799,59 +806,100 @@ const GameSteppingStones = () => {
     const displayStepCm = Number.isFinite(currentStepCm)
         ? currentStepCm
         : (Number.isFinite(sessionMetrics?.avg_step_length_m) ? sessionMetrics.avg_step_length_m * 100 : null);
+    const displayedStrideCm = Number.isFinite(displayStrideCm) ? Math.round(displayStrideCm) : 0;
+    const displayedWeightBearing = Number.isFinite(weightShiftPercent) ? Math.round(weightShiftPercent) : 0;
+    const midpointTarget = Math.max(1, Math.round(totalTargets / 2));
     const safeModeEnabled = targetStepCm <= SAFE_TARGET_THRESHOLD_CM;
+    const primaryAction = gameState === GAME_STATES.PLAYING
+        ? {
+            icon: Pause,
+            label: 'Pause',
+            onClick: pauseSession,
+            tone: 'amber',
+        }
+        : gameState === GAME_STATES.PAUSED
+            ? {
+                icon: Play,
+                label: 'Resume',
+                onClick: resumeSession,
+                tone: 'amber',
+            }
+            : gameState === GAME_STATES.COMPLETED
+                ? {
+                    icon: Play,
+                    label: 'Play Again',
+                    onClick: startSession,
+                    tone: 'amber',
+                }
+                : {
+                    icon: Play,
+                    label: 'Start',
+                    onClick: startSession,
+                    tone: 'amber',
+                };
+    const secondaryAction = (gameState === GAME_STATES.PLAYING || gameState === GAME_STATES.PAUSED)
+        ? {
+            icon: Square,
+            label: 'Stop',
+            onClick: stopSession,
+            tone: 'red',
+        }
+        : {
+            icon: ArrowLeft,
+            label: 'Back',
+            onClick: goBackToTherapy,
+            tone: 'red',
+        };
+    const PrimaryActionIcon = primaryAction.icon;
+    const SecondaryActionIcon = secondaryAction.icon;
 
     return (
-        <div className="min-h-screen bg-[linear-gradient(180deg,_#dbeafe_0%,_#eaf4ff_48%,_#cfe8ff_100%)] text-slate-900">
-            <header className="bg-white shadow-xl px-4 sm:px-6 py-3 sm:py-4 flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                    <button
-                        onClick={goBackToTherapy}
-                        className="flex items-center gap-2 text-slate-600 hover:text-slate-800 transition-colors"
-                    >
-                        <ArrowLeft className="w-5 h-5" />
-                    </button>
-                    <img src={derndeeLogo} alt="DernDee" className="h-10 sm:h-12 object-contain" />
+        <div className="stepping-stones-screen">
+            <header className="stepping-stones-header">
+                <div className="stepping-stones-header-brand">
+                    <img src={derndeeLogo} alt="DernDee" className="stepping-stones-header-logo" />
                 </div>
 
-                <div className="hidden md:flex items-center gap-3 rounded-full bg-slate-100 px-4 py-2 text-sm font-semibold text-slate-600 shadow-inner">
-                    <span className={`h-2.5 w-2.5 rounded-full ${isConnected ? 'bg-emerald-500' : 'bg-amber-400'}`}></span>
-                    <span>{isConnected ? 'Sensors connected' : 'Waiting for sensors'}</span>
-                </div>
-
-                <div className="flex items-center gap-2">
+                <div className="stepping-stones-header-actions">
                     <button
                         onClick={() => setSoundEnabled((previousValue) => !previousValue)}
-                        className={`p-2 rounded-full transition-colors ${soundEnabled ? 'bg-blue-500 text-white' : 'bg-slate-200 text-slate-500'}`}
+                        className="stepping-stones-icon-button"
+                        aria-label={soundEnabled ? 'Mute sound' : 'Enable sound'}
                     >
-                        {soundEnabled ? <Volume2 className="w-5 h-5" /> : <VolumeX className="w-5 h-5" />}
+                        {soundEnabled ? <Volume2 className="h-5 w-5" /> : <VolumeX className="h-5 w-5" />}
                     </button>
                     <button
                         onClick={() => setShowSettings((previousValue) => !previousValue)}
-                        className="p-2 rounded-full bg-blue-100 hover:bg-blue-200 transition-colors"
+                        className="stepping-stones-icon-button"
+                        aria-label="Open settings"
                     >
-                        <Settings className="w-5 h-5 text-blue-700" />
+                        <Settings className="h-5 w-5" />
                     </button>
                 </div>
             </header>
 
             {showSettings && (
-                <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/45 p-4">
-                    <div className="w-full max-w-md rounded-[2rem] bg-white p-6 shadow-2xl">
-                        <div className="mb-6 flex items-center justify-between">
+                <div className="stepping-stones-modal-backdrop">
+                    <div className="stepping-stones-modal-card">
+                        <div className="stepping-stones-modal-header">
                             <div>
-                                <h2 className="text-2xl font-black text-slate-800">Stepping Stones</h2>
-                                <p className="text-sm font-medium text-slate-500">Easy targets first, then build reach.</p>
+                                <h2 className="stepping-stones-modal-title">Stepping Stones</h2>
+                                <p className="stepping-stones-modal-subtitle">Match the rehab view on iPhone and iPad, then tune challenge here.</p>
                             </div>
-                            <button onClick={() => setShowSettings(false)} className="rounded-full p-2 hover:bg-slate-100">
-                                <X className="h-5 w-5 text-slate-500" />
+                            <button onClick={() => setShowSettings(false)} className="stepping-stones-modal-close">
+                                <X className="h-5 w-5" />
                             </button>
                         </div>
 
-                        <div className="space-y-6">
+                        <div className="stepping-stones-modal-body">
+                            <div className="stepping-stones-modal-status">
+                                <span className={`stepping-stones-modal-status-dot ${isConnected ? 'stepping-stones-modal-status-dot--connected' : ''}`}></span>
+                                <span>{isConnected ? 'Sensors connected' : 'Waiting for sensors'}</span>
+                            </div>
+
                             <div>
-                                <label className="mb-2 block text-sm font-semibold text-slate-700">
-                                    Target step reach: <span className="text-xl font-black text-emerald-600">{targetStepCm} cm</span>
+                                <label className="stepping-stones-modal-label">
+                                    Target step reach <span>{targetStepCm} cm</span>
                                 </label>
                                 <input
                                     type="range"
@@ -860,17 +908,17 @@ const GameSteppingStones = () => {
                                     step="1"
                                     value={targetStepCm}
                                     onChange={(event) => setTargetStepCm(Number(event.target.value))}
-                                    className="w-full accent-emerald-500"
+                                    className="stepping-stones-slider stepping-stones-slider--emerald"
                                 />
-                                <div className="mt-1 flex justify-between text-xs font-medium text-slate-400">
+                                <div className="stepping-stones-modal-scale">
                                     <span>Easy {MIN_TARGET_STEP_CM} cm</span>
                                     <span>Challenge {MAX_TARGET_STEP_CM} cm</span>
                                 </div>
                             </div>
 
                             <div>
-                                <label className="mb-2 block text-sm font-semibold text-slate-700">
-                                    Stone targets: <span className="text-xl font-black text-blue-700">{totalTargets}</span>
+                                <label className="stepping-stones-modal-label">
+                                    Stone targets <span>{totalTargets}</span>
                                 </label>
                                 <input
                                     type="range"
@@ -879,11 +927,11 @@ const GameSteppingStones = () => {
                                     step="1"
                                     value={totalTargets}
                                     onChange={(event) => setTotalTargets(Number(event.target.value))}
-                                    className="w-full accent-blue-500"
+                                    className="stepping-stones-slider stepping-stones-slider--blue"
                                 />
                             </div>
 
-                            <div className="grid grid-cols-3 gap-2">
+                            <div className="stepping-stones-modal-presets">
                                 {[
                                     { label: 'Easy', step: 28, targets: 8 },
                                     { label: 'Standard', step: 35, targets: 10 },
@@ -895,249 +943,171 @@ const GameSteppingStones = () => {
                                             setTargetStepCm(preset.step);
                                             setTotalTargets(preset.targets);
                                         }}
-                                        className="rounded-2xl bg-slate-100 px-3 py-3 text-sm font-bold text-slate-700 transition hover:bg-slate-200"
+                                        className="stepping-stones-preset-button"
                                     >
                                         {preset.label}
                                     </button>
                                 ))}
                             </div>
 
-                            <div className="rounded-3xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-medium text-amber-900">
-                                Use in a clear space and with support nearby if single-leg stance feels unsafe.
+                            <div className="stepping-stones-modal-safety">
+                                Use in a clear space and keep support nearby if single-leg stance still feels unsafe.
+                            </div>
+
+                            <div className="stepping-stones-modal-actions">
+                                <button onClick={goBackToTherapy} className="stepping-stones-modal-secondary">
+                                    Back to Therapy
+                                </button>
+                                <button onClick={() => setShowSettings(false)} className="stepping-stones-modal-primary">
+                                    Continue
+                                </button>
                             </div>
                         </div>
                     </div>
                 </div>
             )}
 
-            <main className="mx-auto grid min-h-[calc(100vh-88px)] max-w-6xl grid-cols-1 gap-6 px-4 py-6 sm:px-6 lg:grid-cols-12 lg:gap-8 lg:px-10">
-                <section className="lg:col-span-8">
-                    <div className="mb-5 flex flex-col items-center gap-3 text-center">
-                        <div className="rounded-full bg-white/85 px-6 py-2 text-sm font-bold uppercase tracking-[0.35em] text-slate-400 shadow-md">
-                            Stepping Stones
-                        </div>
-                        <div className="text-5xl font-black tracking-tight text-slate-900 sm:text-6xl">
-                            {formatTime(sessionTime)}
-                        </div>
-                        <div className="flex flex-wrap items-center justify-center gap-2">
-                            {visibleSensors.length > 0 ? visibleSensors.map((sensor) => (
-                                <span key={sensor.key} className="rounded-full bg-white/80 px-3 py-1 text-xs font-semibold text-slate-600 shadow-sm">
-                                    {sensor.label}
-                                </span>
-                            )) : (
-                                <span className="rounded-full bg-white/80 px-3 py-1 text-xs font-semibold text-slate-500 shadow-sm">
-                                    Waiting for shank sensors
-                                </span>
-                            )}
-                            {safeModeEnabled && (
-                                <span className="rounded-full bg-emerald-100 px-3 py-1 text-xs font-bold text-emerald-700 shadow-sm">
-                                    Easy target mode
-                                </span>
-                            )}
-                        </div>
-                    </div>
-
-                    <div className="stepping-stones-river rounded-[2.25rem] p-5 shadow-[0_30px_80px_rgba(47,111,222,0.18)] sm:p-7">
-                        <div className="relative h-[420px] rounded-[2rem] border border-white/40 bg-[linear-gradient(180deg,_rgba(255,255,255,0.16),_rgba(255,255,255,0.05))] p-4 shadow-inner sm:h-[500px]">
-                            <div className="pointer-events-none absolute left-5 top-5 rounded-full bg-white/55 px-4 py-2 text-xs font-bold uppercase tracking-[0.24em] text-slate-500 shadow-sm">
-                                River route
+            <main className="stepping-stones-layout">
+                <section className="stepping-stones-stage-shell">
+                    <div className="stepping-stones-stage">
+                        {!isConnected && (
+                            <div className="stepping-stones-status-pill">
+                                Waiting for sensors
                             </div>
+                        )}
 
-                            {visibleStoneNumbers.map((stoneNumber, index) => {
-                                const slot = STONE_SLOT_LAYOUT[index];
-                                const isCurrentStone = stoneNumber === currentStoneNumber;
-                                const isTargetStone = targetStoneNumber !== null && stoneNumber === targetStoneNumber;
-                                const isLandingStone = landingStoneNumber === stoneNumber;
-                                const isPastStone = stoneNumber < currentStoneNumber;
+                        <div className="stepping-stones-timer-wrap">
+                            <div className="stepping-stones-timer">
+                                {formatTime(sessionTime)}
+                            </div>
+                        </div>
 
-                                return (
+                        {WATER_SCENERY.map((item, index) => (
+                            <div
+                                key={`${item.type}-${index}`}
+                                className={`stepping-stones-scenery stepping-stones-scenery--${item.type}`}
+                                style={{
+                                    left: item.left,
+                                    top: item.top,
+                                    transform: `translate(-50%, -50%) scale(${item.scale})`,
+                                }}
+                            ></div>
+                        ))}
+
+                        {visibleStoneNumbers.map((stoneNumber, index) => {
+                            const slot = STONE_SLOT_LAYOUT[index];
+                            const isCurrentStone = stoneNumber === currentStoneNumber;
+                            const isTargetStone = targetStoneNumber !== null && stoneNumber === targetStoneNumber;
+                            const isLandingStone = landingStoneNumber === stoneNumber;
+                            const isPastStone = stoneNumber < currentStoneNumber;
+
+                            return (
+                                <div
+                                    key={stoneNumber}
+                                    className="stepping-stones-stone-slot"
+                                    style={{
+                                        left: slot.left,
+                                        bottom: slot.bottom,
+                                        transform: `translateX(-50%) scale(${slot.scale})`,
+                                    }}
+                                >
                                     <div
-                                        key={stoneNumber}
-                                        className="absolute"
-                                        style={{
-                                            left: slot.left,
-                                            bottom: slot.bottom,
-                                            transform: `scale(${slot.scale})`,
-                                        }}
+                                        className={`stepping-stones-stone ${isPastStone ? 'stepping-stones-stone--passed' : ''} ${isCurrentStone ? 'stepping-stones-stone--current' : ''} ${isTargetStone ? 'stepping-stones-stone--target' : ''}`}
                                     >
-                                        <div className={`stepping-stones-stone relative flex items-center justify-center ${isPastStone ? 'stepping-stones-stone--passed' : ''} ${isCurrentStone ? 'stepping-stones-stone--current' : ''} ${isTargetStone ? 'stepping-stones-stone--target' : ''}`}>
-                                            {(isLandingStone || (isCurrentStone && isJumping)) && <div className="stepping-stones-ripple"></div>}
-                                            <span className="absolute -top-8 rounded-full bg-white/90 px-3 py-1 text-[11px] font-bold uppercase tracking-[0.18em] text-slate-500 shadow-sm">
-                                                Stone {stoneNumber}
-                                            </span>
+                                        <div className="stepping-stones-stone-water-ring"></div>
+                                        {(isLandingStone || (isCurrentStone && isJumping)) && <div className="stepping-stones-ripple"></div>}
 
-                                            {isCurrentStone && (
-                                                <div className={`stepping-stones-avatar relative z-10 flex h-12 w-12 items-center justify-center rounded-full bg-slate-900 text-white shadow-lg ${isJumping ? 'stepping-stones-avatar--jumping' : ''}`}>
-                                                    <Footprints className="h-5 w-5" />
-                                                </div>
-                                            )}
+                                        {isCurrentStone && (
+                                            <div className={`stepping-stones-avatar stepping-stones-avatar--current ${isJumping ? 'stepping-stones-avatar--jumping' : ''}`}>
+                                                <Footprints className="h-7 w-7" />
+                                            </div>
+                                        )}
 
-                                            {isLandingStone && !isCurrentStone && (
-                                                <div className="stepping-stones-avatar relative z-10 flex h-12 w-12 items-center justify-center rounded-full bg-emerald-500 text-white shadow-lg">
-                                                    <Footprints className="h-5 w-5" />
-                                                </div>
-                                            )}
-
-                                            {isTargetStone && !isLandingStone && !isCurrentStone && (
-                                                <div className="absolute inset-0 flex items-center justify-center text-[11px] font-black uppercase tracking-[0.22em] text-emerald-700">
-                                                    Target
-                                                </div>
-                                            )}
-                                        </div>
+                                        {isLandingStone && !isCurrentStone && (
+                                            <div className="stepping-stones-avatar stepping-stones-avatar--landing">
+                                                <Footprints className="h-6 w-6" />
+                                            </div>
+                                        )}
                                     </div>
-                                );
-                            })}
-
-                            <div className="absolute bottom-5 left-5 right-5 grid gap-3 sm:grid-cols-[1.1fr_auto] sm:items-end">
-                                <div className="rounded-[1.5rem] bg-white/78 px-4 py-3 shadow-lg backdrop-blur-md">
-                                    <div className="flex items-center gap-2 text-[11px] font-black uppercase tracking-[0.24em] text-slate-500">
-                                        <Waves className="h-4 w-4 text-blue-600" />
-                                        Mission cue
-                                    </div>
-                                    <p className="mt-2 text-sm font-semibold leading-relaxed text-slate-700 sm:text-base">
-                                        {gameState === GAME_STATES.READY && 'Start in a safe area, then step to the highlighted stone.'}
-                                        {gameState === GAME_STATES.PLAYING && 'Reach the green stone, then hold steady to shift weight safely.'}
-                                        {gameState === GAME_STATES.PAUSED && 'Mission paused. Resume when you are ready and stable.'}
-                                        {gameState === GAME_STATES.COMPLETED && 'Mission complete. Review your step reach and start again when ready.'}
-                                    </p>
                                 </div>
-
-                                <div className="rounded-[1.5rem] bg-slate-900/85 px-4 py-3 text-left text-white shadow-xl backdrop-blur-md">
-                                    <div className="text-[11px] font-black uppercase tracking-[0.24em] text-slate-300">Target step</div>
-                                    <div className="mt-1 text-3xl font-black">{targetStepCm} cm</div>
-                                    <div className="text-xs font-medium text-slate-300">Current stone {currentStoneNumber}</div>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-
-                    <div className="mt-5 flex justify-center">
-                        <div key={feedback.key} className={`stepping-stones-feedback rounded-full px-6 py-3 text-base font-black tracking-wide ${getFeedbackToneClasses(feedback.tone)}`}>
-                            {feedback.text}
-                        </div>
+                            );
+                        })}
                     </div>
                 </section>
 
-                <aside className="lg:col-span-4 flex flex-col gap-5">
-                    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-1 xl:grid-cols-2">
-                        <div className="rounded-[1.8rem] bg-white p-5 shadow-xl">
-                            <div className="flex items-center gap-2 text-[11px] font-black uppercase tracking-[0.24em] text-slate-400">
-                                <Activity className="h-4 w-4 text-emerald-600" />
-                                Stride
-                            </div>
-                            <div className="mt-3 text-4xl font-black text-slate-900">
-                                {formatMetricNumber(displayStrideCm, 0)}
-                                <span className="ml-2 text-base font-bold text-slate-400">cm</span>
-                            </div>
-                            <p className="mt-3 text-sm font-medium text-slate-500">
-                                Step reach {formatMetricNumber(displayStepCm, 0)} / {targetStepCm} cm
-                            </p>
-                        </div>
-
-                        <div className="rounded-[1.8rem] bg-white p-5 shadow-xl">
-                            <div className="flex items-center gap-2 text-[11px] font-black uppercase tracking-[0.24em] text-slate-400">
-                                <Shield className="h-4 w-4 text-blue-600" />
-                                Weight shift
-                            </div>
-                            <div className="mt-3 text-4xl font-black text-slate-900">
-                                {formatPercent(weightShiftPercent)}
-                            </div>
-                            <p className="mt-3 text-sm font-medium text-slate-500">
-                                {getWeightShiftLabel(weightShiftPercent)}
-                            </p>
+                <aside className="stepping-stones-panel">
+                    <div className="stepping-stones-feedback-wrap">
+                        <div key={feedback.key} className={`stepping-stones-feedback stepping-stones-feedback-badge ${getFeedbackToneClasses(feedback.tone)}`}>
+                            {feedback.text}
                         </div>
                     </div>
 
-                    <div className="rounded-[1.8rem] bg-white p-5 shadow-xl">
-                        <div className="flex items-center justify-between gap-3">
-                            <div>
-                                <div className="text-[11px] font-black uppercase tracking-[0.24em] text-slate-400">Step progress</div>
-                                <div className="mt-2 text-3xl font-black text-slate-900">{completedTargets} / {totalTargets}</div>
+                    <div className="stepping-stones-metrics-grid">
+                        <article className="stepping-stones-metric-card">
+                            <div className="stepping-stones-metric-label">Stride Length</div>
+                            <div className="stepping-stones-metric-value">
+                                {displayedStrideCm}
+                                <span>cm</span>
                             </div>
-                            <div className="rounded-full bg-emerald-100 px-4 py-2 text-sm font-black text-emerald-700">
-                                {progressPercent}%
+                            <div className="stepping-stones-metric-subtext">Target {targetStepCm} cm</div>
+                        </article>
+
+                        <article className="stepping-stones-metric-card">
+                            <div className="stepping-stones-metric-label">Weight Bearing</div>
+                            <div className="stepping-stones-metric-value">{displayedWeightBearing}%</div>
+                            <div className="stepping-stones-status-chip">{getWeightShiftLabel(weightShiftPercent)}</div>
+                        </article>
+
+                        <article className="stepping-stones-metric-card">
+                            <div className="stepping-stones-metric-label">Step Progress</div>
+                            <div className="stepping-stones-metric-value stepping-stones-metric-value--progress">
+                                {completedTargets}
+                                <span>/{totalTargets}</span>
                             </div>
-                        </div>
-                        <div className="mt-5 h-4 overflow-hidden rounded-full bg-slate-100">
+                            <div className="stepping-stones-metric-subtext">{progressPercent}% Complete</div>
+                        </article>
+                    </div>
+
+                    <div className="stepping-stones-progress-card">
+                        <div className="stepping-stones-progress-track">
                             <div
-                                className="h-full rounded-full bg-[linear-gradient(90deg,_#2ec7a0_0%,_#2f6fde_100%)] transition-all duration-500"
-                                style={{ width: `${completedTargets > 0 ? Math.max(6, progressPercent) : 0}%` }}
+                                className="stepping-stones-progress-fill"
+                                style={{ width: `${Math.max(0, Math.min(100, progressPercent))}%` }}
                             ></div>
                         </div>
-                        <p className="mt-3 text-sm font-medium text-slate-500">
-                            Land on the target and hold steady before moving to the next stone.
-                        </p>
-                    </div>
-
-                    <div className="rounded-[1.8rem] border border-white/70 bg-white/85 p-5 shadow-xl backdrop-blur-sm">
-                        <div className="flex items-center gap-2 text-[11px] font-black uppercase tracking-[0.24em] text-slate-400">
-                            <Shield className="h-4 w-4 text-amber-500" />
-                            Safety cue
+                        <div className="stepping-stones-progress-scale">
+                            <span>0</span>
+                            <span>{midpointTarget}</span>
+                            <span>{totalTargets}</span>
                         </div>
-                        <p className="mt-3 text-sm font-semibold leading-relaxed text-slate-700">
-                            Practice in a clear area. Use the easy target mode first and have a caregiver nearby if single-leg stance feels unstable.
-                        </p>
                     </div>
 
-                    <div className="mt-auto grid grid-cols-2 gap-4">
-                        {gameState === GAME_STATES.PLAYING && (
-                            <button
-                                onClick={pauseSession}
-                                className="flex items-center justify-center gap-2 rounded-[1.6rem] bg-amber-400 px-4 py-4 text-base font-black text-slate-900 shadow-xl transition-transform hover:scale-[1.01]"
-                            >
-                                <Pause className="h-5 w-5" />
-                                Pause
-                            </button>
-                        )}
+                    <div className="stepping-stones-actions-grid">
+                        <button
+                            onClick={primaryAction.onClick}
+                            className={`stepping-stones-action-button stepping-stones-action-button--${primaryAction.tone}`}
+                        >
+                            <PrimaryActionIcon className="h-6 w-6" />
+                            <span>{primaryAction.label}</span>
+                        </button>
 
-                        {gameState === GAME_STATES.PAUSED && (
-                            <button
-                                onClick={resumeSession}
-                                className="flex items-center justify-center gap-2 rounded-[1.6rem] bg-emerald-500 px-4 py-4 text-base font-black text-white shadow-xl transition-transform hover:scale-[1.01]"
-                            >
-                                <Play className="h-5 w-5" />
-                                Resume
-                            </button>
-                        )}
+                        <button
+                            onClick={secondaryAction.onClick}
+                            className={`stepping-stones-action-button stepping-stones-action-button--${secondaryAction.tone}`}
+                        >
+                            <SecondaryActionIcon className="h-6 w-6" />
+                            <span>{secondaryAction.label}</span>
+                        </button>
+                    </div>
 
-                        {(gameState === GAME_STATES.READY || gameState === GAME_STATES.COMPLETED) && (
-                            <button
-                                onClick={startSession}
-                                className="col-span-2 flex items-center justify-center gap-2 rounded-[1.6rem] bg-emerald-500 px-4 py-4 text-base font-black text-white shadow-xl transition-transform hover:scale-[1.01]"
-                            >
-                                <Play className="h-5 w-5" />
-                                {gameState === GAME_STATES.COMPLETED ? 'Play Again' : 'Start Mission'}
-                            </button>
-                        )}
-
-                        {(gameState === GAME_STATES.PLAYING || gameState === GAME_STATES.PAUSED) && (
-                            <button
-                                onClick={stopSession}
-                                className="flex items-center justify-center gap-2 rounded-[1.6rem] bg-rose-500 px-4 py-4 text-base font-black text-white shadow-xl transition-transform hover:scale-[1.01]"
-                            >
-                                <Square className="h-5 w-5" />
-                                Stop
-                            </button>
-                        )}
-
-                        {gameState === GAME_STATES.COMPLETED && (
-                            <button
-                                onClick={resetSession}
-                                className="flex items-center justify-center gap-2 rounded-[1.6rem] bg-amber-400 px-4 py-4 text-base font-black text-slate-900 shadow-xl transition-transform hover:scale-[1.01]"
-                            >
-                                <Pause className="h-5 w-5" />
-                                Reset
-                            </button>
-                        )}
-
-                        {gameState === GAME_STATES.COMPLETED && (
-                            <button
-                                onClick={goBackToTherapy}
-                                className="flex items-center justify-center gap-2 rounded-[1.6rem] bg-rose-500 px-4 py-4 text-base font-black text-white shadow-xl transition-transform hover:scale-[1.01]"
-                            >
-                                <Square className="h-5 w-5" />
-                                Back
-                            </button>
+                    <div className="stepping-stones-panel-footer">
+                        <span>{safeModeEnabled ? 'Easy mode active' : `Target reach ${formatMetricNumber(displayStepCm, 0, '0')} / ${targetStepCm} cm`}</span>
+                        {visibleSensors.length > 0 && (
+                            <div className="stepping-stones-sensor-pills">
+                                {visibleSensors.map((sensor) => (
+                                    <span key={sensor.key} className="stepping-stones-sensor-pill">{sensor.label}</span>
+                                ))}
+                            </div>
                         )}
                     </div>
                 </aside>

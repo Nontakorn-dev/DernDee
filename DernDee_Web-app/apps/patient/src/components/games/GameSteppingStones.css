@@ -1,57 +1,339 @@
-.stepping-stones-river {
+.stepping-stones-screen {
+  min-height: 100vh;
+  background: linear-gradient(180deg, #dff0ff 0%, #cde8ff 48%, #bfdeff 100%);
+  color: #16233b;
+  font-family: 'Avenir Next', 'Trebuchet MS', 'Segoe UI', sans-serif;
+}
+
+.stepping-stones-header {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: max(14px, env(safe-area-inset-top)) 18px 14px;
+  background: rgba(255, 255, 255, 0.96);
+  box-shadow: 0 10px 24px rgba(102, 153, 210, 0.16);
+  backdrop-filter: blur(18px);
+}
+
+.stepping-stones-header-brand {
+  display: flex;
+  align-items: center;
+}
+
+.stepping-stones-header-logo {
+  height: 36px;
+  width: auto;
+  object-fit: contain;
+}
+
+.stepping-stones-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.stepping-stones-icon-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  border: none;
+  border-radius: 999px;
+  background: #e9f2ff;
+  color: #3d78ea;
+  box-shadow: 0 8px 20px rgba(84, 132, 201, 0.14);
+  transition: transform 0.2s ease, box-shadow 0.2s ease, background 0.2s ease;
+}
+
+.stepping-stones-icon-button:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 12px 24px rgba(84, 132, 201, 0.18);
+  background: #dfeeff;
+}
+
+.stepping-stones-layout {
+  display: grid;
+  grid-template-columns: 1fr;
+  min-height: calc(100vh - 82px - env(safe-area-inset-top));
+}
+
+.stepping-stones-stage-shell {
+  position: relative;
+}
+
+.stepping-stones-stage {
   position: relative;
   overflow: hidden;
+  min-height: clamp(430px, 62vh, 760px);
   background:
-    radial-gradient(circle at 20% 18%, rgba(255, 255, 255, 0.55), transparent 20%),
-    radial-gradient(circle at 78% 28%, rgba(255, 255, 255, 0.38), transparent 18%),
-    linear-gradient(180deg, rgba(191, 226, 255, 0.92) 0%, rgba(126, 189, 246, 0.92) 100%);
+    radial-gradient(circle at 22% 18%, rgba(255, 255, 255, 0.55), transparent 18%),
+    radial-gradient(circle at 76% 22%, rgba(255, 255, 255, 0.52), transparent 20%),
+    linear-gradient(180deg, rgba(228, 244, 255, 0.96) 0%, rgba(177, 220, 255, 0.96) 100%);
 }
 
-.stepping-stones-river::before,
-.stepping-stones-river::after {
+.stepping-stones-stage::before,
+.stepping-stones-stage::after {
   content: '';
   position: absolute;
-  inset: auto -10% 8% -10%;
-  height: 40%;
-  border-radius: 999px;
-  background: linear-gradient(90deg, rgba(255, 255, 255, 0.18), rgba(255, 255, 255, 0.02));
-  filter: blur(18px);
-  opacity: 0.55;
+  inset: 0;
+  pointer-events: none;
 }
 
-.stepping-stones-river::after {
-  inset: 12% -5% auto -5%;
-  height: 26%;
-  opacity: 0.35;
+.stepping-stones-stage::before {
+  background:
+    radial-gradient(circle at 14% 14%, rgba(255, 255, 255, 0.38), transparent 14%),
+    radial-gradient(circle at 82% 62%, rgba(255, 255, 255, 0.32), transparent 16%),
+    radial-gradient(circle at 16% 84%, rgba(255, 255, 255, 0.28), transparent 18%);
+  opacity: 0.85;
+}
+
+.stepping-stones-stage::after {
+  background-image:
+    radial-gradient(ellipse at center, rgba(255, 255, 255, 0.5) 0%, rgba(255, 255, 255, 0) 66%),
+    radial-gradient(ellipse at center, rgba(255, 255, 255, 0.4) 0%, rgba(255, 255, 255, 0) 62%),
+    radial-gradient(ellipse at center, rgba(255, 255, 255, 0.35) 0%, rgba(255, 255, 255, 0) 60%);
+  background-size: 170px 22px, 128px 16px, 120px 18px;
+  background-repeat: no-repeat;
+  background-position: 11% 18%, 78% 42%, 16% 77%;
+  opacity: 0.8;
+}
+
+.stepping-stones-status-pill {
+  position: absolute;
+  left: 50%;
+  top: 20px;
+  z-index: 3;
+  transform: translateX(-50%);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.84);
+  padding: 7px 14px;
+  font-size: 0.74rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #6f84a5;
+  box-shadow: 0 8px 20px rgba(95, 129, 175, 0.14);
+}
+
+.stepping-stones-timer-wrap {
+  position: absolute;
+  left: 50%;
+  top: 28px;
+  z-index: 2;
+  transform: translateX(-50%);
+  text-align: center;
+}
+
+.stepping-stones-timer {
+  font-size: clamp(3rem, 7vw, 4.6rem);
+  font-weight: 900;
+  letter-spacing: -0.05em;
+  color: #16223c;
+}
+
+.stepping-stones-scenery {
+  position: absolute;
+  z-index: 1;
+  pointer-events: none;
+}
+
+.stepping-stones-scenery--pebble,
+.stepping-stones-scenery--pebbles {
+  width: 30px;
+  height: 22px;
+  border-radius: 999px;
+  background: linear-gradient(180deg, rgba(133, 144, 161, 0.85) 0%, rgba(102, 114, 132, 0.92) 100%);
+  box-shadow:
+    inset 0 2px 0 rgba(255, 255, 255, 0.36),
+    0 8px 18px rgba(98, 118, 154, 0.16),
+    0 0 0 6px rgba(255, 255, 255, 0.16);
+}
+
+.stepping-stones-scenery--pebbles {
+  width: 52px;
+  height: 34px;
+  background: none;
+  box-shadow: none;
+}
+
+.stepping-stones-scenery--pebbles::before,
+.stepping-stones-scenery--pebbles::after {
+  content: '';
+  position: absolute;
+  border-radius: 999px;
+  background: linear-gradient(180deg, rgba(133, 144, 161, 0.86) 0%, rgba(102, 114, 132, 0.92) 100%);
+  box-shadow:
+    inset 0 2px 0 rgba(255, 255, 255, 0.36),
+    0 8px 18px rgba(98, 118, 154, 0.16),
+    0 0 0 5px rgba(255, 255, 255, 0.14);
+}
+
+.stepping-stones-scenery--pebbles::before {
+  inset: 7px auto auto 0;
+  width: 20px;
+  height: 15px;
+}
+
+.stepping-stones-scenery--pebbles::after {
+  inset: auto 0 0 auto;
+  width: 24px;
+  height: 17px;
+  box-shadow: -18px -13px 0 -1px rgba(112, 124, 142, 0.94);
+}
+
+.stepping-stones-scenery--lily {
+  width: 52px;
+  height: 42px;
+  border-radius: 50% 44% 50% 45%;
+  background: radial-gradient(circle at 32% 28%, #bdf1a1 0%, #8dde77 58%, #64c95b 100%);
+  box-shadow:
+    inset 0 2px 0 rgba(255, 255, 255, 0.45),
+    0 10px 18px rgba(88, 152, 111, 0.15),
+    0 0 0 6px rgba(255, 255, 255, 0.12);
+}
+
+.stepping-stones-scenery--lily::after {
+  content: '';
+  position: absolute;
+  right: 4px;
+  top: 4px;
+  width: 14px;
+  height: 14px;
+  background: rgba(177, 235, 162, 0.96);
+  transform: rotate(36deg) skew(-16deg);
+  clip-path: polygon(100% 0, 0 50%, 100% 100%);
+}
+
+.stepping-stones-scenery--reeds {
+  width: 44px;
+  height: 68px;
+}
+
+.stepping-stones-scenery--reeds::before,
+.stepping-stones-scenery--reeds::after {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  width: 8px;
+  border-radius: 999px 999px 0 0;
+  background: linear-gradient(180deg, #89e0a9 0%, #44b184 100%);
+  transform-origin: bottom center;
+  box-shadow: inset 0 2px 0 rgba(255, 255, 255, 0.28);
+}
+
+.stepping-stones-scenery--reeds::before {
+  left: 6px;
+  height: 52px;
+  transform: rotate(-18deg);
+}
+
+.stepping-stones-scenery--reeds::after {
+  left: 20px;
+  height: 64px;
+  transform: rotate(6deg);
+  box-shadow: 12px -4px 0 0 #63c78f;
+}
+
+.stepping-stones-stone-slot {
+  position: absolute;
+  z-index: 2;
 }
 
 .stepping-stones-stone {
-  width: 92px;
-  height: 48px;
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 136px;
+  height: 76px;
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.92);
-  border: 2px solid rgba(255, 255, 255, 0.85);
-  box-shadow: 0 12px 28px rgba(80, 120, 160, 0.18);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.98) 0%, rgba(236, 240, 244, 0.96) 100%);
+  box-shadow:
+    inset 0 -8px 14px rgba(205, 213, 221, 0.55),
+    inset 0 10px 10px rgba(255, 255, 255, 0.95),
+    0 18px 30px rgba(108, 146, 196, 0.18);
   transition: transform 0.35s ease, box-shadow 0.35s ease, opacity 0.35s ease, border-color 0.35s ease;
 }
 
+.stepping-stones-stone::before {
+  content: '';
+  position: absolute;
+  inset: 8px 14px 18px;
+  border-radius: 999px;
+  background: radial-gradient(circle at 50% 26%, rgba(255, 255, 255, 0.92) 0%, rgba(255, 255, 255, 0.32) 42%, rgba(255, 255, 255, 0) 72%);
+  opacity: 0.9;
+}
+
 .stepping-stones-stone--passed {
-  opacity: 0.72;
-  background: rgba(255, 255, 255, 0.72);
+  opacity: 0.78;
 }
 
 .stepping-stones-stone--current {
-  box-shadow: 0 16px 34px rgba(47, 111, 222, 0.22);
+  box-shadow:
+    inset 0 -8px 14px rgba(205, 213, 221, 0.58),
+    inset 0 10px 10px rgba(255, 255, 255, 0.98),
+    0 24px 34px rgba(98, 142, 194, 0.22);
 }
 
 .stepping-stones-stone--target {
-  border-color: rgba(46, 199, 160, 0.9);
-  box-shadow: 0 0 0 12px rgba(46, 199, 160, 0.12), 0 12px 28px rgba(46, 199, 160, 0.16);
+  box-shadow:
+    0 0 0 6px rgba(66, 231, 186, 0.16),
+    0 0 0 12px rgba(66, 231, 186, 0.1),
+    inset 0 -8px 14px rgba(205, 213, 221, 0.55),
+    inset 0 10px 10px rgba(255, 255, 255, 0.95),
+    0 18px 30px rgba(108, 146, 196, 0.18);
   animation: steppingStonePulseTarget 1.4s infinite;
 }
 
+.stepping-stones-stone-water-ring {
+  position: absolute;
+  left: 50%;
+  top: 76%;
+  width: 152px;
+  height: 42px;
+  transform: translate(-50%, -50%);
+  border-radius: 999px;
+  border: 3px solid rgba(255, 255, 255, 0.4);
+  opacity: 0.72;
+}
+
+.stepping-stones-stone-water-ring::before,
+.stepping-stones-stone-water-ring::after {
+  content: '';
+  position: absolute;
+  inset: 4px;
+  border-radius: inherit;
+  border: 2px solid rgba(255, 255, 255, 0.26);
+}
+
+.stepping-stones-stone-water-ring::after {
+  inset: 10px 16px;
+  border-color: rgba(255, 255, 255, 0.18);
+}
+
 .stepping-stones-avatar {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 60px;
+  height: 60px;
+  border-radius: 999px;
   transition: transform 0.35s ease, filter 0.35s ease;
+}
+
+.stepping-stones-avatar--current {
+  color: rgba(121, 139, 164, 0.88);
+}
+
+.stepping-stones-avatar--landing {
+  background: rgba(46, 199, 160, 0.18);
+  color: #1ab593;
 }
 
 .stepping-stones-avatar--jumping {
@@ -61,17 +343,542 @@
 .stepping-stones-ripple {
   position: absolute;
   left: 50%;
-  top: 50%;
-  width: 90px;
-  height: 36px;
+  top: 72%;
+  width: 120px;
+  height: 44px;
   transform: translate(-50%, -50%);
-  border: 2px solid rgba(46, 199, 160, 0.35);
+  border: 3px solid rgba(46, 199, 160, 0.44);
   border-radius: 999px;
   animation: steppingStoneRipple 1.2s infinite;
 }
 
+.stepping-stones-panel {
+  position: relative;
+  z-index: 3;
+  margin-top: -26px;
+  padding: 0 18px calc(18px + env(safe-area-inset-bottom));
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.96) 0%, rgba(248, 251, 255, 0.98) 100%);
+  border-radius: 32px 32px 0 0;
+  box-shadow: 0 -18px 42px rgba(90, 136, 194, 0.16);
+}
+
+.stepping-stones-feedback-wrap {
+  display: flex;
+  justify-content: center;
+  margin-top: -20px;
+  margin-bottom: 18px;
+}
+
 .stepping-stones-feedback {
   animation: steppingStoneBadgePop 0.25s ease-out;
+}
+
+.stepping-stones-feedback-badge {
+  border-radius: 999px;
+  padding: 12px 28px;
+  font-size: 0.92rem;
+  font-weight: 900;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.stepping-stones-feedback-badge--sky {
+  background: rgba(255, 255, 255, 0.98);
+  color: #38c28d;
+  box-shadow: 0 16px 32px rgba(84, 126, 189, 0.14);
+}
+
+.stepping-stones-feedback-badge--emerald {
+  background: linear-gradient(180deg, #34d399 0%, #17b981 100%);
+  color: #fff;
+  box-shadow: 0 18px 34px rgba(22, 185, 129, 0.24);
+}
+
+.stepping-stones-feedback-badge--amber {
+  background: linear-gradient(180deg, #ffe082 0%, #ffc247 100%);
+  color: #614305;
+  box-shadow: 0 18px 34px rgba(245, 177, 52, 0.2);
+}
+
+.stepping-stones-feedback-badge--red {
+  background: linear-gradient(180deg, #ff8181 0%, #ef5350 100%);
+  color: #fff;
+  box-shadow: 0 18px 34px rgba(239, 83, 80, 0.2);
+}
+
+.stepping-stones-metrics-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.stepping-stones-metric-card {
+  border-radius: 24px;
+  background: rgba(255, 255, 255, 0.96);
+  padding: 18px 14px 16px;
+  text-align: center;
+  box-shadow: 0 14px 30px rgba(101, 136, 188, 0.12);
+}
+
+.stepping-stones-metric-label {
+  font-size: 0.8rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #96a0b3;
+}
+
+.stepping-stones-metric-value {
+  margin-top: 10px;
+  font-size: clamp(2rem, 4.8vw, 3rem);
+  font-weight: 900;
+  letter-spacing: -0.05em;
+  color: #356ff2;
+  line-height: 1;
+}
+
+.stepping-stones-metric-value span {
+  margin-left: 4px;
+  font-size: 0.48em;
+  font-weight: 800;
+  letter-spacing: -0.01em;
+  color: #a3adbf;
+}
+
+.stepping-stones-metric-value--progress span {
+  font-size: 0.68em;
+}
+
+.stepping-stones-metric-subtext {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid rgba(214, 224, 238, 0.82);
+  font-size: 0.9rem;
+  font-weight: 800;
+  color: #7d879b;
+}
+
+.stepping-stones-status-chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 72px;
+  margin-top: 12px;
+  padding: 7px 12px;
+  border-radius: 12px;
+  background: rgba(81, 224, 164, 0.2);
+  font-size: 0.88rem;
+  font-weight: 900;
+  color: #26b67d;
+}
+
+.stepping-stones-progress-card {
+  margin-top: 18px;
+  border-radius: 28px;
+  background: rgba(255, 255, 255, 0.95);
+  padding: 20px 18px 14px;
+  box-shadow: 0 14px 30px rgba(101, 136, 188, 0.12);
+}
+
+.stepping-stones-progress-track {
+  height: 20px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: #eef3fb;
+}
+
+.stepping-stones-progress-fill {
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #2d6ff1 0%, #20d0a8 56%, #20d0a8 100%);
+  transition: width 0.45s ease;
+}
+
+.stepping-stones-progress-scale {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 12px;
+  padding: 0 6px;
+  font-size: 0.82rem;
+  font-weight: 800;
+  color: #95a0b7;
+}
+
+.stepping-stones-actions-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+  margin-top: 18px;
+}
+
+.stepping-stones-action-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  min-height: 84px;
+  border: none;
+  border-radius: 26px;
+  padding: 18px 20px;
+  font-size: 1.08rem;
+  font-weight: 900;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: #fff;
+  box-shadow: 0 16px 30px rgba(104, 131, 176, 0.15);
+  transition: transform 0.22s ease, box-shadow 0.22s ease;
+}
+
+.stepping-stones-action-button:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 22px 34px rgba(104, 131, 176, 0.18);
+}
+
+.stepping-stones-action-button--amber {
+  background: linear-gradient(180deg, #ffca3f 0%, #f4b528 100%);
+  color: #fff;
+}
+
+.stepping-stones-action-button--red {
+  background: linear-gradient(180deg, #f26a66 0%, #e94c48 100%);
+}
+
+.stepping-stones-panel-footer {
+  display: none;
+  margin-top: 16px;
+  font-size: 0.82rem;
+  font-weight: 800;
+  color: #9aa7be;
+}
+
+.stepping-stones-sensor-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.stepping-stones-sensor-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  background: rgba(227, 238, 255, 0.94);
+  padding: 6px 10px;
+  font-size: 0.72rem;
+  font-weight: 800;
+  color: #5c79a8;
+}
+
+.stepping-stones-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  background: rgba(19, 31, 50, 0.34);
+  backdrop-filter: blur(10px);
+}
+
+.stepping-stones-modal-card {
+  width: min(100%, 460px);
+  border-radius: 30px;
+  background: rgba(255, 255, 255, 0.98);
+  padding: 24px;
+  box-shadow: 0 22px 60px rgba(23, 40, 68, 0.26);
+}
+
+.stepping-stones-modal-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.stepping-stones-modal-title {
+  margin: 0;
+  font-size: 1.9rem;
+  font-weight: 900;
+  color: #1a2945;
+}
+
+.stepping-stones-modal-subtitle {
+  margin: 6px 0 0;
+  font-size: 0.95rem;
+  line-height: 1.55;
+  color: #7b8aa3;
+}
+
+.stepping-stones-modal-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 42px;
+  height: 42px;
+  border: none;
+  border-radius: 999px;
+  background: #edf3ff;
+  color: #507bd5;
+}
+
+.stepping-stones-modal-body {
+  display: grid;
+  gap: 20px;
+  margin-top: 22px;
+}
+
+.stepping-stones-modal-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  width: fit-content;
+  border-radius: 999px;
+  background: #f0f5ff;
+  padding: 8px 12px;
+  font-size: 0.82rem;
+  font-weight: 800;
+  color: #5d7193;
+}
+
+.stepping-stones-modal-status-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+  background: #f0b043;
+}
+
+.stepping-stones-modal-status-dot--connected {
+  background: #22c88a;
+}
+
+.stepping-stones-modal-label {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+  font-size: 0.92rem;
+  font-weight: 800;
+  color: #45546f;
+}
+
+.stepping-stones-modal-label span {
+  font-size: 1.15rem;
+  font-weight: 900;
+  color: #24406c;
+}
+
+.stepping-stones-slider {
+  width: 100%;
+}
+
+.stepping-stones-slider--emerald {
+  accent-color: #18ba82;
+}
+
+.stepping-stones-slider--blue {
+  accent-color: #386ff2;
+}
+
+.stepping-stones-modal-scale {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 8px;
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: #95a0b7;
+}
+
+.stepping-stones-modal-presets {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.stepping-stones-preset-button {
+  border: none;
+  border-radius: 18px;
+  background: #eef3fb;
+  padding: 12px 10px;
+  font-size: 0.86rem;
+  font-weight: 900;
+  color: #4c5f7f;
+}
+
+.stepping-stones-modal-safety {
+  border-radius: 22px;
+  background: #fff6df;
+  padding: 14px 16px;
+  font-size: 0.88rem;
+  font-weight: 800;
+  line-height: 1.55;
+  color: #8d6411;
+}
+
+.stepping-stones-modal-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.stepping-stones-modal-primary,
+.stepping-stones-modal-secondary {
+  border: none;
+  border-radius: 18px;
+  padding: 14px 16px;
+  font-size: 0.92rem;
+  font-weight: 900;
+}
+
+.stepping-stones-modal-primary {
+  background: linear-gradient(180deg, #3a76f2 0%, #2d66dd 100%);
+  color: #fff;
+}
+
+.stepping-stones-modal-secondary {
+  background: #eef3fb;
+  color: #4f6487;
+}
+
+@media (min-width: 768px) {
+  .stepping-stones-header {
+    padding-left: 28px;
+    padding-right: 28px;
+  }
+
+  .stepping-stones-header-logo {
+    height: 44px;
+  }
+
+  .stepping-stones-stage {
+    min-height: clamp(620px, 70vh, 920px);
+  }
+
+  .stepping-stones-panel {
+    margin-left: auto;
+    margin-right: auto;
+    width: min(100%, 900px);
+    padding-left: 22px;
+    padding-right: 22px;
+  }
+
+  .stepping-stones-feedback-badge {
+    padding-left: 34px;
+    padding-right: 34px;
+    font-size: 1rem;
+  }
+
+  .stepping-stones-metrics-grid {
+    gap: 16px;
+  }
+
+  .stepping-stones-metric-card {
+    padding: 22px 18px 18px;
+  }
+
+  .stepping-stones-progress-card {
+    padding-left: 22px;
+    padding-right: 22px;
+  }
+}
+
+@media (min-width: 1200px) {
+  .stepping-stones-layout {
+    grid-template-columns: minmax(0, 1.15fr) minmax(400px, 460px);
+    gap: 24px;
+    padding: 24px 28px 28px;
+  }
+
+  .stepping-stones-stage-shell {
+    min-height: calc(100vh - 130px);
+  }
+
+  .stepping-stones-stage {
+    min-height: 100%;
+    border-radius: 36px;
+    box-shadow: 0 28px 70px rgba(81, 129, 189, 0.16);
+  }
+
+  .stepping-stones-panel {
+    align-self: stretch;
+    width: 100%;
+    margin-top: 0;
+    border-radius: 36px;
+    padding-top: 18px;
+    box-shadow: 0 24px 64px rgba(81, 129, 189, 0.16);
+  }
+
+  .stepping-stones-feedback-wrap {
+    margin-top: 0;
+  }
+
+  .stepping-stones-actions-grid {
+    margin-top: 22px;
+  }
+
+  .stepping-stones-panel-footer {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    margin-top: auto;
+    padding-bottom: 4px;
+  }
+}
+
+@media (max-width: 767px) {
+  .stepping-stones-header-logo {
+    height: 32px;
+  }
+
+  .stepping-stones-stage {
+    min-height: 520px;
+  }
+
+  .stepping-stones-timer {
+    font-size: 3rem;
+  }
+
+  .stepping-stones-stone {
+    width: 116px;
+    height: 64px;
+  }
+
+  .stepping-stones-stone-water-ring {
+    width: 130px;
+    height: 34px;
+  }
+
+  .stepping-stones-avatar {
+    width: 52px;
+    height: 52px;
+  }
+
+  .stepping-stones-feedback-badge {
+    font-size: 0.82rem;
+    padding: 11px 22px;
+  }
+
+  .stepping-stones-metric-card {
+    border-radius: 22px;
+    padding-left: 10px;
+    padding-right: 10px;
+  }
+
+  .stepping-stones-metric-label {
+    font-size: 0.72rem;
+  }
+
+  .stepping-stones-metric-subtext {
+    font-size: 0.82rem;
+  }
+
+  .stepping-stones-action-button {
+    min-height: 74px;
+    gap: 10px;
+    font-size: 0.98rem;
+  }
 }
 
 @keyframes steppingStonePulseTarget {
