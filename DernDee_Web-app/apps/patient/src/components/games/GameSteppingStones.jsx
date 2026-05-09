@@ -50,12 +50,19 @@ const LANDING_STABLE_TILT_RATE = 1.4;
 const FEEDBACK_RESET_MS = 950;
 const SAFE_TARGET_THRESHOLD_CM = 35;
 
-const STONE_SLOT_LAYOUT = [
-    { left: '50%', bottom: '7%', scale: 1.08 },
-    { left: '52%', bottom: '29%', scale: 0.96 },
-    { left: '49%', bottom: '51%', scale: 0.86 },
-    { left: '53%', bottom: '73%', scale: 0.76 },
-    { left: '50%', bottom: '95%', scale: 0.66 },
+// 3 stones — mobile & iPad portrait (< 1024 px)
+const STONE_SLOT_LAYOUT_SMALL = [
+    { left: '50%', bottom: '10%', scale: 1.10 },
+    { left: '52%', bottom: '42%', scale: 0.92 },
+    { left: '49%', bottom: '74%', scale: 0.78 },
+];
+
+// 4 stones — desktop / MacBook (≥ 1024 px)
+const STONE_SLOT_LAYOUT_LARGE = [
+    { left: '50%', bottom: '8%',  scale: 1.08 },
+    { left: '52%', bottom: '33%', scale: 0.94 },
+    { left: '49%', bottom: '58%', scale: 0.82 },
+    { left: '53%', bottom: '83%', scale: 0.70 },
 ];
 
 const WATER_SCENERY = [
@@ -162,6 +169,7 @@ const GameSteppingStones = () => {
     const [landingStoneNumber, setLandingStoneNumber] = useState(null);
     const [visibleSensors, setVisibleSensors] = useState([]);
     const [isJumping, setIsJumping] = useState(false);
+    const [isWideScreen, setIsWideScreen] = useState(() => window.matchMedia('(min-width: 1024px)').matches);
     const [feedback, setFeedback] = useState({
         text: 'Step to the green stone',
         tone: 'sky',
@@ -272,6 +280,13 @@ const GameSteppingStones = () => {
         baseOscillator.stop(startTime + 0.24);
         accentOscillator.stop(startTime + 0.24);
     }, [soundEnabled]);
+
+    useEffect(() => {
+        const mq = window.matchMedia('(min-width: 1024px)');
+        const handler = (e) => setIsWideScreen(e.matches);
+        mq.addEventListener('change', handler);
+        return () => mq.removeEventListener('change', handler);
+    }, []);
 
     useEffect(() => {
         audioContextRef.current = new (window.AudioContext || window.webkitAudioContext)();
@@ -794,9 +809,10 @@ const GameSteppingStones = () => {
 
     const currentStoneNumber = completedTargets + 1;
     const targetStoneNumber = completedTargets < totalTargets ? currentStoneNumber + 1 : null;
-    const maxVisibleStart = Math.max(1, (totalTargets + 1) - STONE_SLOT_LAYOUT.length + 1);
+    const stoneSlotLayout = isWideScreen ? STONE_SLOT_LAYOUT_LARGE : STONE_SLOT_LAYOUT_SMALL;
+    const maxVisibleStart = Math.max(1, (totalTargets + 1) - stoneSlotLayout.length + 1);
     const visibleStartStoneNumber = Math.min(currentStoneNumber, maxVisibleStart);
-    const visibleStoneNumbers = STONE_SLOT_LAYOUT
+    const visibleStoneNumbers = stoneSlotLayout
         .map((_, index) => visibleStartStoneNumber + index)
         .filter((stoneNumber) => stoneNumber <= totalTargets + 1);
     const progressPercent = totalTargets > 0 ? Math.round((completedTargets / totalTargets) * 100) : 0;
@@ -1009,7 +1025,7 @@ const GameSteppingStones = () => {
                         ))}
 
                         {visibleStoneNumbers.map((stoneNumber, index) => {
-                            const slot = STONE_SLOT_LAYOUT[index];
+                            const slot = stoneSlotLayout[index];
                             const isCurrentStone = stoneNumber === currentStoneNumber;
                             const isTargetStone = targetStoneNumber !== null && stoneNumber === targetStoneNumber;
                             const isLandingStone = landingStoneNumber === stoneNumber;
