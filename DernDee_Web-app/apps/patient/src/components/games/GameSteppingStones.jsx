@@ -62,7 +62,7 @@ const STONE_SLOT_LAYOUT_LARGE = [
     { left: '50%', bottom: '8%',  scale: 1.08 },
     { left: '52%', bottom: '33%', scale: 0.94 },
     { left: '49%', bottom: '58%', scale: 0.82 },
-    { left: '53%', bottom: '83%', scale: 0.70 },
+    { left: '53%', bottom: '75%', scale: 0.70 },
 ];
 
 const WATER_SCENERY = [
