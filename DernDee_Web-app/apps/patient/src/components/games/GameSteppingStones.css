@@ -132,10 +132,11 @@
    to the top-center — move timer to the top-left corner to avoid overlap. */
 @media (min-width: 1024px) {
   .stepping-stones-timer-wrap {
-    left: 20px;
+    left: auto;
+    right: 20px;
     top: 20px;
     transform: none;
-    text-align: left;
+    text-align: right;
   }
 }
 
