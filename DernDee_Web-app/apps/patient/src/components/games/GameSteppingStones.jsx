@@ -1006,7 +1006,8 @@ const GameSteppingStones = () => {
                             </div>
                         )}
 
-                        <div className="stepping-stones-timer-wrap">
+                        {/* Timer — visible on mobile/iPad only; desktop shows it in the right panel */}
+                        <div className="stepping-stones-timer-wrap lg:hidden">
                             <div className="stepping-stones-timer">
                                 {formatTime(sessionTime)}
                             </div>
@@ -1067,6 +1068,12 @@ const GameSteppingStones = () => {
 
                 {/* Right Panel */}
                 <aside className="flex flex-col gap-4 p-4 lg:p-0 lg:w-96 xl:w-[440px]">
+                    {/* Timer — desktop only, top of panel */}
+                    <div className="hidden lg:flex items-center justify-between bg-white rounded-2xl shadow-xl px-5 py-3">
+                        <div className="text-xs font-bold text-gray-400 uppercase tracking-widest">Time Elapsed</div>
+                        <div className="text-3xl font-black text-gray-800 tabular-nums">{formatTime(sessionTime)}</div>
+                    </div>
+
                     {/* Feedback badge */}
                     <div className="flex items-center justify-center min-h-[52px] -mt-6 lg:mt-0">
                         <div key={feedback.key} className={`stepping-stones-feedback px-7 py-3 rounded-full text-sm font-extrabold uppercase tracking-wide ${getFeedbackToneClasses(feedback.tone)}`}>
