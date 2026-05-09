@@ -1,0 +1,124 @@
+.stepping-stones-river {
+  position: relative;
+  overflow: hidden;
+  background:
+    radial-gradient(circle at 20% 18%, rgba(255, 255, 255, 0.55), transparent 20%),
+    radial-gradient(circle at 78% 28%, rgba(255, 255, 255, 0.38), transparent 18%),
+    linear-gradient(180deg, rgba(191, 226, 255, 0.92) 0%, rgba(126, 189, 246, 0.92) 100%);
+}
+
+.stepping-stones-river::before,
+.stepping-stones-river::after {
+  content: '';
+  position: absolute;
+  inset: auto -10% 8% -10%;
+  height: 40%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, rgba(255, 255, 255, 0.18), rgba(255, 255, 255, 0.02));
+  filter: blur(18px);
+  opacity: 0.55;
+}
+
+.stepping-stones-river::after {
+  inset: 12% -5% auto -5%;
+  height: 26%;
+  opacity: 0.35;
+}
+
+.stepping-stones-stone {
+  width: 92px;
+  height: 48px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.92);
+  border: 2px solid rgba(255, 255, 255, 0.85);
+  box-shadow: 0 12px 28px rgba(80, 120, 160, 0.18);
+  transition: transform 0.35s ease, box-shadow 0.35s ease, opacity 0.35s ease, border-color 0.35s ease;
+}
+
+.stepping-stones-stone--passed {
+  opacity: 0.72;
+  background: rgba(255, 255, 255, 0.72);
+}
+
+.stepping-stones-stone--current {
+  box-shadow: 0 16px 34px rgba(47, 111, 222, 0.22);
+}
+
+.stepping-stones-stone--target {
+  border-color: rgba(46, 199, 160, 0.9);
+  box-shadow: 0 0 0 12px rgba(46, 199, 160, 0.12), 0 12px 28px rgba(46, 199, 160, 0.16);
+  animation: steppingStonePulseTarget 1.4s infinite;
+}
+
+.stepping-stones-avatar {
+  transition: transform 0.35s ease, filter 0.35s ease;
+}
+
+.stepping-stones-avatar--jumping {
+  animation: steppingStoneJump 0.45s ease-out;
+}
+
+.stepping-stones-ripple {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 90px;
+  height: 36px;
+  transform: translate(-50%, -50%);
+  border: 2px solid rgba(46, 199, 160, 0.35);
+  border-radius: 999px;
+  animation: steppingStoneRipple 1.2s infinite;
+}
+
+.stepping-stones-feedback {
+  animation: steppingStoneBadgePop 0.25s ease-out;
+}
+
+@keyframes steppingStonePulseTarget {
+  0% {
+    transform: scale(1);
+    box-shadow: 0 0 0 0 rgba(46, 199, 160, 0.28), 0 12px 28px rgba(46, 199, 160, 0.16);
+  }
+  70% {
+    transform: scale(1.04);
+    box-shadow: 0 0 0 18px rgba(46, 199, 160, 0), 0 14px 30px rgba(46, 199, 160, 0.18);
+  }
+  100% {
+    transform: scale(1);
+    box-shadow: 0 0 0 0 rgba(46, 199, 160, 0), 0 12px 28px rgba(46, 199, 160, 0.16);
+  }
+}
+
+@keyframes steppingStoneJump {
+  0% {
+    transform: translateY(0) scale(1);
+  }
+  45% {
+    transform: translateY(-28px) scale(1.05);
+  }
+  100% {
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes steppingStoneRipple {
+  0% {
+    transform: translate(-50%, -50%) scale(0.8);
+    opacity: 0.45;
+  }
+  100% {
+    transform: translate(-50%, -50%) scale(1.7);
+    opacity: 0;
+  }
+}
+
+@keyframes steppingStoneBadgePop {
+  0% {
+    transform: scale(0.9);
+    opacity: 0;
+  }
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+}

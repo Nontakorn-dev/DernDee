@@ -102,6 +102,11 @@ const SESSION_TYPE_CONFIG = {
     description: 'Cadence and timing training',
     tone: 'violet',
   },
+  stepping_stones: {
+    label: 'Stepping Stones',
+    description: 'Step reach and landing control training',
+    tone: 'emerald',
+  },
 }
 
 const DEFAULT_SESSION_TYPE_CONFIG = {
@@ -292,6 +297,33 @@ const buildSessionCardMetrics = (session) => {
       {
         label: 'Target Tempo',
         value: toFiniteNumber(details.target_bpm) !== null ? `${formatNumberValue(details.target_bpm)} BPM` : '-',
+      },
+    ]
+  }
+
+  if (session.sessionType === 'stepping_stones') {
+    const completedLandings = toFiniteNumber(details.completed_landings)
+    const targetLandings = toFiniteNumber(details.target_landings)
+    const targetStepCm = toFiniteNumber(details.target_step_cm)
+
+    return [
+      {
+        label: 'Landings',
+        value: completedLandings !== null && targetLandings !== null
+          ? `${Math.round(completedLandings)} / ${Math.round(targetLandings)}`
+          : formatCountValue(completedLandings),
+      },
+      {
+        label: 'Target Reach',
+        value: targetStepCm !== null ? `${formatNumberValue(targetStepCm)} cm` : '-',
+      },
+      {
+        label: 'Mission Progress',
+        value: formatPercentValue(details.progress_percent),
+      },
+      {
+        label: 'Avg Stride',
+        value: toFiniteNumber(session.strideLength) !== null ? `${formatNumberValue(session.strideLength, 2)} m` : '-',
       },
     ]
   }

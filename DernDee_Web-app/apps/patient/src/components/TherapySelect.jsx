@@ -1,6 +1,6 @@
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Activity, ArrowLeft, Mountain, Target, Music, Timer } from 'lucide-react';
+import { Activity, ArrowLeft, Footprints, Mountain, Target, Music, Timer } from 'lucide-react';
 import derndeeLogo from '@shared/assets/images/derndee-logo.png';
 
 const TherapySelect = () => {
@@ -33,6 +33,15 @@ const TherapySelect = () => {
             iconBg: 'bg-blue-100',
             iconColor: 'text-blue-600',
             route: '/game/rhythm'
+        },
+        {
+            id: 'stepping-stones',
+            title: 'Stepping Stones',
+            description: 'Train step reach and safe weight shift.',
+            icon: Footprints,
+            iconBg: 'bg-emerald-100',
+            iconColor: 'text-emerald-600',
+            route: '/game/stepping-stones'
         },
         {
             id: 'freewalk',

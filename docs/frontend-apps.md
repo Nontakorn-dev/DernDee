@@ -125,6 +125,7 @@ entry file คือ `apps/patient/src/main.jsx`
 | `/game/clearance` | `GameClearance.jsx` | High Stepper |
 | `/game/balance` | `GameBalance.jsx` | Magic Plate |
 | `/game/rhythm` | `GameRhythm.jsx` | Rhythm Drummer |
+| `/game/stepping-stones` | `GameSteppingStones.jsx` | Stepping Stones |
 
 หมายเหตุ
 
