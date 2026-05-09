@@ -117,13 +117,13 @@ function formatPercent(value) {
 function getFeedbackToneClasses(tone) {
     switch (tone) {
         case 'emerald':
-            return 'stepping-stones-feedback-badge--emerald';
+            return 'bg-emerald-500 text-white shadow-lg';
         case 'amber':
-            return 'stepping-stones-feedback-badge--amber';
+            return 'bg-amber-400 text-amber-900 shadow-lg';
         case 'red':
-            return 'stepping-stones-feedback-badge--red';
+            return 'bg-red-500 text-white shadow-lg';
         default:
-            return 'stepping-stones-feedback-badge--sky';
+            return 'bg-white text-emerald-600 shadow-lg';
     }
 }
 
@@ -854,121 +854,135 @@ const GameSteppingStones = () => {
     const SecondaryActionIcon = secondaryAction.icon;
 
     return (
-        <div className="stepping-stones-screen">
-            <header className="stepping-stones-header">
-                <div className="stepping-stones-header-brand">
-                    <img src={derndeeLogo} alt="DernDee" className="stepping-stones-header-logo" />
+        <div className="min-h-screen bg-gradient-to-b from-blue-50 via-blue-100 to-blue-200">
+            {/* Header */}
+            <header className="bg-white shadow-xl px-4 sm:px-6 py-3 sm:py-4 flex items-center justify-between sticky top-0 z-20">
+                <div className="flex items-center gap-3">
+                    <button
+                        onClick={goBackToTherapy}
+                        className="flex items-center gap-2 text-gray-600 hover:text-gray-800 transition-colors"
+                    >
+                        <ArrowLeft className="w-5 h-5" />
+                    </button>
+                    <img src={derndeeLogo} alt="DernDee" className="h-10 sm:h-12 object-contain" />
                 </div>
 
-                <div className="stepping-stones-header-actions">
+                <div className="flex items-center gap-3">
                     <button
                         onClick={() => setSoundEnabled((previousValue) => !previousValue)}
-                        className="stepping-stones-icon-button"
+                        className="p-2 rounded-full bg-blue-100 hover:bg-blue-200 transition-colors"
                         aria-label={soundEnabled ? 'Mute sound' : 'Enable sound'}
                     >
-                        {soundEnabled ? <Volume2 className="h-5 w-5" /> : <VolumeX className="h-5 w-5" />}
+                        {soundEnabled ? <Volume2 className="w-5 h-5 text-blue-600" /> : <VolumeX className="w-5 h-5 text-blue-600" />}
                     </button>
                     <button
                         onClick={() => setShowSettings((previousValue) => !previousValue)}
-                        className="stepping-stones-icon-button"
+                        className="p-2 rounded-full bg-blue-100 hover:bg-blue-200 transition-colors"
                         aria-label="Open settings"
                     >
-                        <Settings className="h-5 w-5" />
+                        <Settings className="w-5 h-5 text-blue-600" />
                     </button>
                 </div>
             </header>
 
+            {/* Settings Panel */}
             {showSettings && (
-                <div className="stepping-stones-modal-backdrop">
-                    <div className="stepping-stones-modal-card">
-                        <div className="stepping-stones-modal-header">
+                <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+                    <div className="bg-white rounded-2xl shadow-2xl p-6 w-full max-w-sm">
+                        <div className="flex items-center justify-between mb-5">
                             <div>
-                                <h2 className="stepping-stones-modal-title">Stepping Stones</h2>
-                                <p className="stepping-stones-modal-subtitle">Match the rehab view on iPhone and iPad, then tune challenge here.</p>
+                                <h3 className="text-xl font-extrabold text-gray-800">Stepping Stones</h3>
+                                <p className="text-sm text-gray-500 mt-1">ปรับระดับความท้าทายได้ที่นี่</p>
                             </div>
-                            <button onClick={() => setShowSettings(false)} className="stepping-stones-modal-close">
-                                <X className="h-5 w-5" />
+                            <button onClick={() => setShowSettings(false)} className="p-1 hover:bg-gray-100 rounded-lg">
+                                <X className="w-5 h-5 text-gray-500" />
                             </button>
                         </div>
 
-                        <div className="stepping-stones-modal-body">
-                            <div className="stepping-stones-modal-status">
-                                <span className={`stepping-stones-modal-status-dot ${isConnected ? 'stepping-stones-modal-status-dot--connected' : ''}`}></span>
-                                <span>{isConnected ? 'Sensors connected' : 'Waiting for sensors'}</span>
-                            </div>
+                        {/* Sensor status */}
+                        <div className="flex items-center gap-2 text-sm text-gray-600 mb-5">
+                            <span className={`w-2.5 h-2.5 rounded-full ${isConnected ? 'bg-emerald-400' : 'bg-amber-400'}`}></span>
+                            <span className="font-medium">{isConnected ? 'Sensors connected' : 'Waiting for sensors'}</span>
+                        </div>
 
-                            <div>
-                                <label className="stepping-stones-modal-label">
-                                    Target step reach <span>{targetStepCm} cm</span>
-                                </label>
-                                <input
-                                    type="range"
-                                    min={MIN_TARGET_STEP_CM}
-                                    max={MAX_TARGET_STEP_CM}
-                                    step="1"
-                                    value={targetStepCm}
-                                    onChange={(event) => setTargetStepCm(Number(event.target.value))}
-                                    className="stepping-stones-slider stepping-stones-slider--emerald"
-                                />
-                                <div className="stepping-stones-modal-scale">
-                                    <span>Easy {MIN_TARGET_STEP_CM} cm</span>
-                                    <span>Challenge {MAX_TARGET_STEP_CM} cm</span>
-                                </div>
+                        {/* Target step reach */}
+                        <div className="mb-5">
+                            <label className="block text-sm font-medium text-gray-700 mb-2">
+                                ระยะก้าวเป้าหมาย: <span className="text-blue-600 font-bold">{targetStepCm} cm</span>
+                            </label>
+                            <input
+                                type="range"
+                                min={MIN_TARGET_STEP_CM}
+                                max={MAX_TARGET_STEP_CM}
+                                step="1"
+                                value={targetStepCm}
+                                onChange={(event) => setTargetStepCm(Number(event.target.value))}
+                                className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-blue-500"
+                            />
+                            <div className="flex justify-between text-xs text-gray-400 mt-1">
+                                <span>ง่าย {MIN_TARGET_STEP_CM} cm</span>
+                                <span>ท้าทาย {MAX_TARGET_STEP_CM} cm</span>
                             </div>
+                        </div>
 
-                            <div>
-                                <label className="stepping-stones-modal-label">
-                                    Stone targets <span>{totalTargets}</span>
-                                </label>
-                                <input
-                                    type="range"
-                                    min="6"
-                                    max="14"
-                                    step="1"
-                                    value={totalTargets}
-                                    onChange={(event) => setTotalTargets(Number(event.target.value))}
-                                    className="stepping-stones-slider stepping-stones-slider--blue"
-                                />
-                            </div>
+                        {/* Stone targets */}
+                        <div className="mb-5">
+                            <label className="block text-sm font-medium text-gray-700 mb-2">
+                                จำนวนก้อนหิน: <span className="text-blue-600 font-bold">{totalTargets}</span>
+                            </label>
+                            <input
+                                type="range"
+                                min="6"
+                                max="14"
+                                step="1"
+                                value={totalTargets}
+                                onChange={(event) => setTotalTargets(Number(event.target.value))}
+                                className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-blue-500"
+                            />
+                        </div>
 
-                            <div className="stepping-stones-modal-presets">
-                                {[
-                                    { label: 'Easy', step: 28, targets: 8 },
-                                    { label: 'Standard', step: 35, targets: 10 },
-                                    { label: 'Challenge', step: 44, targets: 12 },
-                                ].map((preset) => (
-                                    <button
-                                        key={preset.label}
-                                        onClick={() => {
-                                            setTargetStepCm(preset.step);
-                                            setTotalTargets(preset.targets);
-                                        }}
-                                        className="stepping-stones-preset-button"
-                                    >
-                                        {preset.label}
-                                    </button>
-                                ))}
-                            </div>
-
-                            <div className="stepping-stones-modal-safety">
-                                Use in a clear space and keep support nearby if single-leg stance still feels unsafe.
-                            </div>
-
-                            <div className="stepping-stones-modal-actions">
-                                <button onClick={goBackToTherapy} className="stepping-stones-modal-secondary">
-                                    Back to Therapy
+                        {/* Presets */}
+                        <div className="grid grid-cols-3 gap-2 mb-5">
+                            {[
+                                { label: 'ง่าย', step: 28, targets: 8 },
+                                { label: 'มาตรฐาน', step: 35, targets: 10 },
+                                { label: 'ท้าทาย', step: 44, targets: 12 },
+                            ].map((preset) => (
+                                <button
+                                    key={preset.label}
+                                    onClick={() => {
+                                        setTargetStepCm(preset.step);
+                                        setTotalTargets(preset.targets);
+                                    }}
+                                    className="py-2 text-sm rounded-xl bg-gray-100 text-gray-700 hover:bg-blue-100 hover:text-blue-700 font-medium transition-colors"
+                                >
+                                    {preset.label}
                                 </button>
-                                <button onClick={() => setShowSettings(false)} className="stepping-stones-modal-primary">
-                                    Continue
-                                </button>
-                            </div>
+                            ))}
+                        </div>
+
+                        {/* Safety note */}
+                        <div className="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 mb-5">
+                            ใช้ในพื้นที่โล่ง และควรมีจุดยึดเกาะใกล้มือหากยังไม่มั่นใจในการยืนขาเดียว
+                        </div>
+
+                        {/* Actions */}
+                        <div className="flex gap-3">
+                            <button onClick={goBackToTherapy} className="flex-1 py-3 bg-gray-200 text-gray-700 font-bold rounded-xl transition-colors hover:bg-gray-300">
+                                กลับ
+                            </button>
+                            <button onClick={() => setShowSettings(false)} className="flex-1 py-3 bg-blue-600 text-white font-bold rounded-xl transition-colors hover:bg-blue-700">
+                                ดำเนินการต่อ
+                            </button>
                         </div>
                     </div>
                 </div>
             )}
 
-            <main className="stepping-stones-layout">
-                <section className="stepping-stones-stage-shell">
+            {/* Main Content */}
+            <main className="flex flex-col lg:flex-row lg:gap-8 lg:p-8 lg:max-w-7xl lg:mx-auto">
+                {/* Stage (River scene) */}
+                <section className="stepping-stones-stage-shell lg:flex-1">
                     <div className="stepping-stones-stage">
                         {!isConnected && (
                             <div className="stepping-stones-status-pill">
@@ -1035,77 +1049,89 @@ const GameSteppingStones = () => {
                     </div>
                 </section>
 
-                <aside className="stepping-stones-panel">
-                    <div className="stepping-stones-feedback-wrap">
-                        <div key={feedback.key} className={`stepping-stones-feedback stepping-stones-feedback-badge ${getFeedbackToneClasses(feedback.tone)}`}>
+                {/* Right Panel */}
+                <aside className="flex flex-col gap-4 p-4 lg:p-0 lg:w-96 xl:w-[440px]">
+                    {/* Feedback badge */}
+                    <div className="flex items-center justify-center min-h-[52px] -mt-6 lg:mt-0">
+                        <div key={feedback.key} className={`stepping-stones-feedback px-7 py-3 rounded-full text-sm font-extrabold uppercase tracking-wide ${getFeedbackToneClasses(feedback.tone)}`}>
                             {feedback.text}
                         </div>
                     </div>
 
-                    <div className="stepping-stones-metrics-grid">
-                        <article className="stepping-stones-metric-card">
-                            <div className="stepping-stones-metric-label">Stride Length</div>
-                            <div className="stepping-stones-metric-value">
-                                {displayedStrideCm}
-                                <span>cm</span>
+                    {/* Metrics Grid */}
+                    <div className="grid grid-cols-3 gap-3">
+                        <div className="bg-white rounded-2xl shadow-xl p-3 sm:p-4 flex flex-col items-center text-center">
+                            <div className="text-xs font-bold text-gray-400 uppercase tracking-wide mb-1">Stride</div>
+                            <div className="text-2xl font-black text-blue-600 tabular-nums leading-tight">
+                                {displayedStrideCm}<span className="text-sm text-gray-400 ml-0.5">cm</span>
                             </div>
-                            <div className="stepping-stones-metric-subtext">Target {targetStepCm} cm</div>
-                        </article>
+                            <div className="text-xs text-gray-400 font-medium mt-1">เป้า {targetStepCm} cm</div>
+                        </div>
 
-                        <article className="stepping-stones-metric-card">
-                            <div className="stepping-stones-metric-label">Weight Bearing</div>
-                            <div className="stepping-stones-metric-value">{displayedWeightBearing}%</div>
-                            <div className="stepping-stones-status-chip">{getWeightShiftLabel(weightShiftPercent)}</div>
-                        </article>
+                        <div className="bg-white rounded-2xl shadow-xl p-3 sm:p-4 flex flex-col items-center text-center">
+                            <div className="text-xs font-bold text-gray-400 uppercase tracking-wide mb-1">Weight</div>
+                            <div className="text-2xl font-black text-blue-600 tabular-nums leading-tight">{displayedWeightBearing}%</div>
+                            <div className="text-xs font-bold px-1.5 py-0.5 bg-gray-100 rounded text-gray-500 mt-1 leading-tight">{getWeightShiftLabel(weightShiftPercent)}</div>
+                        </div>
 
-                        <article className="stepping-stones-metric-card">
-                            <div className="stepping-stones-metric-label">Step Progress</div>
-                            <div className="stepping-stones-metric-value stepping-stones-metric-value--progress">
-                                {completedTargets}
-                                <span>/{totalTargets}</span>
+                        <div className="bg-white rounded-2xl shadow-xl p-3 sm:p-4 flex flex-col items-center text-center">
+                            <div className="text-xs font-bold text-gray-400 uppercase tracking-wide mb-1">Progress</div>
+                            <div className="text-2xl font-black text-blue-600 tabular-nums leading-tight">
+                                {completedTargets}<span className="text-sm text-gray-400">/{totalTargets}</span>
                             </div>
-                            <div className="stepping-stones-metric-subtext">{progressPercent}% Complete</div>
-                        </article>
+                            <div className="text-xs text-gray-400 font-medium mt-1">{progressPercent}%</div>
+                        </div>
                     </div>
 
-                    <div className="stepping-stones-progress-card">
-                        <div className="stepping-stones-progress-track">
+                    {/* Progress Bar */}
+                    <div className="bg-white rounded-2xl shadow-xl p-4">
+                        <div className="h-3 bg-gray-100 rounded-full overflow-hidden">
                             <div
-                                className="stepping-stones-progress-fill"
+                                className="h-full bg-gradient-to-r from-blue-500 to-emerald-400 transition-all duration-500 ease-out"
                                 style={{ width: `${Math.max(0, Math.min(100, progressPercent))}%` }}
                             ></div>
                         </div>
-                        <div className="stepping-stones-progress-scale">
+                        <div className="flex justify-between text-xs text-gray-400 mt-1.5 font-bold">
                             <span>0</span>
                             <span>{midpointTarget}</span>
                             <span>{totalTargets}</span>
                         </div>
                     </div>
 
-                    <div className="stepping-stones-actions-grid">
+                    {/* Action Buttons */}
+                    <div className="grid grid-cols-2 gap-3">
                         <button
                             onClick={primaryAction.onClick}
-                            className={`stepping-stones-action-button stepping-stones-action-button--${primaryAction.tone}`}
+                            className={`py-5 rounded-2xl shadow-xl font-bold text-lg flex items-center justify-center gap-2 transition-all hover:scale-[1.02] ${
+                                primaryAction.tone === 'amber'
+                                    ? 'bg-amber-400 hover:bg-amber-500 text-white'
+                                    : 'bg-blue-600 hover:bg-blue-700 text-white'
+                            }`}
                         >
-                            <PrimaryActionIcon className="h-6 w-6" />
+                            <PrimaryActionIcon className="w-6 h-6" />
                             <span>{primaryAction.label}</span>
                         </button>
 
                         <button
                             onClick={secondaryAction.onClick}
-                            className={`stepping-stones-action-button stepping-stones-action-button--${secondaryAction.tone}`}
+                            className={`py-5 rounded-2xl shadow-xl font-bold text-lg flex items-center justify-center gap-2 transition-all hover:scale-[1.02] ${
+                                secondaryAction.tone === 'red'
+                                    ? 'bg-red-500 hover:bg-red-600 text-white'
+                                    : 'bg-gray-200 hover:bg-gray-300 text-gray-700'
+                            }`}
                         >
-                            <SecondaryActionIcon className="h-6 w-6" />
+                            <SecondaryActionIcon className="w-6 h-6" />
                             <span>{secondaryAction.label}</span>
                         </button>
                     </div>
 
-                    <div className="stepping-stones-panel-footer">
+                    {/* Footer info */}
+                    <div className="flex items-center justify-between text-xs text-gray-400 px-1">
                         <span>{safeModeEnabled ? 'Easy mode active' : `Target reach ${formatMetricNumber(displayStepCm, 0, '0')} / ${targetStepCm} cm`}</span>
                         {visibleSensors.length > 0 && (
-                            <div className="stepping-stones-sensor-pills">
+                            <div className="flex flex-wrap gap-1.5">
                                 {visibleSensors.map((sensor) => (
-                                    <span key={sensor.key} className="stepping-stones-sensor-pill">{sensor.label}</span>
+                                    <span key={sensor.key} className="bg-blue-100 text-blue-600 text-[10px] font-bold px-2 py-0.5 rounded-full">{sensor.label}</span>
                                 ))}
                             </div>
                         )}
