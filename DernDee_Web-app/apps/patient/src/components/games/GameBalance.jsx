@@ -9,7 +9,7 @@ import {
     normalizeRealtimeSensorSample,
 } from '@shared/gateway/realtimeSensorUtils.js';
 import { usePersistedGatewaySession } from '@shared/hooks/usePersistedGatewaySession.js';
-import { ArrowLeft, ArrowRight, Settings, Target, Play, Pause, Square, Star, X, ChevronLeft, ChevronRight, ChevronUp, ChevronDown } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Settings, Target, Play, Pause, Square, Star, X, ChevronLeft, ChevronRight, ChevronUp, ChevronDown, Volume2, VolumeX } from 'lucide-react';
 import derndeeLogo from '@shared/assets/images/derndee-logo.png';
 
 // === CONSTANTS ===
@@ -242,6 +242,10 @@ const GameBalance = () => {
     const [sensitivity, setSensitivity] = useState(1.0); // For display
     const gameStateRef = useRef(GAME_STATES.CALIBRATING);
 
+    // === Audio ===
+    const [soundEnabled, setSoundEnabled] = useState(true);
+    const audioContextRef = useRef(null);
+
     // === Calibration Offsets (use refs so callback always gets latest) ===
     const offsetRollRef = useRef(0);
     const offsetPitchRef = useRef(0);
@@ -417,6 +421,66 @@ const GameBalance = () => {
             level_mode: selectedLevel,
         },
     });
+
+    // === Play Star Collect Sound ===
+    const playStarSound = useCallback(() => {
+        if (!soundEnabled) return;
+        try {
+            if (!audioContextRef.current) {
+                audioContextRef.current = new (window.AudioContext || window.webkitAudioContext)();
+            }
+            const ctx = audioContextRef.current;
+            if (ctx.state === 'suspended') ctx.resume();
+            const fundamental = ctx.createOscillator();
+            const harmonic = ctx.createOscillator();
+            const gain = ctx.createGain();
+            fundamental.connect(gain);
+            harmonic.connect(gain);
+            gain.connect(ctx.destination);
+            fundamental.frequency.value = 659.25; // E5
+            fundamental.type = 'triangle';
+            harmonic.frequency.value = 987.77;   // B5
+            harmonic.type = 'sine';
+            gain.gain.setValueAtTime(0.001, ctx.currentTime);
+            gain.gain.exponentialRampToValueAtTime(0.7, ctx.currentTime + 0.01);
+            gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.22);
+            fundamental.start(ctx.currentTime);
+            harmonic.start(ctx.currentTime);
+            fundamental.stop(ctx.currentTime + 0.22);
+            harmonic.stop(ctx.currentTime + 0.22);
+        } catch (e) { /* silently ignore */ }
+    }, [soundEnabled]);
+
+    // === Play Mission Complete Fanfare ===
+    const playMissionCompleteSound = useCallback(() => {
+        if (!soundEnabled) return;
+        try {
+            if (!audioContextRef.current) {
+                audioContextRef.current = new (window.AudioContext || window.webkitAudioContext)();
+            }
+            const ctx = audioContextRef.current;
+            if (ctx.state === 'suspended') ctx.resume();
+            const notes = [
+                { freq: 523.25, t: 0 },
+                { freq: 659.25, t: 0.12 },
+                { freq: 783.99, t: 0.24 },
+                { freq: 1046.5, t: 0.38 },
+            ];
+            notes.forEach(({ freq, t }) => {
+                const osc = ctx.createOscillator();
+                const g = ctx.createGain();
+                osc.connect(g);
+                g.connect(ctx.destination);
+                osc.frequency.value = freq;
+                osc.type = 'triangle';
+                g.gain.setValueAtTime(0.001, ctx.currentTime + t);
+                g.gain.exponentialRampToValueAtTime(0.55, ctx.currentTime + t + 0.01);
+                g.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + t + 0.25);
+                osc.start(ctx.currentTime + t);
+                osc.stop(ctx.currentTime + t + 0.3);
+            });
+        } catch (e) { /* silently ignore */ }
+    }, [soundEnabled]);
 
     // === Calibration State ===
     const lastQuaternionRef = useRef(null); // Tracks latest quaternion from the primary visible sensor
@@ -1005,6 +1069,39 @@ const GameBalance = () => {
         previousTargetMissionPhaseRef.current = targetMissionPhase;
     }, [gameState, isTargetLevel, showStatusAnnouncement, targetMissionPhase]);
 
+    // === Sound: star collected ===
+    const prevStarsCollectedRef = useRef(0);
+    useEffect(() => {
+        if (starsCollected > prevStarsCollectedRef.current && gameState === GAME_STATES.PLAYING) {
+            playStarSound();
+        }
+        prevStarsCollectedRef.current = starsCollected;
+    }, [starsCollected, gameState, playStarSound]);
+
+    // === Sound: mission complete (Level 2 all stars) ===
+    const prevMissionPhaseRef = useRef(TARGET_MISSION_PHASES.TO_TARGET);
+    useEffect(() => {
+        if (
+            gameState === GAME_STATES.PLAYING
+            && isTargetLevel
+            && prevMissionPhaseRef.current !== TARGET_MISSION_PHASES.COMPLETE
+            && targetMissionPhase === TARGET_MISSION_PHASES.COMPLETE
+        ) {
+            playMissionCompleteSound();
+        }
+        prevMissionPhaseRef.current = targetMissionPhase;
+    }, [targetMissionPhase, gameState, isTargetLevel, playMissionCompleteSound]);
+
+    // === Sound: Level 1 goal reached ===
+    const prevLevelGoalReachedRef = useRef(false);
+    useEffect(() => {
+        const goalReached = !isTargetLevel && timeInZone >= STATIC_HOLD_GOAL_SECONDS;
+        if (goalReached && !prevLevelGoalReachedRef.current && gameState === GAME_STATES.PLAYING) {
+            playMissionCompleteSound();
+        }
+        prevLevelGoalReachedRef.current = goalReached;
+    }, [timeInZone, isTargetLevel, gameState, playMissionCompleteSound]);
+
     useEffect(() => {
         return () => {
             if (announcementTimeoutRef.current) {
@@ -1052,6 +1149,12 @@ const GameBalance = () => {
 
     // === Game Controls ===
     const startSession = () => {
+        // Init/resume AudioContext on user gesture (required on iOS/iPad)
+        if (!audioContextRef.current) {
+            audioContextRef.current = new (window.AudioContext || window.webkitAudioContext)();
+        } else if (audioContextRef.current.state === 'suspended') {
+            audioContextRef.current.resume();
+        }
         autoCenterArmedRef.current = false;
         autoCenterStableSinceRef.current = null;
         autoCenterDriftSinceRef.current = null;
@@ -1218,6 +1321,12 @@ const GameBalance = () => {
                     >
                         <Target className="w-4 h-4" />
                         <span className="hidden sm:inline">{isCalibrating ? 'Centering...' : 'Re-center'}</span>
+                    </button>
+                    <button
+                        onClick={() => setSoundEnabled(prev => !prev)}
+                        className="p-2 rounded-full bg-blue-100 hover:bg-blue-200 transition-colors"
+                    >
+                        {soundEnabled ? <Volume2 className="w-5 h-5 text-blue-600" /> : <VolumeX className="w-5 h-5 text-gray-400" />}
                     </button>
                     <button
                         onClick={() => setShowSettings(!showSettings)}
