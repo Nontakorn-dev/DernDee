@@ -18,7 +18,7 @@ const DEFAULT_TARGET_HEIGHT = 5; // Default target in cm
 const BASELINE_HEIGHT = 5; // Standard baseline in cm
 const REP_RESET_THRESHOLD = 3; // Must go below 3cm to count next rep
 const REP_REARM_HOLD_MS = 140;
-const MIN_REP_INTERVAL_MS = 1000;
+const MIN_REP_INTERVAL_MS = 1800;
 const GATEWAY_HEIGHT_ALPHA = 0.75;
 const MAX_VISIBLE_SENSORS = 2;
 const SENSOR_STALE_AFTER_MS = 2500;
@@ -424,8 +424,10 @@ const GameClearance = () => {
             if (soundEnabled) {
                 playSuccessSound();
             }
-        } else if (repState === 'HIT_TARGET' && repResetEligibleRef.current && currentHeight < REP_RESET_THRESHOLD) {
-            // Re-arm only after the foot has been back down briefly to avoid double counts within one lift.
+        } else if (repState === 'HIT_TARGET' && repResetEligibleRef.current && currentHeight < REP_RESET_THRESHOLD && repCooldownElapsed) {
+            // Re-arm only after foot is down AND the cooldown window has fully elapsed.
+            // This blocks landing jolts from triggering a phantom second rep while the
+            // patient is still completing their slow descent.
             commitAverageClearancePeak();
             setRepState('READY');
         }

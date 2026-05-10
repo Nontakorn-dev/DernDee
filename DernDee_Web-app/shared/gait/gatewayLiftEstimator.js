@@ -223,7 +223,7 @@ export class GatewayLiftEstimator {
 
       // Post-landing cooldown: block toe-off detection briefly after heel-strike
       // so the landing impact jolt can't immediately trigger a phantom second rep.
-      const POST_LANDING_COOLDOWN_MS = 450;
+      const POST_LANDING_COOLDOWN_MS = 800;
       const inPostLandingCooldown = Number.isFinite(this.lastStanceEntryTimeMs)
         && (currentTimeMs - this.lastStanceEntryTimeMs) < POST_LANDING_COOLDOWN_MS;
 
