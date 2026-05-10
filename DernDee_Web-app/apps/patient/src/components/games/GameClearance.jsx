@@ -330,9 +330,13 @@ const GameClearance = () => {
                 ? localLiftState.is_stance
                 : Boolean(sample?.is_stance);
 
-            sensorState.currentHeight = gatewayIsStance
+            const smoothedHeight = gatewayIsStance
                 ? 0
                 : (GATEWAY_HEIGHT_ALPHA * adjustedHeight) + ((1 - GATEWAY_HEIGHT_ALPHA) * sensorState.currentHeight);
+            // Sanity clamp: height can't jump more than 5cm per packet (filters drift spikes)
+            const MAX_HEIGHT_JUMP_CM = 5;
+            const prevHeight = sensorState.currentHeight;
+            sensorState.currentHeight = prevHeight + Math.max(-MAX_HEIGHT_JUMP_CM, Math.min(MAX_HEIGHT_JUMP_CM, smoothedHeight - prevHeight));
             sensorState.isStance = gatewayIsStance;
 
             if (sample?.gait_metrics?.stability_score !== undefined) {

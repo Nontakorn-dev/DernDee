@@ -158,6 +158,9 @@ export class GatewayLiftEstimator {
     this.heelStrikeCandidateCount = 0;
     this.position = [0, 0, 0];
     this.velocity = [0, 0, 0];
+    // Bias of accelLinear[2] measured during stance (gravity subtraction residual)
+    this.stanceAccelBiasZ = 0;
+    this.stanceBiasSamples = 0;
   }
 
   rotateToWorld(quaternion, accelLocal) {
@@ -265,14 +268,29 @@ export class GatewayLiftEstimator {
     if (isStance) {
       this.velocity = [0, 0, 0];
       this.position = [0, 0, 0];
+      // Track running average of vertical accel bias during stance
+      this.stanceBiasSamples += 1;
+      const alpha = Math.max(0.02, 1 / this.stanceBiasSamples);
+      this.stanceAccelBiasZ += alpha * (accelLinear[2] - this.stanceAccelBiasZ);
     } else {
       const previousVelocity = [...this.velocity];
-      this.velocity = this.velocity.map((value, index) => value + (accelLinear[index] * dt));
+
+      // Subtract stance bias, then apply deadband before vertical integration
+      // to suppress residual drift that causes phantom height spikes.
+      const ACCEL_DEADBAND_Z = 0.35; // m/s²
+      const biasedAccelZ = accelLinear[2] - this.stanceAccelBiasZ;
+      const effectiveAccelZ = Math.abs(biasedAccelZ) > ACCEL_DEADBAND_Z ? biasedAccelZ : 0;
+
+      this.velocity[0] += accelLinear[0] * dt;
+      this.velocity[1] += accelLinear[1] * dt;
+      this.velocity[2] += effectiveAccelZ * dt;
+
       this.position = this.position.map((value, index) => (
         value + (((previousVelocity[index] + this.velocity[index]) * 0.5) * dt)
       ));
 
-      const maxSwingZ = this.sensorMount === 'shank' ? 0.20 : 0.35;
+      // 12cm cap for shank (covers 3-10cm typical foot lift, blocks drift spikes)
+      const maxSwingZ = this.sensorMount === 'shank' ? 0.12 : 0.25;
       this.position[2] = Math.max(0, Math.min(maxSwingZ, this.position[2]));
       if (this.position[2] <= 0 && this.velocity[2] < 0) {
         this.velocity[2] = 0;
