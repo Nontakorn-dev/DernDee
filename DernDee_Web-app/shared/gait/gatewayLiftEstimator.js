@@ -125,6 +125,7 @@ export class GatewayLiftEstimator {
     this.minSwingDurationS = 0.18;
     this.toeOffConfirmSamples = 2;
     this.heelStrikeConfirmSamples = 3;
+    this.landingHeightThreshold = 0.02;
 
     if (this.sensorMount === 'shank') {
       this.gyroThreshold = 0.15;
@@ -136,6 +137,7 @@ export class GatewayLiftEstimator {
       this.minSwingDurationS = 0.18;
       this.toeOffConfirmSamples = 2;
       this.heelStrikeConfirmSamples = 3;
+      this.landingHeightThreshold = 0.015;
     }
   }
 
@@ -154,6 +156,7 @@ export class GatewayLiftEstimator {
     this.stanceStartTimeMs = null;
     this.swingStartTimeMs = null;
     this.swingPeakGyroNorm = 0;
+    this.swingPeakHeight = 0;
     this.toeOffCandidateCount = 0;
     this.heelStrikeCandidateCount = 0;
     this.position = [0, 0, 0];
@@ -231,15 +234,20 @@ export class GatewayLiftEstimator {
         this.isStance = false;
         this.swingStartTimeMs = currentTimeMs;
         this.swingPeakGyroNorm = gyroNorm;
+        this.swingPeakHeight = Math.max(0, this.position[2] || 0);
         this.toeOffCandidateCount = 0;
       }
     } else {
+      const estimatedHeight = Math.max(0, this.position[2] || 0);
+      this.swingPeakHeight = Math.max(this.swingPeakHeight, estimatedHeight);
       this.swingPeakGyroNorm = Math.max(this.swingPeakGyroNorm, gyroNorm);
       const swingDurationSeconds = this.getDurationSeconds(this.swingStartTimeMs, currentTimeMs) || 0;
+      const landingHeightGate = Math.max(this.landingHeightThreshold, this.swingPeakHeight * 0.18);
       const heelStrikeCandidate = (
         swingDurationSeconds >= this.minSwingDurationS
         && this.swingPeakGyroNorm >= this.minSwingPeakGyroNorm
         && gyroNorm < this.gyroThreshold
+        && estimatedHeight <= landingHeightGate
       );
 
       this.heelStrikeCandidateCount = heelStrikeCandidate ? this.heelStrikeCandidateCount + 1 : 0;
@@ -248,6 +256,7 @@ export class GatewayLiftEstimator {
       if (this.heelStrikeCandidateCount >= this.heelStrikeConfirmSamples) {
         this.isStance = true;
         this.stanceStartTimeMs = currentTimeMs;
+        this.swingPeakHeight = 0;
         this.heelStrikeCandidateCount = 0;
       }
     }
@@ -279,11 +288,23 @@ export class GatewayLiftEstimator {
       // to suppress residual drift that causes phantom height spikes.
       const ACCEL_DEADBAND_Z = 0.35; // m/s²
       const biasedAccelZ = accelLinear[2] - this.stanceAccelBiasZ;
-      const effectiveAccelZ = Math.abs(biasedAccelZ) > ACCEL_DEADBAND_Z ? biasedAccelZ : 0;
+      const effectiveAccelZ = Math.abs(biasedAccelZ) > ACCEL_DEADBAND_Z
+        ? biasedAccelZ - (Math.sign(biasedAccelZ) * ACCEL_DEADBAND_Z)
+        : 0;
+      const swingIsSettling = Math.abs(effectiveAccelZ) === 0 && gyroNorm < (this.gyroThreshold * 1.35);
 
       this.velocity[0] += accelLinear[0] * dt;
       this.velocity[1] += accelLinear[1] * dt;
       this.velocity[2] += effectiveAccelZ * dt;
+
+      if (swingIsSettling) {
+        // Without a little damping here, residual upward velocity can persist
+        // through low-motion descent and leave the gauge stuck after the first lift.
+        this.velocity[2] *= 0.72;
+        if (Math.abs(this.velocity[2]) < 0.03) {
+          this.velocity[2] = 0;
+        }
+      }
 
       this.position = this.position.map((value, index) => (
         value + (((previousVelocity[index] + this.velocity[index]) * 0.5) * dt)
