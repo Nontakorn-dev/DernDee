@@ -117,8 +117,18 @@ const GameClearance = () => {
     const audioContextRef = useRef(null);
 
     // === Derived State ===
-    const displayHeightPercent = Math.min(100, (displayHeight / MAX_SCALE_HEIGHT) * 100);
-    const targetLinePercent = (targetHeight / MAX_SCALE_HEIGHT) * 100;
+    // On iPad/iPhone the gauge only needs to show up to 20 cm; desktop shows 30 cm.
+    const [isWideScreen, setIsWideScreen] = useState(() => window.matchMedia('(min-width: 1024px)').matches);
+    useEffect(() => {
+        const mq = window.matchMedia('(min-width: 1024px)');
+        const handler = (e) => setIsWideScreen(e.matches);
+        mq.addEventListener('change', handler);
+        return () => mq.removeEventListener('change', handler);
+    }, []);
+    const displayMaxScale = isWideScreen ? MAX_SCALE_HEIGHT : 20;
+
+    const displayHeightPercent = Math.min(100, (displayHeight / displayMaxScale) * 100);
+    const targetLinePercent = Math.min(100, (targetHeight / displayMaxScale) * 100);
 
     // Determine gauge state based on height
     const getGaugeState = () => {
@@ -796,7 +806,7 @@ const GameClearance = () => {
             <main className="flex-1 p-4 lg:p-12 max-w-7xl mx-auto w-full grid grid-cols-1 lg:grid-cols-2 gap-8 lg:gap-16 items-center">
 
                 {/* LEFT: Capsule Gauge (Visual) */}
-                <div className="flex justify-center items-end relative" style={{ height: '70vh', minHeight: '500px' }}>
+                <div className="flex justify-center items-end relative" style={{ height: isWideScreen ? '70vh' : '55vh', minHeight: isWideScreen ? '500px' : '340px' }}>
                     {/* Mission Complete Overlay */}
                     {gameState === GAME_STATES.COMPLETED && (
                         <div className="absolute inset-0 z-50 flex flex-col items-center justify-center rounded-3xl bg-gradient-to-b from-emerald-400/95 to-teal-500/95 backdrop-blur-sm"
@@ -831,7 +841,7 @@ const GameClearance = () => {
                     <div className="relative h-full w-full max-w-sm mx-auto flex justify-center">
                         {/* Scale Markers */}
                         <div className="absolute left-0 top-0 bottom-0 flex flex-col justify-between py-4 text-sm font-bold text-gray-400">
-                            {[30, 25, 20, 15, 10, 5, 0].map(val => (
+                            {(isWideScreen ? [30, 25, 20, 15, 10, 5, 0] : [20, 15, 10, 5, 0]).map(val => (
                                 <span key={val} className="relative">
                                     {val}
                                     <span className="absolute left-6 top-1/2 w-4 h-[2px] bg-gray-200"></span>
@@ -849,7 +859,7 @@ const GameClearance = () => {
                             {/* Baseline Line (5cm) */}
                             <div
                                 className="absolute left-0 right-0 border-t-2 border-dashed border-gray-400 z-10 opacity-60"
-                                style={{ bottom: `${(BASELINE_HEIGHT / MAX_SCALE_HEIGHT) * 100}%` }}
+                                style={{ bottom: `${(BASELINE_HEIGHT / displayMaxScale) * 100}%` }}
                             >
                                 <span className="absolute -left-16 -top-2.5 text-[10px] font-bold text-gray-500 bg-gray-100 px-1.5 py-0.5 rounded">
                                     FLOOR
