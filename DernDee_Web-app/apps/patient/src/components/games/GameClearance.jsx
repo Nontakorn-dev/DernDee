@@ -19,7 +19,7 @@ const BASELINE_HEIGHT = 5; // Standard baseline in cm
 const REP_RESET_THRESHOLD = 3; // Must go below 3cm to count next rep
 const REP_REARM_HOLD_MS = 140;
 const MIN_REP_INTERVAL_MS = 1000;
-const GATEWAY_HEIGHT_ALPHA = 0.6;
+const GATEWAY_HEIGHT_ALPHA = 0.75;
 const MAX_VISIBLE_SENSORS = 2;
 const SENSOR_STALE_AFTER_MS = 2500;
 const VISUAL_FLOOR_SNAP_THRESHOLD = BASELINE_HEIGHT;
@@ -459,7 +459,9 @@ const GameClearance = () => {
 
             if (repState !== 'HIT_TARGET') {
                 visualPeakLockRef.current = false;
-                const followFactor = currentHeight >= previousHeight ? 0.55 : 0.24;
+                // Upward: fast follow so the bar visibly climbs while lifting
+                // Downward: slower so it doesn't snap to zero before foot is fully down
+                const followFactor = currentHeight >= previousHeight ? 0.75 : 0.28;
                 return previousHeight + ((currentHeight - previousHeight) * followFactor);
             }
 

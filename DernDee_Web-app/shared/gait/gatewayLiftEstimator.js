@@ -127,13 +127,15 @@ export class GatewayLiftEstimator {
     this.heelStrikeConfirmSamples = 3;
 
     if (this.sensorMount === 'shank') {
-      this.gyroThreshold = 0.18;
-      this.minToeOffGyroNorm = 0.30;
-      this.minSwingPeakGyroNorm = 0.75;
-      this.minStanceDurationS = 0.10;
-      this.minSwingDurationS = 0.24;
+      this.gyroThreshold = 0.15;
+      // Lower tiltRate threshold so slow/small lifts can trigger swing detection
+      this.tiltRateThreshold = 1.0;
+      this.minToeOffGyroNorm = 0.15;
+      this.minSwingPeakGyroNorm = 0.30;
+      this.minStanceDurationS = 0.08;
+      this.minSwingDurationS = 0.18;
       this.toeOffConfirmSamples = 2;
-      this.heelStrikeConfirmSamples = 4;
+      this.heelStrikeConfirmSamples = 3;
     }
   }
 
