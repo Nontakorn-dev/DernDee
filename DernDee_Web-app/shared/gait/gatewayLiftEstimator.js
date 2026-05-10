@@ -157,6 +157,7 @@ export class GatewayLiftEstimator {
     this.swingStartTimeMs = null;
     this.swingPeakGyroNorm = 0;
     this.swingPeakHeight = 0;
+    this.lowMotionSwingSamples = 0;
     this.toeOffCandidateCount = 0;
     this.heelStrikeCandidateCount = 0;
     this.position = [0, 0, 0];
@@ -277,6 +278,7 @@ export class GatewayLiftEstimator {
     if (isStance) {
       this.velocity = [0, 0, 0];
       this.position = [0, 0, 0];
+      this.lowMotionSwingSamples = 0;
       // Track running average of vertical accel bias during stance
       this.stanceBiasSamples += 1;
       const alpha = Math.max(0.02, 1 / this.stanceBiasSamples);
@@ -292,6 +294,7 @@ export class GatewayLiftEstimator {
         ? biasedAccelZ - (Math.sign(biasedAccelZ) * ACCEL_DEADBAND_Z)
         : 0;
       const swingIsSettling = Math.abs(effectiveAccelZ) === 0 && gyroNorm < (this.gyroThreshold * 1.35);
+      this.lowMotionSwingSamples = swingIsSettling ? this.lowMotionSwingSamples + 1 : 0;
 
       this.velocity[0] += accelLinear[0] * dt;
       this.velocity[1] += accelLinear[1] * dt;
@@ -309,6 +312,11 @@ export class GatewayLiftEstimator {
       this.position = this.position.map((value, index) => (
         value + (((previousVelocity[index] + this.velocity[index]) * 0.5) * dt)
       ));
+
+      if (this.lowMotionSwingSamples >= 18 && this.position[2] > 0) {
+        const settleDropM = 0.14 * dt;
+        this.position[2] = Math.max(0, this.position[2] - settleDropM);
+      }
 
       // 12cm cap for shank (covers 3-10cm typical foot lift, blocks drift spikes)
       const maxSwingZ = this.sensorMount === 'shank' ? 0.12 : 0.25;
