@@ -22,7 +22,7 @@ const MIN_REP_INTERVAL_MS = 1000;
 const GATEWAY_HEIGHT_ALPHA = 0.75;
 const MAX_VISIBLE_SENSORS = 2;
 const SENSOR_STALE_AFTER_MS = 2500;
-const VISUAL_FLOOR_SNAP_THRESHOLD = BASELINE_HEIGHT;
+const VISUAL_FLOOR_SNAP_THRESHOLD = 1.0; // snap bar to floor only when foot is clearly down
 const VISUAL_FLOOR_HOLD_MS = 180;
 const VISUAL_POST_HIT_HOLD_MS = 500;
 
@@ -452,7 +452,9 @@ const GameClearance = () => {
                 return 0;
             }
 
-            if (currentHeight < REP_RESET_THRESHOLD && repResetEligibleRef.current) {
+            // Only zero-snap while actively descending and stance confirmed;
+            // do NOT zero while the foot is still rising through the reset zone.
+            if (currentHeight < REP_RESET_THRESHOLD && repResetEligibleRef.current && currentHeight <= previousHeight) {
                 visualPeakLockRef.current = false;
                 return 0;
             }
