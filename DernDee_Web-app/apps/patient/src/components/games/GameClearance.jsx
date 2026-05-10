@@ -114,7 +114,7 @@ const GameClearance = () => {
     const activeSensorKeysRef = useRef([]);
 
     // === Audio ===
-    const successSoundRef = useRef(null);
+    const audioContextRef = useRef(null);
 
     // === Derived State ===
     const displayHeightPercent = Math.min(100, (displayHeight / MAX_SCALE_HEIGHT) * 100);
@@ -421,9 +421,7 @@ const GameClearance = () => {
             }
 
             // Sound feedback
-            if (soundEnabled) {
-                playSuccessSound();
-            }
+            playSuccessSound();
         } else if (repState === 'HIT_TARGET' && repResetEligibleRef.current && currentHeight < REP_RESET_THRESHOLD && repCooldownElapsed) {
             // Re-arm only after foot is down AND the cooldown window has fully elapsed.
             // This blocks landing jolts from triggering a phantom second rep while the
@@ -431,7 +429,18 @@ const GameClearance = () => {
             commitAverageClearancePeak();
             setRepState('READY');
         }
-    }, [commitAverageClearancePeak, currentHeight, repState, targetHeight, gameState, soundEnabled, vibrationEnabled]);
+    }, [commitAverageClearancePeak, currentHeight, repState, targetHeight, gameState, soundEnabled, vibrationEnabled, playSuccessSound]);
+
+    // === Auto-complete when goal is reached ===
+    useEffect(() => {
+        if (gameState !== GAME_STATES.PLAYING) return;
+        if (reps >= totalReps && totalReps > 0) {
+            commitAverageClearancePeak();
+            setGameState(GAME_STATES.COMPLETED);
+            if (timerRef.current) clearInterval(timerRef.current);
+            playMissionCompleteSound();
+        }
+    }, [reps, totalReps, gameState, commitAverageClearancePeak, playMissionCompleteSound]);
 
     // Keep the gauge responsive, but suppress upward visual bounce after a rep has already been counted.
     useEffect(() => {
@@ -505,17 +514,76 @@ const GameClearance = () => {
         };
     }, [gameState]);
 
-    // === Play Success Sound ===
-    const playSuccessSound = () => {
-        if ('speechSynthesis' in window) {
-            window.speechSynthesis.cancel();
-            const utterance = new SpeechSynthesisUtterance('ดี');
-            utterance.lang = 'th-TH';
-            utterance.rate = 1.5;
-            utterance.volume = 0.5;
-            window.speechSynthesis.speak(utterance);
+    // === Play Hit Sound (WebAudio — works on iPad) ===
+    const playSuccessSound = useCallback(() => {
+        if (!soundEnabled) return;
+        try {
+            if (!audioContextRef.current) {
+                audioContextRef.current = new (window.AudioContext || window.webkitAudioContext)();
+            }
+            const ctx = audioContextRef.current;
+            if (ctx.state === 'suspended') ctx.resume();
+
+            const fundamental = ctx.createOscillator();
+            const harmonic = ctx.createOscillator();
+            const gain = ctx.createGain();
+
+            fundamental.connect(gain);
+            harmonic.connect(gain);
+            gain.connect(ctx.destination);
+
+            fundamental.frequency.value = 659.25; // E5
+            fundamental.type = 'triangle';
+            harmonic.frequency.value = 987.77;   // B5
+            harmonic.type = 'sine';
+
+            gain.gain.setValueAtTime(0.001, ctx.currentTime);
+            gain.gain.exponentialRampToValueAtTime(0.7, ctx.currentTime + 0.01);
+            gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.22);
+
+            fundamental.start(ctx.currentTime);
+            harmonic.start(ctx.currentTime);
+            fundamental.stop(ctx.currentTime + 0.22);
+            harmonic.stop(ctx.currentTime + 0.22);
+        } catch (e) {
+            // silently ignore if AudioContext unavailable
         }
-    };
+    }, [soundEnabled]);
+
+    // === Play Mission Complete Fanfare ===
+    const playMissionCompleteSound = useCallback(() => {
+        if (!soundEnabled) return;
+        try {
+            if (!audioContextRef.current) {
+                audioContextRef.current = new (window.AudioContext || window.webkitAudioContext)();
+            }
+            const ctx = audioContextRef.current;
+            if (ctx.state === 'suspended') ctx.resume();
+
+            const notes = [
+                { freq: 523.25, t: 0 },    // C5
+                { freq: 659.25, t: 0.12 }, // E5
+                { freq: 783.99, t: 0.24 }, // G5
+                { freq: 1046.5, t: 0.38 }, // C6
+            ];
+
+            notes.forEach(({ freq, t }) => {
+                const osc = ctx.createOscillator();
+                const g = ctx.createGain();
+                osc.connect(g);
+                g.connect(ctx.destination);
+                osc.frequency.value = freq;
+                osc.type = 'triangle';
+                g.gain.setValueAtTime(0.001, ctx.currentTime + t);
+                g.gain.exponentialRampToValueAtTime(0.55, ctx.currentTime + t + 0.01);
+                g.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + t + 0.25);
+                osc.start(ctx.currentTime + t);
+                osc.stop(ctx.currentTime + t + 0.3);
+            });
+        } catch (e) {
+            // silently ignore
+        }
+    }, [soundEnabled]);
 
     // === Format Time ===
     const formatTime = (seconds) => {
@@ -526,6 +594,12 @@ const GameClearance = () => {
 
     // === Game Controls ===
     const startSession = () => {
+        // Initialize / resume AudioContext on user gesture (required on iOS/iPad)
+        if (!audioContextRef.current) {
+            audioContextRef.current = new (window.AudioContext || window.webkitAudioContext)();
+        } else if (audioContextRef.current.state === 'suspended') {
+            audioContextRef.current.resume();
+        }
         setGameState(GAME_STATES.PLAYING);
         setCurrentHeight(0);
         setDisplayHeight(0);
@@ -602,6 +676,12 @@ const GameClearance = () => {
 
     return (
         <div className="min-h-screen bg-gradient-to-b from-blue-50 via-blue-100 to-blue-200">
+            <style>{`
+                @keyframes fadeInScale {
+                    from { opacity: 0; transform: scale(0.92); }
+                    to   { opacity: 1; transform: scale(1); }
+                }
+            `}</style>
             {/* Header */}
             <header className="bg-white shadow-xl px-4 sm:px-6 py-3 sm:py-4 flex items-center justify-between">
                 <div className="flex items-center gap-3">
@@ -716,7 +796,38 @@ const GameClearance = () => {
             <main className="flex-1 p-4 lg:p-12 max-w-7xl mx-auto w-full grid grid-cols-1 lg:grid-cols-2 gap-8 lg:gap-16 items-center">
 
                 {/* LEFT: Capsule Gauge (Visual) */}
-                <div className="flex justify-center items-end" style={{ height: '70vh', minHeight: '500px' }}>
+                <div className="flex justify-center items-end relative" style={{ height: '70vh', minHeight: '500px' }}>
+                    {/* Mission Complete Overlay */}
+                    {gameState === GAME_STATES.COMPLETED && (
+                        <div className="absolute inset-0 z-50 flex flex-col items-center justify-center rounded-3xl bg-gradient-to-b from-emerald-400/95 to-teal-500/95 backdrop-blur-sm"
+                            style={{ animation: 'fadeInScale 0.4s ease-out both' }}>
+                            <div className="text-6xl mb-4 animate-bounce">🎉</div>
+                            <div className="text-3xl font-black text-white tracking-tight mb-1">Mission Complete!</div>
+                            <div className="text-white/80 font-semibold text-lg mb-6">
+                                {totalReps} ก้าว สำเร็จแล้ว!
+                            </div>
+                            <div className="flex gap-6 mb-8">
+                                <div className="bg-white/20 rounded-2xl px-5 py-3 text-center">
+                                    <div className="text-2xl font-black text-white">{reps}</div>
+                                    <div className="text-white/70 text-xs font-bold uppercase tracking-wider">ก้าว</div>
+                                </div>
+                                <div className="bg-white/20 rounded-2xl px-5 py-3 text-center">
+                                    <div className="text-2xl font-black text-white">{formatTime(sessionTime)}</div>
+                                    <div className="text-white/70 text-xs font-bold uppercase tracking-wider">เวลา</div>
+                                </div>
+                                <div className="bg-white/20 rounded-2xl px-5 py-3 text-center">
+                                    <div className="text-2xl font-black text-white">{displayedAverageClearanceCm.toFixed(1)}</div>
+                                    <div className="text-white/70 text-xs font-bold uppercase tracking-wider">Avg cm</div>
+                                </div>
+                            </div>
+                            <button
+                                onClick={resetSession}
+                                className="bg-white text-emerald-600 font-black text-lg px-8 py-3 rounded-2xl shadow-xl hover:scale-105 transition-transform"
+                            >
+                                เล่นอีกครั้ง
+                            </button>
+                        </div>
+                    )}
                     <div className="relative h-full w-full max-w-sm mx-auto flex justify-center">
                         {/* Scale Markers */}
                         <div className="absolute left-0 top-0 bottom-0 flex flex-col justify-between py-4 text-sm font-bold text-gray-400">
