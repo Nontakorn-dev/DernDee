@@ -230,11 +230,81 @@ const GameClearance = () => {
         metadata: {
             game_label: 'High Stepper',
         },
-    });
+    });  // end usePersistedGatewaySession
+
+    // === Play Hit Sound (WebAudio — works on iPad) ===
+    const playSuccessSound = useCallback(() => {
+        if (!soundEnabled) return;
+        try {
+            if (!audioContextRef.current) {
+                audioContextRef.current = new (window.AudioContext || window.webkitAudioContext)();
+            }
+            const ctx = audioContextRef.current;
+            if (ctx.state === 'suspended') ctx.resume();
+
+            const fundamental = ctx.createOscillator();
+            const harmonic = ctx.createOscillator();
+            const gain = ctx.createGain();
+
+            fundamental.connect(gain);
+            harmonic.connect(gain);
+            gain.connect(ctx.destination);
+
+            fundamental.frequency.value = 659.25; // E5
+            fundamental.type = 'triangle';
+            harmonic.frequency.value = 987.77;   // B5
+            harmonic.type = 'sine';
+
+            gain.gain.setValueAtTime(0.001, ctx.currentTime);
+            gain.gain.exponentialRampToValueAtTime(0.7, ctx.currentTime + 0.01);
+            gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.22);
+
+            fundamental.start(ctx.currentTime);
+            harmonic.start(ctx.currentTime);
+            fundamental.stop(ctx.currentTime + 0.22);
+            harmonic.stop(ctx.currentTime + 0.22);
+        } catch (e) {
+            // silently ignore if AudioContext unavailable
+        }
+    }, [soundEnabled]);
+
+    // === Play Mission Complete Fanfare ===
+    const playMissionCompleteSound = useCallback(() => {
+        if (!soundEnabled) return;
+        try {
+            if (!audioContextRef.current) {
+                audioContextRef.current = new (window.AudioContext || window.webkitAudioContext)();
+            }
+            const ctx = audioContextRef.current;
+            if (ctx.state === 'suspended') ctx.resume();
+
+            const notes = [
+                { freq: 523.25, t: 0 },    // C5
+                { freq: 659.25, t: 0.12 }, // E5
+                { freq: 783.99, t: 0.24 }, // G5
+                { freq: 1046.5, t: 0.38 }, // C6
+            ];
+
+            notes.forEach(({ freq, t }) => {
+                const osc = ctx.createOscillator();
+                const g = ctx.createGain();
+                osc.connect(g);
+                g.connect(ctx.destination);
+                osc.frequency.value = freq;
+                osc.type = 'triangle';
+                g.gain.setValueAtTime(0.001, ctx.currentTime + t);
+                g.gain.exponentialRampToValueAtTime(0.55, ctx.currentTime + t + 0.01);
+                g.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + t + 0.25);
+                osc.start(ctx.currentTime + t);
+                osc.stop(ctx.currentTime + t + 0.3);
+            });
+        } catch (e) {
+            // silently ignore
+        }
+    }, [soundEnabled]);
 
     // === WebSocket Connection ===
     useEffect(() => {
-        manualDisconnectRef.current = false;
 
         const connectWebSocket = () => {
             try {
@@ -514,76 +584,6 @@ const GameClearance = () => {
         };
     }, [gameState]);
 
-    // === Play Hit Sound (WebAudio — works on iPad) ===
-    const playSuccessSound = useCallback(() => {
-        if (!soundEnabled) return;
-        try {
-            if (!audioContextRef.current) {
-                audioContextRef.current = new (window.AudioContext || window.webkitAudioContext)();
-            }
-            const ctx = audioContextRef.current;
-            if (ctx.state === 'suspended') ctx.resume();
-
-            const fundamental = ctx.createOscillator();
-            const harmonic = ctx.createOscillator();
-            const gain = ctx.createGain();
-
-            fundamental.connect(gain);
-            harmonic.connect(gain);
-            gain.connect(ctx.destination);
-
-            fundamental.frequency.value = 659.25; // E5
-            fundamental.type = 'triangle';
-            harmonic.frequency.value = 987.77;   // B5
-            harmonic.type = 'sine';
-
-            gain.gain.setValueAtTime(0.001, ctx.currentTime);
-            gain.gain.exponentialRampToValueAtTime(0.7, ctx.currentTime + 0.01);
-            gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.22);
-
-            fundamental.start(ctx.currentTime);
-            harmonic.start(ctx.currentTime);
-            fundamental.stop(ctx.currentTime + 0.22);
-            harmonic.stop(ctx.currentTime + 0.22);
-        } catch (e) {
-            // silently ignore if AudioContext unavailable
-        }
-    }, [soundEnabled]);
-
-    // === Play Mission Complete Fanfare ===
-    const playMissionCompleteSound = useCallback(() => {
-        if (!soundEnabled) return;
-        try {
-            if (!audioContextRef.current) {
-                audioContextRef.current = new (window.AudioContext || window.webkitAudioContext)();
-            }
-            const ctx = audioContextRef.current;
-            if (ctx.state === 'suspended') ctx.resume();
-
-            const notes = [
-                { freq: 523.25, t: 0 },    // C5
-                { freq: 659.25, t: 0.12 }, // E5
-                { freq: 783.99, t: 0.24 }, // G5
-                { freq: 1046.5, t: 0.38 }, // C6
-            ];
-
-            notes.forEach(({ freq, t }) => {
-                const osc = ctx.createOscillator();
-                const g = ctx.createGain();
-                osc.connect(g);
-                g.connect(ctx.destination);
-                osc.frequency.value = freq;
-                osc.type = 'triangle';
-                g.gain.setValueAtTime(0.001, ctx.currentTime + t);
-                g.gain.exponentialRampToValueAtTime(0.55, ctx.currentTime + t + 0.01);
-                g.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + t + 0.25);
-                osc.start(ctx.currentTime + t);
-                osc.stop(ctx.currentTime + t + 0.3);
-            });
-        } catch (e) {
-            // silently ignore
-        }
-    }, [soundEnabled]);
 
     // === Format Time ===
     const formatTime = (seconds) => {
