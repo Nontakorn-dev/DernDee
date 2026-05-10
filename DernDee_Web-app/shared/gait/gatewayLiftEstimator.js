@@ -125,7 +125,6 @@ export class GatewayLiftEstimator {
     this.minSwingDurationS = 0.18;
     this.toeOffConfirmSamples = 2;
     this.heelStrikeConfirmSamples = 3;
-    this.landingHeightThreshold = 0.02;
 
     if (this.sensorMount === 'shank') {
       this.gyroThreshold = 0.15;
@@ -137,7 +136,6 @@ export class GatewayLiftEstimator {
       this.minSwingDurationS = 0.18;
       this.toeOffConfirmSamples = 2;
       this.heelStrikeConfirmSamples = 3;
-      this.landingHeightThreshold = 0.015;
     }
   }
 
@@ -157,7 +155,6 @@ export class GatewayLiftEstimator {
     this.swingStartTimeMs = null;
     this.swingPeakGyroNorm = 0;
     this.swingPeakHeight = 0;
-    this.lowMotionSwingSamples = 0;
     this.toeOffCandidateCount = 0;
     this.heelStrikeCandidateCount = 0;
     this.position = [0, 0, 0];
@@ -239,16 +236,23 @@ export class GatewayLiftEstimator {
         this.toeOffCandidateCount = 0;
       }
     } else {
-      const estimatedHeight = Math.max(0, this.position[2] || 0);
-      this.swingPeakHeight = Math.max(this.swingPeakHeight, estimatedHeight);
       this.swingPeakGyroNorm = Math.max(this.swingPeakGyroNorm, gyroNorm);
       const swingDurationSeconds = this.getDurationSeconds(this.swingStartTimeMs, currentTimeMs) || 0;
-      const landingHeightGate = Math.max(this.landingHeightThreshold, this.swingPeakHeight * 0.18);
+
+      // Safety valve: if swing lasts more than 5 s (patient moving very slowly),
+      // force stance so the bar never gets permanently frozen.
+      if (swingDurationSeconds > 5.0) {
+        this.isStance = true;
+        this.stanceStartTimeMs = currentTimeMs;
+        this.swingPeakHeight = 0;
+        this.heelStrikeCandidateCount = 0;
+        return true;
+      }
+
       const heelStrikeCandidate = (
         swingDurationSeconds >= this.minSwingDurationS
         && this.swingPeakGyroNorm >= this.minSwingPeakGyroNorm
         && gyroNorm < this.gyroThreshold
-        && estimatedHeight <= landingHeightGate
       );
 
       this.heelStrikeCandidateCount = heelStrikeCandidate ? this.heelStrikeCandidateCount + 1 : 0;
@@ -278,7 +282,6 @@ export class GatewayLiftEstimator {
     if (isStance) {
       this.velocity = [0, 0, 0];
       this.position = [0, 0, 0];
-      this.lowMotionSwingSamples = 0;
       // Track running average of vertical accel bias during stance
       this.stanceBiasSamples += 1;
       const alpha = Math.max(0.02, 1 / this.stanceBiasSamples);
@@ -293,29 +296,24 @@ export class GatewayLiftEstimator {
       const effectiveAccelZ = Math.abs(biasedAccelZ) > ACCEL_DEADBAND_Z
         ? biasedAccelZ - (Math.sign(biasedAccelZ) * ACCEL_DEADBAND_Z)
         : 0;
-      const swingIsSettling = Math.abs(effectiveAccelZ) === 0 && gyroNorm < (this.gyroThreshold * 1.35);
-      this.lowMotionSwingSamples = swingIsSettling ? this.lowMotionSwingSamples + 1 : 0;
 
       this.velocity[0] += accelLinear[0] * dt;
       this.velocity[1] += accelLinear[1] * dt;
       this.velocity[2] += effectiveAccelZ * dt;
 
-      if (swingIsSettling) {
-        // Without a little damping here, residual upward velocity can persist
-        // through low-motion descent and leave the gauge stuck after the first lift.
-        this.velocity[2] *= 0.72;
-        if (Math.abs(this.velocity[2]) < 0.03) {
-          this.velocity[2] = 0;
-        }
-      }
-
       this.position = this.position.map((value, index) => (
         value + (((previousVelocity[index] + this.velocity[index]) * 0.5) * dt)
       ));
 
-      if (this.lowMotionSwingSamples >= 18 && this.position[2] > 0) {
-        const settleDropM = 0.14 * dt;
-        this.position[2] = Math.max(0, this.position[2] - settleDropM);
+      // After 1 s in swing, always drain position downward at 0.7 m/s and kill
+      // upward velocity so the bar cannot get permanently stuck even when the
+      // patient moves slowly or gyro stays below the heel-strike threshold.
+      const swingElapsedS = this.getDurationSeconds(this.swingStartTimeMs, timestampMs) || 0;
+      if (swingElapsedS > 1.0 && this.position[2] > 0) {
+        this.position[2] = Math.max(0, this.position[2] - (0.7 * dt));
+        if (this.velocity[2] > 0) {
+          this.velocity[2] *= 0.6;
+        }
       }
 
       // 12cm cap for shank (covers 3-10cm typical foot lift, blocks drift spikes)
