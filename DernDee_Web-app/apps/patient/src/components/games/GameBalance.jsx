@@ -362,7 +362,9 @@ const GameBalance = () => {
 
     const resetTargetMission = useCallback((level = selectedLevel) => {
         // Detect if only a single sensor side is active → use that side for all stars
-        const visibleStates = getVisibleSensorStates();
+        const visibleStates = activeSensorKeysRef.current
+            .map((key) => sensorRuntimesRef.current.get(key))
+            .filter(Boolean);
         let singleSide = null;
         if (visibleStates.length > 0) {
             const sides = [...new Set(visibleStates.map((s) => s.side).filter(Boolean))];
@@ -381,7 +383,7 @@ const GameBalance = () => {
         } else {
             setCurrentTargetId(TARGET_REACHING_POINTS[0].id);
         }
-    }, [selectedLevel, getVisibleSensorStates]);
+    }, [selectedLevel]);
 
     const getZone = () => {
         return getZoneForDistance(distanceFromCenter);
