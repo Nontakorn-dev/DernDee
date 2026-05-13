@@ -114,7 +114,15 @@ function shuffleList(items) {
     return shuffledItems;
 }
 
-function buildTargetMissionQueue() {
+function buildTargetMissionQueue(singleSide = null) {
+    // If only one sensor side is active, repeat that side's targets twice
+    if (singleSide === 'LEFT' || singleSide === 'RIGHT') {
+        const sideIds = TARGET_REACHING_POINTS
+            .filter((targetPoint) => targetPoint.side === singleSide)
+            .map((targetPoint) => targetPoint.id);
+        return [...shuffleList(sideIds), ...shuffleList(sideIds)];
+    }
+
     const leftTargetIds = shuffleList(
         TARGET_REACHING_POINTS
             .filter((targetPoint) => targetPoint.side === 'LEFT')
@@ -353,7 +361,16 @@ const GameBalance = () => {
     }, []);
 
     const resetTargetMission = useCallback((level = selectedLevel) => {
-        const nextTargetMissionQueue = buildTargetMissionQueue();
+        // Detect if only a single sensor side is active → use that side for all stars
+        const visibleStates = getVisibleSensorStates();
+        let singleSide = null;
+        if (visibleStates.length > 0) {
+            const sides = [...new Set(visibleStates.map((s) => s.side).filter(Boolean))];
+            if (sides.length === 1) {
+                singleSide = sides[0];
+            }
+        }
+        const nextTargetMissionQueue = buildTargetMissionQueue(singleSide);
         targetReachedAtRef.current = null;
         centerReturnAtRef.current = null;
         setStarsCollected(0);
@@ -364,7 +381,7 @@ const GameBalance = () => {
         } else {
             setCurrentTargetId(TARGET_REACHING_POINTS[0].id);
         }
-    }, [selectedLevel]);
+    }, [selectedLevel, getVisibleSensorStates]);
 
     const getZone = () => {
         return getZoneForDistance(distanceFromCenter);
