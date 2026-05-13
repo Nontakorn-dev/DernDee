@@ -115,10 +115,16 @@ function shuffleList(items) {
 }
 
 function buildTargetMissionQueue(singleSide = null) {
+    const resolvedSingleSide = singleSide === 'L'
+        ? 'LEFT'
+        : singleSide === 'R'
+            ? 'RIGHT'
+            : singleSide;
+
     // If only one sensor side is active, repeat that side's targets twice
-    if (singleSide === 'LEFT' || singleSide === 'RIGHT') {
+    if (resolvedSingleSide === 'LEFT' || resolvedSingleSide === 'RIGHT') {
         const sideIds = TARGET_REACHING_POINTS
-            .filter((targetPoint) => targetPoint.side === singleSide)
+            .filter((targetPoint) => targetPoint.side === resolvedSingleSide)
             .map((targetPoint) => targetPoint.id);
         return [...shuffleList(sideIds), ...shuffleList(sideIds)];
     }
