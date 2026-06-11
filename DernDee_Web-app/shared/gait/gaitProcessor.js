@@ -10,38 +10,32 @@ const G_MS2 = 9.81;
 const EPOCH_THRESHOLD_MS = 946684800000;
 const STANCE_ENTRY_ANGULAR_VELOCITY_ABS = 5;
 const STEP_LENGTH_MIN_M = 0.15;
-const STEP_LENGTH_MAX_M = 1.25;
+const STEP_LENGTH_MAX_M = 0.80;
+const STRIDE_LENGTH_MAX_M = STEP_LENGTH_MAX_M * 2;
 const STANCE_ENTRY_THRESHOLD_MIN = 3;
 const STANCE_ENTRY_THRESHOLD_MAX = 12;
 const STANCE_ENTRY_VALLEY_THRESHOLD_MAX = 40;
 const SUSTAINED_QUIET_SECONDS = 0.12;
 const SUSTAINED_QUIET_SAMPLES = Math.max(4, Math.round(SUSTAINED_QUIET_SECONDS * SAMPLE_RATE));
-const STANCE_WINDOW_ANGULAR_VELOCITY_ABS = 10;
-const STANCE_WINDOW_MIN_DURATION_SECONDS = 0.10;
-const STANCE_WINDOW_VARIANCE_SECONDS = 0.08;
-const STANCE_WINDOW_VARIANCE_SAMPLES = Math.max(5, Math.round(STANCE_WINDOW_VARIANCE_SECONDS * SAMPLE_RATE));
-const STANCE_WINDOW_MATCH_GAP_SAMPLES = Math.max(6, Math.round(0.14 * SAMPLE_RATE));
-const STANCE_WINDOW_ACCEL_VARIANCE_MIN = 0.0008;
-const STANCE_WINDOW_ACCEL_VARIANCE_MAX = 0.02;
-const STANCE_WINDOW_ACCEL_MEAN_DEVIATION_MIN = 0.02;
-const STANCE_WINDOW_ACCEL_MEAN_DEVIATION_MAX = 0.12;
-const STANCE_WINDOW_ANGULAR_ACCELERATION_ABS = 180;
-const STANCE_WINDOW_STRICT_ANGULAR_VELOCITY_ABS = 6;
-const STANCE_WINDOW_STRICT_ANGULAR_ACCELERATION_ABS = 120;
-const STANCE_WINDOW_STRICT_MIN_DURATION_SECONDS = 0.06;
-const MIN_SWING_INTEGRATION_SAMPLES = Math.max(6, Math.round(0.12 * SAMPLE_RATE));
+const POST_HS_QUIET_SEARCH_SECONDS = 0.40;
+const MIN_POST_HS_OFFSET_SECONDS = 0.04;
+const MIN_POST_HS_OFFSET_SAMPLES = Math.max(3, Math.round(MIN_POST_HS_OFFSET_SECONDS * SAMPLE_RATE));
 const PATIENT_EVENT_DETECTOR_OPTIONS = {
   sampleRate: SAMPLE_RATE,
   maxStrideTime: 4.0,
+  minStrideTime: 1.0,
+  minHsSeparationSeconds: 1.0,
   toSearchStartPct: 0.20,
   toSearchEndPct: 0.80,
+  hsProminence: 45,
   hsVelocityThreshold: -50,
-  hsVelocityThresholdFloorAbs: 18,
-  hsEnvelopeScale: 0.35,
-  hsPreviousPeakScale: 0.35,
-  hsPreviousHsScale: 0.75,
+  hsVelocityThresholdFloorAbs: 12,
+  hsEnvelopeScale: 0.28,
+  hsPreviousPeakScale: 0.28,
+  hsPreviousHsScale: 0.60,
   hsAdaptiveHistorySize: 3,
   hsEnvelopeWindowSeconds: 0.8,
+  minSwingAngularVelocityAbs: 12,
   usePreviousValidStanceFallback: true,
 };
 
@@ -63,319 +57,79 @@ function median(values) {
   return sorted[middle];
 }
 
-function average(values) {
-  if (!values.length) {
-    return 0;
+function findGyroQuietWindow(smoothedAngVel, rangeStartIdx, rangeEndIdx, threshold) {
+  if (!Number.isInteger(rangeStartIdx) || !Number.isInteger(rangeEndIdx) || rangeEndIdx < rangeStartIdx) {
+    return null;
   }
 
-  return values.reduce((sum, value) => sum + value, 0) / values.length;
-}
-
-function computeRollingVariance(values, windowSize) {
-  const result = new Array(values.length).fill(0);
-  const halfWindow = Math.floor(windowSize / 2);
-
-  for (let i = 0; i < values.length; i += 1) {
-    const startIdx = Math.max(0, i - halfWindow);
-    const endIdx = Math.min(values.length - 1, i + halfWindow);
-    const windowValues = [];
-
-    for (let j = startIdx; j <= endIdx; j += 1) {
-      if (Number.isFinite(values[j])) {
-        windowValues.push(values[j]);
-      }
-    }
-
-    if (windowValues.length < 2) {
-      result[i] = 0;
-      continue;
-    }
-
-    const windowMean = average(windowValues);
-    let variance = 0;
-    for (const value of windowValues) {
-      const delta = value - windowMean;
-      variance += delta * delta;
-    }
-
-    result[i] = variance / windowValues.length;
-  }
-
-  return result;
-}
-
-function computeRollingMean(values, windowSize) {
-  const result = new Array(values.length).fill(0);
-  const halfWindow = Math.floor(windowSize / 2);
-
-  for (let i = 0; i < values.length; i += 1) {
-    const startIdx = Math.max(0, i - halfWindow);
-    const endIdx = Math.min(values.length - 1, i + halfWindow);
-    const windowValues = [];
-
-    for (let j = startIdx; j <= endIdx; j += 1) {
-      if (Number.isFinite(values[j])) {
-        windowValues.push(values[j]);
-      }
-    }
-
-    result[i] = windowValues.length ? average(windowValues) : 0;
-  }
-
-  return result;
-}
-
-function computeAngularAcceleration(values, sampleRate) {
-  const result = new Array(values.length).fill(0);
-  if (values.length < 2) {
-    return result;
-  }
-
-  for (let i = 1; i < values.length - 1; i += 1) {
-    result[i] = ((values[i + 1] - values[i - 1]) * sampleRate) / 2;
-  }
-
-  result[0] = (values[1] - values[0]) * sampleRate;
-  result[values.length - 1] = (values[values.length - 1] - values[values.length - 2]) * sampleRate;
-
-  return result;
-}
-
-function resolveStanceAccelVarianceThreshold(accelMagnitudeVariance) {
-  const finiteVariances = accelMagnitudeVariance.filter(Number.isFinite);
-  if (!finiteVariances.length) {
-    return STANCE_WINDOW_ACCEL_VARIANCE_MIN;
-  }
-
-  const sortedVariances = [...finiteVariances].sort((left, right) => left - right);
-  const quietSampleCount = Math.max(5, Math.min(sortedVariances.length, Math.floor(sortedVariances.length * 0.2)));
-  const quietestVariances = sortedVariances.slice(0, quietSampleCount);
-  const varianceFloor = median(quietestVariances);
-
-  return clamp(
-    (varianceFloor * 4) + STANCE_WINDOW_ACCEL_VARIANCE_MIN,
-    STANCE_WINDOW_ACCEL_VARIANCE_MIN,
-    STANCE_WINDOW_ACCEL_VARIANCE_MAX,
-  );
-}
-
-function resolveStanceAccelMeanDeviationThreshold(accelMagnitudeMean) {
-  const finiteDeviations = accelMagnitudeMean
-    .filter(Number.isFinite)
-    .map((value) => Math.abs(value - 1));
-
-  if (!finiteDeviations.length) {
-    return STANCE_WINDOW_ACCEL_MEAN_DEVIATION_MIN;
-  }
-
-  const sortedDeviations = [...finiteDeviations].sort((left, right) => left - right);
-  const quietSampleCount = Math.max(5, Math.min(sortedDeviations.length, Math.floor(sortedDeviations.length * 0.2)));
-  const quietestDeviations = sortedDeviations.slice(0, quietSampleCount);
-  const deviationFloor = median(quietestDeviations);
-
-  return clamp(
-    (deviationFloor * 3) + STANCE_WINDOW_ACCEL_MEAN_DEVIATION_MIN,
-    STANCE_WINDOW_ACCEL_MEAN_DEVIATION_MIN,
-    STANCE_WINDOW_ACCEL_MEAN_DEVIATION_MAX,
-  );
-}
-
-function buildStanceWindow(startIdx, endIdx, timestamps) {
-  return {
-    startIdx,
-    endIdx,
-    startTime: Number.isFinite(timestamps?.[startIdx]) ? timestamps[startIdx] : null,
-    endTime: Number.isFinite(timestamps?.[endIdx]) ? timestamps[endIdx] : null,
-  };
-}
-
-function extractStrictStanceWindow(startIdx, endIdx, strictMask, timestamps, minSamples) {
-  let bestStartIdx = null;
-  let bestEndIdx = null;
   let runStartIdx = null;
+  let bestWindow = null;
 
-  for (let i = startIdx; i <= endIdx; i += 1) {
-    if (strictMask[i]) {
+  for (let i = rangeStartIdx; i <= rangeEndIdx; i += 1) {
+    if (Math.abs(smoothedAngVel[i]) <= threshold) {
       if (runStartIdx === null) {
         runStartIdx = i;
       }
-      continue;
-    }
 
-    if (runStartIdx !== null) {
-      const runEndIdx = i - 1;
+      const runLength = i - runStartIdx + 1;
       if (
-        bestStartIdx === null
-        || (runEndIdx - runStartIdx) > (bestEndIdx - bestStartIdx)
+        runLength >= SUSTAINED_QUIET_SAMPLES
+        && (!bestWindow || runLength > (bestWindow.endIdx - bestWindow.startIdx + 1))
       ) {
-        bestStartIdx = runStartIdx;
-        bestEndIdx = runEndIdx;
-      }
-      runStartIdx = null;
-    }
-  }
-
-  if (runStartIdx !== null) {
-    const runEndIdx = endIdx;
-    if (
-      bestStartIdx === null
-      || (runEndIdx - runStartIdx) > (bestEndIdx - bestStartIdx)
-    ) {
-      bestStartIdx = runStartIdx;
-      bestEndIdx = runEndIdx;
-    }
-  }
-
-  if (bestStartIdx === null || (bestEndIdx - bestStartIdx + 1) < minSamples) {
-    return null;
-  }
-
-  return buildStanceWindow(bestStartIdx, bestEndIdx, timestamps);
-}
-
-function detectExplicitStanceWindows(smoothedAngVel, accelMagnitudeG, timestamps) {
-  const accelMagnitudeVariance = computeRollingVariance(accelMagnitudeG, STANCE_WINDOW_VARIANCE_SAMPLES);
-  const accelMagnitudeMean = computeRollingMean(accelMagnitudeG, STANCE_WINDOW_VARIANCE_SAMPLES);
-  const angularAcceleration = computeAngularAcceleration(smoothedAngVel, SAMPLE_RATE);
-  const accelVarianceThreshold = resolveStanceAccelVarianceThreshold(accelMagnitudeVariance);
-  const accelMeanDeviationThreshold = resolveStanceAccelMeanDeviationThreshold(accelMagnitudeMean);
-  const minWindowSamples = Math.max(4, Math.round(STANCE_WINDOW_MIN_DURATION_SECONDS * SAMPLE_RATE));
-  const strictMinWindowSamples = Math.max(4, Math.round(STANCE_WINDOW_STRICT_MIN_DURATION_SECONDS * SAMPLE_RATE));
-  const stanceWindows = [];
-  const stanceCandidateMask = new Array(smoothedAngVel.length).fill(false);
-  const strictStanceMask = new Array(smoothedAngVel.length).fill(false);
-
-  for (let i = 0; i < smoothedAngVel.length; i += 1) {
-    const accelMeanDeviation = Math.abs(accelMagnitudeMean[i] - 1);
-    const angularVelocityQuiet = Math.abs(smoothedAngVel[i]) <= STANCE_WINDOW_ANGULAR_VELOCITY_ABS;
-    const angularAccelerationQuiet = Math.abs(angularAcceleration[i]) <= STANCE_WINDOW_ANGULAR_ACCELERATION_ABS;
-    const accelVarianceQuiet = accelMagnitudeVariance[i] <= accelVarianceThreshold;
-    const accelMeanQuiet = accelMeanDeviation <= accelMeanDeviationThreshold;
-    stanceCandidateMask[i] = angularVelocityQuiet && angularAccelerationQuiet && accelVarianceQuiet && accelMeanQuiet;
-
-    strictStanceMask[i] = (
-      Math.abs(smoothedAngVel[i]) <= STANCE_WINDOW_STRICT_ANGULAR_VELOCITY_ABS
-      && Math.abs(angularAcceleration[i]) <= STANCE_WINDOW_STRICT_ANGULAR_ACCELERATION_ABS
-      && accelMagnitudeVariance[i] <= (accelVarianceThreshold * 0.75)
-      && accelMeanDeviation <= (accelMeanDeviationThreshold * 0.75)
-    );
-  }
-
-  let windowStartIdx = null;
-
-  for (let i = 0; i < smoothedAngVel.length; i += 1) {
-    const isStanceCandidate = stanceCandidateMask[i];
-
-    if (isStanceCandidate) {
-      if (windowStartIdx === null) {
-        windowStartIdx = i;
+        bestWindow = { startIdx: runStartIdx, endIdx: i };
       }
       continue;
     }
 
-    if (windowStartIdx !== null) {
-      const windowEndIdx = i - 1;
-      if ((windowEndIdx - windowStartIdx + 1) >= minWindowSamples) {
-        const strictWindow = extractStrictStanceWindow(
-          windowStartIdx,
-          windowEndIdx,
-          strictStanceMask,
-          timestamps,
-          strictMinWindowSamples,
-        );
-        if (strictWindow) {
-          stanceWindows.push(strictWindow);
-        }
-      }
-      windowStartIdx = null;
+    runStartIdx = null;
+  }
+
+  return bestWindow;
+}
+
+function findCyclePeakIndex(smoothedAngVel, cycle) {
+  const cycleStartIdx = cycle?.hsStart?.index;
+  const cycleEndIdx = cycle?.hsEnd?.index;
+
+  if (!Number.isInteger(cycleStartIdx) || !Number.isInteger(cycleEndIdx) || cycleEndIdx <= cycleStartIdx) {
+    return cycleStartIdx ?? 0;
+  }
+
+  let peakIdx = cycleStartIdx;
+  let peakValue = -Infinity;
+  for (let i = cycleStartIdx; i <= cycleEndIdx; i += 1) {
+    if (smoothedAngVel[i] > peakValue) {
+      peakValue = smoothedAngVel[i];
+      peakIdx = i;
     }
   }
 
-  if (windowStartIdx !== null) {
-    const windowEndIdx = smoothedAngVel.length - 1;
-    if ((windowEndIdx - windowStartIdx + 1) >= minWindowSamples) {
-      const strictWindow = extractStrictStanceWindow(
-        windowStartIdx,
-        windowEndIdx,
-        strictStanceMask,
-        timestamps,
-        strictMinWindowSamples,
-      );
-      if (strictWindow) {
-        stanceWindows.push(strictWindow);
-      }
-    }
-  }
-
-  return {
-    stanceWindows,
-    accelMagnitudeVariance,
-    accelVarianceThreshold,
-  };
+  return peakIdx;
 }
 
-function findStanceWindowAroundIndex(stanceWindows, index, preferredDirection = 'before') {
-  const containingWindow = stanceWindows.find((window) => window.startIdx <= index && index <= window.endIdx);
-  if (containingWindow) {
-    return containingWindow;
+function resolveSwingIntegrationStart(smoothedAngVel, cycle, adaptiveThreshold) {
+  const hsStartIdx = cycle?.hsStart?.index;
+  const hsEndIdx = cycle?.hsEnd?.index;
+
+  if (!Number.isInteger(hsStartIdx)) {
+    return 0;
   }
 
-  const beforeWindows = stanceWindows.filter((window) => window.endIdx < index && (index - window.endIdx) <= STANCE_WINDOW_MATCH_GAP_SAMPLES);
-  const afterWindows = stanceWindows.filter((window) => window.startIdx > index && (window.startIdx - index) <= STANCE_WINDOW_MATCH_GAP_SAMPLES);
+  const postHsSearchEndIdx = Number.isInteger(hsEndIdx)
+    ? Math.min(hsEndIdx - 1, hsStartIdx + Math.round(POST_HS_QUIET_SEARCH_SECONDS * SAMPLE_RATE))
+    : hsStartIdx + Math.round(POST_HS_QUIET_SEARCH_SECONDS * SAMPLE_RATE);
+  const quietWindow = findGyroQuietWindow(
+    smoothedAngVel,
+    hsStartIdx,
+    postHsSearchEndIdx,
+    adaptiveThreshold,
+  );
 
-  if (preferredDirection === 'after') {
-    return afterWindows[0] || beforeWindows[beforeWindows.length - 1] || null;
+  if (quietWindow) {
+    return Math.max(quietWindow.endIdx + 1, hsStartIdx + MIN_POST_HS_OFFSET_SAMPLES);
   }
 
-  return beforeWindows[beforeWindows.length - 1] || afterWindows[0] || null;
-}
-
-function buildStanceToStanceIntegration(cycle, stanceWindows, timestamps) {
-  if (!cycle?.hsStart || !cycle?.hsEnd || !stanceWindows.length) {
-    return null;
-  }
-
-  const leftStanceWindow = findStanceWindowAroundIndex(stanceWindows, cycle.hsStart.index, 'before');
-  const rightStanceWindow = findStanceWindowAroundIndex(stanceWindows, cycle.hsEnd.index, 'after');
-
-  if (!leftStanceWindow || !rightStanceWindow) {
-    return null;
-  }
-
-  const integrationStartIdx = leftStanceWindow.endIdx + 1;
-  const integrationEndIdx = rightStanceWindow.startIdx - 1;
-
-  if (
-    integrationStartIdx >= integrationEndIdx
-    || (integrationEndIdx - integrationStartIdx + 1) < MIN_SWING_INTEGRATION_SAMPLES
-  ) {
-    return null;
-  }
-
-  const segmentStartIdx = Math.min(leftStanceWindow.startIdx, integrationStartIdx);
-  const segmentEndIdx = Math.max(rightStanceWindow.endIdx, integrationEndIdx);
-
-  return {
-    integrationWindow: buildIntegrationWindow(
-      integrationStartIdx,
-      integrationEndIdx,
-      timestamps,
-      null,
-      'stance-to-stance',
-    ),
-    segmentStartIdx,
-    segmentEndIdx,
-    stanceWindowsLocal: [
-      {
-        startIdx: leftStanceWindow.startIdx - segmentStartIdx,
-        endIdx: leftStanceWindow.endIdx - segmentStartIdx,
-      },
-      {
-        startIdx: rightStanceWindow.startIdx - segmentStartIdx,
-        endIdx: rightStanceWindow.endIdx - segmentStartIdx,
-      },
-    ],
-  };
+  return hsStartIdx + MIN_POST_HS_OFFSET_SAMPLES;
 }
 
 function resolveAdaptiveStanceThreshold(smoothedAngVel, cycle, peakIdx) {
@@ -437,23 +191,20 @@ function findStepIntegrationWindow(smoothedAngVel, timestamps, cycle) {
     );
   }
 
-  let peakIdx = cycleStartIdx;
-  let peakValue = -Infinity;
-  for (let i = cycleStartIdx; i <= cycleEndIdx; i += 1) {
-    if (smoothedAngVel[i] > peakValue) {
-      peakValue = smoothedAngVel[i];
-      peakIdx = i;
-    }
-  }
-
+  const peakIdx = findCyclePeakIndex(smoothedAngVel, cycle);
+  const peakValue = smoothedAngVel[peakIdx];
   const adaptiveThreshold = resolveAdaptiveStanceThreshold(smoothedAngVel, cycle, peakIdx);
+  const integrationStartIdx = resolveSwingIntegrationStart(smoothedAngVel, cycle, adaptiveThreshold);
   const valleyThreshold = clamp(
     Math.max(adaptiveThreshold * 1.5, Math.abs(peakValue) * 0.15),
     adaptiveThreshold,
     STANCE_ENTRY_VALLEY_THRESHOLD_MAX,
   );
 
-  const searchStartIdx = Math.min(cycleEndIdx, Math.max(cycleStartIdx + 1, peakIdx + 1));
+  const searchStartIdx = Math.min(
+    cycleEndIdx,
+    Math.max(integrationStartIdx + 1, cycleStartIdx + 1, peakIdx + 1),
+  );
 
   let lastValleyIdx = null;
   for (let i = searchStartIdx + 1; i < cycleEndIdx; i += 1) {
@@ -470,9 +221,9 @@ function findStepIntegrationWindow(smoothedAngVel, timestamps, cycle) {
     }
   }
 
-  if (Number.isInteger(lastValleyIdx)) {
+  if (Number.isInteger(lastValleyIdx) && lastValleyIdx > integrationStartIdx) {
     return buildIntegrationWindow(
-      cycleStartIdx,
+      integrationStartIdx,
       lastValleyIdx,
       timestamps,
       adaptiveThreshold,
@@ -496,9 +247,9 @@ function findStepIntegrationWindow(smoothedAngVel, timestamps, cycle) {
     }
   }
 
-  if (Number.isInteger(lastSustainedQuietStartIdx)) {
+  if (Number.isInteger(lastSustainedQuietStartIdx) && lastSustainedQuietStartIdx > integrationStartIdx) {
     return buildIntegrationWindow(
-      cycleStartIdx,
+      integrationStartIdx,
       lastSustainedQuietStartIdx,
       timestamps,
       adaptiveThreshold,
@@ -522,7 +273,7 @@ function findStepIntegrationWindow(smoothedAngVel, timestamps, cycle) {
 
   if (Number.isInteger(lastThresholdIdx)) {
     return buildIntegrationWindow(
-      cycleStartIdx,
+      integrationStartIdx,
       lastThresholdIdx,
       timestamps,
       adaptiveThreshold,
@@ -539,7 +290,7 @@ function findStepIntegrationWindow(smoothedAngVel, timestamps, cycle) {
 
   if (Number.isInteger(lastZeroCrossingIdx)) {
     return buildIntegrationWindow(
-      cycleStartIdx,
+      integrationStartIdx,
       lastZeroCrossingIdx,
       timestamps,
       adaptiveThreshold,
@@ -559,7 +310,7 @@ function findStepIntegrationWindow(smoothedAngVel, timestamps, cycle) {
 
   if (Number.isFinite(minAbsValue)) {
     return buildIntegrationWindow(
-      cycleStartIdx,
+      integrationStartIdx,
       minAbsIdx,
       timestamps,
       adaptiveThreshold,
@@ -568,7 +319,7 @@ function findStepIntegrationWindow(smoothedAngVel, timestamps, cycle) {
   }
 
   return buildIntegrationWindow(
-    cycleStartIdx,
+    integrationStartIdx,
     cycleEndIdx,
     timestamps,
     adaptiveThreshold,
@@ -614,6 +365,7 @@ export class GaitProcessor {
     this.totalStepCount = 0;
     this.totalStrideCount = 0;
     this.lastCountedCycleStartSampleId = null;
+    this.previousStepLength = null;
     this.nextSampleId = 1;
     this.sessionStartTime = null;
     this.latestSampleTimestampMs = null;
@@ -669,7 +421,6 @@ export class GaitProcessor {
     const samples = [...this.buffer];
     const sampleCount = samples.length;
     const angVelDeg = new Array(sampleCount);
-    const accelMagnitudeG = new Array(sampleCount);
     const shankAngle = new Array(sampleCount);
     const timestamps = new Array(sampleCount);
     const ayG = new Array(sampleCount);
@@ -682,13 +433,11 @@ export class GaitProcessor {
         ? Math.max(0, (sample.timestampMs - firstTimestampMs) / 1000)
         : i * (1.0 / SAMPLE_RATE);
 
-      const aXg = rawAccelToG(sample.ax);
       const gx = rawGyroToDps(sample.gx);
       const aYg = rawAccelToG(sample.ay);
       const aZg = rawAccelToG(sample.az);
 
       angVelDeg[i] = gx;
-      accelMagnitudeG[i] = Math.hypot(aXg, aYg, aZg);
       ayG[i] = aYg;
       azG[i] = aZg;
       shankAngle[i] = Number.isFinite(sample.shankAngle) ? sample.shankAngle : 0;
@@ -696,7 +445,6 @@ export class GaitProcessor {
 
     const { events, cycles } = this.eventDetector.detect(angVelDeg, timestamps);
     const smoothedAngVel = movingAverage(angVelDeg, 5);
-    const { stanceWindows } = detectExplicitStanceWindows(smoothedAngVel, accelMagnitudeG, timestamps);
     const stepLengths = [];
     const strideLengths = [];
     const strideTimes = [];
@@ -705,17 +453,16 @@ export class GaitProcessor {
     const peakAngles = [];
     const clearances = [];
     const integrationWindows = [];
+    let rollingPreviousStepLength = this.previousStepLength;
 
     for (const cycle of cycles) {
-      const stanceToStanceIntegration = buildStanceToStanceIntegration(cycle, stanceWindows, timestamps);
-      const integrationWindow = stanceToStanceIntegration?.integrationWindow
-        || findStepIntegrationWindow(smoothedAngVel, timestamps, cycle);
+      const integrationWindow = findStepIntegrationWindow(smoothedAngVel, timestamps, cycle);
       const metricStartIdx = integrationWindow.startIdx;
       const metricEndIdx = integrationWindow.endIdx;
-      const segmentStartIdx = stanceToStanceIntegration?.segmentStartIdx ?? metricStartIdx;
-      const segmentEndIdx = stanceToStanceIntegration?.segmentEndIdx ?? metricEndIdx;
-      const localIntegrationStartIdx = metricStartIdx - segmentStartIdx;
-      const localIntegrationEndIdx = metricEndIdx - segmentStartIdx;
+      const segmentStartIdx = metricStartIdx;
+      const segmentEndIdx = metricEndIdx;
+      const localIntegrationStartIdx = 0;
+      const localIntegrationEndIdx = metricEndIdx - metricStartIdx;
 
       strideTimes.push(cycle.strideTime);
       stancePcts.push(cycle.stancePct);
@@ -737,21 +484,35 @@ export class GaitProcessor {
         cycleAngles.push(shankAngle[j]);
       }
 
-      const { strideLength: integratedStrideLength, clearance } = this.velocityIntegrator.computeStrideMetrics(
+      const { strideLength: integratedStepLength, clearance } = this.velocityIntegrator.computeStrideMetrics(
         cycleAy,
         cycleAz,
         cycleAngles,
         {
           integrationStartIdx: localIntegrationStartIdx,
           integrationEndIdx: localIntegrationEndIdx,
-          stanceWindows: stanceToStanceIntegration?.stanceWindowsLocal || [],
         },
       );
 
-      const strideLength = Math.max(STEP_LENGTH_MIN_M, Math.min(STEP_LENGTH_MAX_M, integratedStrideLength));
+      const stepLength = Math.max(
+        STEP_LENGTH_MIN_M,
+        Math.min(STEP_LENGTH_MAX_M, integratedStepLength),
+      );
+      const strideLength = Number.isFinite(rollingPreviousStepLength)
+        ? Math.max(
+          STEP_LENGTH_MIN_M * 2,
+          Math.min(STRIDE_LENGTH_MAX_M, rollingPreviousStepLength + stepLength),
+        )
+        : null;
+
+      stepLengths.push(stepLength);
       strideLengths.push(strideLength);
-      stepLengths.push(strideLength / 2);
+      rollingPreviousStepLength = stepLength;
       clearances.push(Math.max(0, Math.min(0.3, clearance)));
+    }
+
+    if (cycles.length > 0) {
+      this.previousStepLength = rollingPreviousStepLength;
     }
 
     if (cycles.length === 0) {
@@ -799,7 +560,13 @@ export class GaitProcessor {
     const cadence = strideTimeLast > 0 ? (2 / strideTimeLast) * 60 : 0;
     const stepLength = stepLengthLast;
     const stepTime = strideTimeLast / 2;
-    const walkingSpeed = strideTimeLast > 0 ? strideLengthLast / strideTimeLast : 0;
+    const walkingSpeed = strideTimeLast > 0
+      ? (
+        Number.isFinite(strideLengthLast)
+          ? strideLengthLast / strideTimeLast
+          : stepLengthLast / stepTime
+      )
+      : 0;
     const doubleSupportPct = Number.isFinite(stancePctLast)
       ? Math.max(0, 2 * stancePctLast - 100)
       : null;
@@ -826,7 +593,8 @@ export class GaitProcessor {
       strideCount: this.totalStrideCount,
       sessionDuration,
       cycleCount: 1,
-      strideLengths: [strideLengthLast],
+      strideLengths: Number.isFinite(strideLengthLast) ? [strideLengthLast] : [],
+      stepLengths: [stepLengthLast],
       strideTimes: [strideTimeLast],
       cycleStartSampleId,
       cycleStartTimestampMs,
@@ -834,6 +602,7 @@ export class GaitProcessor {
       integrationStartTimestampS: lastIntegrationWindow?.startTime ?? null,
       integrationEndTimestampS: lastIntegrationWindow?.endTime ?? null,
       integrationAngularVelocityThresholdDps: lastIntegrationWindow?.threshold ?? null,
+      integrationSource: lastIntegrationWindow?.source ?? null,
       cycleKey: cycleStartSampleId !== null ? String(cycleStartSampleId) : `${cycleStartTimestampMs ?? Date.now()}`,
       side: cycleStartSample?.side ?? null,
       sensorName: cycleStartSample?.sensorName ?? null,
@@ -868,6 +637,7 @@ export class GaitProcessor {
     this.totalStepCount = 0;
     this.totalStrideCount = 0;
     this.lastCountedCycleStartSampleId = null;
+    this.previousStepLength = null;
     this.nextSampleId = 1;
     this.sessionStartTime = null;
     this.latestSampleTimestampMs = null;

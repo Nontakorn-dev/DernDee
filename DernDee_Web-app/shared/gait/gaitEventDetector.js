@@ -181,6 +181,7 @@ export class GaitEventDetector {
     this.hsProminence = options.hsProminence || 80;
     this.toProminence = options.toProminence || 30;
     this.minStrideTime = options.minStrideTime || 0.6;
+    this.minHsSeparationSeconds = options.minHsSeparationSeconds ?? null;
     this.maxStrideTime = options.maxStrideTime ?? 2.0;
     this.smoothingWindow = options.smoothingWindow || 5;
     this.stillAngularVelocityAbs = options.stillAngularVelocityAbs ?? 10;
@@ -204,7 +205,10 @@ export class GaitEventDetector {
     const dt = 1.0 / this.sampleRate;
 
     const smoothed = movingAverage(angVel, this.smoothingWindow);
-    const minHsDistance = Math.floor(this.minStrideTime * this.sampleRate * 0.8);
+    const minHsSeparationSeconds = Number.isFinite(this.minHsSeparationSeconds)
+      ? this.minHsSeparationSeconds
+      : this.minStrideTime * 0.8;
+    const minHsDistance = Math.max(1, Math.round(minHsSeparationSeconds * this.sampleRate));
     const hsEnvelopeWindowSamples = Math.max(
       minHsDistance,
       Math.round(this.hsEnvelopeWindowSeconds * this.sampleRate),
@@ -237,6 +241,13 @@ export class GaitEventDetector {
 
       if (candidateExtrema.hsAbs < adaptiveThresholdAbs) {
         continue;
+      }
+
+      if (Number.isInteger(previousAcceptedIndex)) {
+        const hsSeparationSeconds = getDurationBetween(timestamps, previousAcceptedIndex, idx, dt);
+        if (hsSeparationSeconds !== null && hsSeparationSeconds < minHsSeparationSeconds) {
+          continue;
+        }
       }
 
       heelStrikes.push(idx);

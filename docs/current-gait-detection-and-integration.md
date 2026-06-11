@@ -18,9 +18,9 @@
 
 รายละเอียดสำคัญของ implementation ตอนนี้:
 
-- หน่วยหลักที่ใช้คำนวณเชิงพื้นที่คือ cycle แบบ `HS-to-HS`
-- ผล spatial ที่อินทิเกรตได้ถูกตีความเป็น `strideLength`
-- ค่า `stepLength` ที่แสดงบน dashboard คำนวณเป็น `strideLength / 2`
+- แต่ละ HS จะ integrate ช่วง `HS → endpoint` หนึ่งครั้ง และตีความผลเป็น `stepLength`
+- `strideLength = stepLength ก่อนหน้า + stepLength ล่าสุด` เมื่อมีก้าวก่อนหน้าในบัฟเฟอร์เดียวกัน
+- `stepLength` ถูก clamp ไว้ที่ `[0.15, 0.80] m`
 
 ## 2. การเตรียมสัญญาณก่อนวิเคราะห์
 
@@ -142,102 +142,22 @@ search window ที่กว้างขึ้นนี้ตั้งใจใ
 
 ถ้าเงื่อนไขครบ ระบบจะสร้าง cycle เพิ่มอีกหนึ่งรอบ โดยให้จุดจบของ cycle อยู่ที่ปลายช่วง still แล้วค่อยหา MSV และ TO แบบเดียวกับ cycle ปกติ
 
-## 4. การหา stance window แบบ explicit เพื่อใช้คุม integration
+## 4. การเลือก integration window
 
-ส่วนนี้แยกจาก event detector และอยู่ใน `gaitProcessor.js` จุดประสงค์คือเลือก integration window ที่น่าเชื่อถือกว่าเดิม
+สำหรับแต่ละ HS-to-HS cycle ระบบใช้ `findStepIntegrationWindow()` เป็นเส้นทางเดียว
 
-### 4.1 สัญญาณที่ใช้หา stance
+### 4.1 จุดเริ่ม integration
 
-stance detector ใช้หลายสัญญาณพร้อมกัน เพื่อให้ window ที่ถูกยอมรับเป็น stance ของ shank runtime มีความนิ่งมากพอสำหรับการทำ ZUPT แบบเข้มขึ้น
+ระบบไม่เริ่มที่ HS impact โดยตรง แต่พยายามเริ่มหลังช่วงนิ่งสั้น ๆ หลัง `hsStart`
 
-- smoothed angular velocity
-- rolling variance ของ acceleration magnitude
-- rolling mean ของ acceleration magnitude
-- angular acceleration ที่คำนวณจาก smoothed angular velocity
+1. คำนวณ `adaptiveThreshold` จากช่วงหลัง swing peak
+2. หา gyro quiet run ภายใน `0.40 s` หลัง `hsStart`
+3. ถ้าเจอ quiet run: `integrationStartIdx = quietRun.endIdx + 1`
+4. ถ้าไม่เจอ: `integrationStartIdx = hsStartIdx + 0.04 s`
 
-โดย acceleration magnitude คำนวณเป็น
+### 4.2 จุดจบ integration
 
-`accelMagnitudeG = sqrt(ax^2 + ay^2 + az^2)`
-
-### 4.2 rolling variance ของ acceleration magnitude
-
-- ความยาวหน้าต่าง variance คือ `0.08 s`
-- ที่ `100 Hz` จะเท่ากับประมาณ `8` sample
-
-ระบบคำนวณ variance แบบ centered local window ให้ทุก sample
-
-### 4.3 adaptive threshold ของ acceleration variance
-
-โค้ดจะหยิบค่า variance ที่นิ่งที่สุด `20%` แรก แล้วหา median ของกลุ่มนั้น จากนั้นคำนวณ threshold เป็น
-
-`accelVarianceThreshold = clamp(varianceFloor * 4 + 0.0008, 0.0008, 0.02)`
-
-ข้อดีคือ threshold ด้าน acceleration จะปรับตาม noise floor ของข้อมูลช่วงนั้น
-
-สำหรับ rolling mean ของ acceleration magnitude ระบบยังสร้าง threshold อีกตัวจากความคลาดเคลื่อนของค่า `|accelMagnitudeMean - 1g|` โดยใช้แนวคิด adaptive แบบเดียวกัน เพื่อกัน sample ที่แม้ variance ต่ำ แต่ magnitude ยังไม่กลับมาใกล้ gravity จริง
-
-### 4.4 เงื่อนไขที่ sample จะถูกมองว่าเป็น stance candidate
-
-sample จะนับเป็น stance candidate ก็ต่อเมื่อครบทุกข้อ
-
-- `|smoothedAngVel| <= 10 deg/s`
-- `rollingAccelVariance <= accelVarianceThreshold`
-- `|angularAcceleration| <= 180 deg/s^2`
-- `|rollingAccelMean - 1| <= accelMeanDeviationThreshold`
-
-### 4.5 การสร้าง stance window
-
-sample ที่ผ่านเงื่อนไขติดต่อกันจะถูกรวมเป็น window เดียวกัน
-
-window จะถูกเก็บไว้ก็ต่อเมื่อยาวอย่างน้อย
-
-- `0.10 s`
-- ที่ `100 Hz` คือประมาณ `10` sample
-
-แต่ระบบยังไม่ใช้ขอบของ window นี้ตรง ๆ ทันที
-
-ภายใน candidate window แต่ละก้อน ระบบจะหา `strict core stance run` ที่นิ่งกว่าเดิมอีกชั้น โดยใช้เกณฑ์ที่เข้มขึ้น เช่น
-
-- `|smoothedAngVel| <= 6 deg/s`
-- `|angularAcceleration| <= 120 deg/s^2`
-- variance และ accel-mean deviation ต้องต่ำกว่าค่า adaptive threshold แบบ tightened ลงอีก
-
-จากนั้นจะเลือกช่วง strict run ที่ยาวที่สุดใน candidate window นั้นมาเป็น stance window สุดท้าย
-
-สรุปคือขอบ stance ที่ถูกส่งต่อไปให้ integrator ไม่ใช่ quiet window แบบกว้าง ๆ แต่เป็น strict core window ที่พยายามตัด sample ชายขอบที่ยังมี motion ค้างอยู่ทิ้งไป
-
-## 5. การเลือก integration window
-
-processor จะลองใช้เส้นทาง stance-to-stance ก่อนเสมอ ถ้าทำไม่ได้ค่อย fallback ไปใช้ heuristic endpoint แบบเดิม
-
-### 5.1 เส้นทางหลัก: stance-to-stance swing integration
-
-สำหรับแต่ละ HS-to-HS cycle ระบบทำดังนี้
-
-1. หา stance window ที่อยู่รอบ `hsStart` โดย prefer window ที่มาก่อน event
-2. หา stance window ที่อยู่รอบ `hsEnd` โดย prefer window ที่มาหลัง event
-3. ยอมให้ stance window ห่างจาก marker ได้ประมาณ `0.14 s`
-
-ถ้าหา stance ได้ทั้งซ้ายและขวา
-
-- `integrationStartIdx = leftStance.endIdx + 1`
-- `integrationEndIdx = rightStance.startIdx - 1`
-
-แปลว่า integration จริงจะรันเฉพาะช่วง swing ที่อยู่ระหว่าง quiet period สองฝั่ง
-
-เส้นทางนี้จะถูกยอมรับก็ต่อเมื่อช่วง swing ยาวพอ
-
-- minimum swing integration duration: `0.12 s`
-
-segment ที่ส่งเข้า integrator จะกว้างกว่า integration window จริง เพราะรวมช่วง stance ซ้ายและขวาไปด้วย เพื่อให้ integrator มี sample สำหรับประเมิน bias จากช่วงนิ่งทั้งสองฝั่ง
-
-การที่ stance windows ถูก trim เป็น strict core ก่อนขั้นนี้มีผลสำคัญ เพราะทำให้ `integrationStartIdx` และ `integrationEndIdx` ถูกผูกกับ boundary ที่นิ่งกว่าเดิม ไม่ใช่แค่ window ที่ variance ต่ำแบบหยาบ ๆ
-
-### 5.2 เส้นทาง fallback: heuristic endpoint หลัง HS
-
-ถ้า match stance-to-stance ไม่ได้ ระบบจะกลับไปใช้ `findStepIntegrationWindow()`
-
-แนวคิดคือเริ่มจาก `hsStart` แล้วหาจุดจบที่สมเหตุสมผลภายใน cycle
+หลังกำหนดจุดเริ่มแล้ว ระบบหาจุดจบที่สมเหตุสมผลภายใน cycle
 
 #### ขั้น A: หา positive peak หลัง HS
 
@@ -289,7 +209,6 @@ fallback นี้จะเลือก "จุดที่ถูกต้อง
 
 - `integrationStartIdx`
 - `integrationEndIdx`
-- `stanceWindows` ที่ถูกแปลงให้เป็น local index ของ segment นั้นแล้ว
 
 ### 6.2 หมุน acceleration จาก sensor frame ไป world frame
 
@@ -302,60 +221,19 @@ fallback นี้จะเลือก "จุดที่ถูกต้อง
 
 - `aVertLinear = aVert - 9.81`
 
-### 6.3 ประเมิน bias จาก stance windows
+### 6.3 อินทิเกรต swing segment
 
-ถ้ามี stance windows เข้ามา integrator จะเก็บ sample ทั้งหมดภายใน windows เหล่านั้น แล้วคำนวณ
+runtime ปัจจุบันส่งเฉพาะช่วง swing ที่เลือกจาก `findStepIntegrationWindow()` เข้า integrator โดยตรง
 
-- `horizontalBias = mean(aHoriz during stance)`
-- `verticalBias = mean(aVertLinear during stance)`
-
-จากนั้น bias นี้จะถูกลบออกจากทั้ง segment ก่อน เพื่อให้ stance และ swing อยู่ใน reference เดียวกันตั้งแต่ต้น
-
-### 6.4 อินทิเกรตทั้ง segment แต่รายงานผลจากช่วง swing
-
-ถ้ามี stance windows สองฝั่งครบ ระบบจะอินทิเกรตทั้ง segment ที่มี
-
-- left stance
-- swing
-- right stance
-
-ไม่ใช่อินทิเกรต swing-only แบบลอย ๆ ตั้งแต่ต้นเหมือนเวอร์ชันก่อน
-
-เหตุผลคือระบบต้องเห็น residual velocity ใน stance สองฝั่งจริงก่อน จึงจะทำ drift correction ที่อิง boundary ได้
-
-อย่างไรก็ตาม metric ที่รายงานกลับออกมายังอิงช่วง swing ระหว่าง
-
-- จาก `integrationStartIdx`
-- ถึง `integrationEndIdx`
-
-หลังจบ correction แล้ว จึงค่อยตัด slice ของช่วง swing ออกมาเป็น
-
-- `swingHoriz`
-- `swingVert`
-
-### 6.5 อินทิเกรตครั้งที่หนึ่ง: acceleration เป็น velocity
+### 6.4 อินทิเกรตครั้งที่หนึ่ง: acceleration เป็น velocity
 
 velocity ถูกคำนวณด้วย trapezoidal integration
 
 vertical velocity ก็ทำแบบเดียวกัน
 
-### 6.6 drift correction ที่ผูกกับ stance boundary จริง
+### 6.5 drift correction แบบ linear
 
-หลังอินทิเกรตทั้ง segment แล้ว โค้ดจะไม่ได้ใช้เส้นตรงจาก sample แรกไป sample สุดท้ายแบบเดิมเป็นหลัก แต่จะอิง stance boundary สองฝั่งแทน
-
-ขั้นตอนคือ
-
-1. หา mean velocity ใน left stance window
-2. หา mean velocity ใน right stance window
-3. หา mean sample index ของ stance window ทั้งสองฝั่ง
-4. ฟิต baseline drift line ที่เชื่อม mean velocity ของสองฝั่งเข้าหากัน
-5. ลบ baseline นี้ออกจาก velocity ทั้ง segment
-
-พูดอีกแบบคือ drift correction ตอนนี้ผูกกับ `stance-boundary anchors` จริง ไม่ใช่กับต้น-ปลายของ integration slice แบบลอย ๆ
-
-หลังจากนั้นระบบจะทำ strict ZUPT อีกชั้นโดย set velocity ภายใน stance windows ให้เป็น `0` ตรง ๆ
-
-ผลคือ stance windows ทำหน้าที่เป็น zero-velocity boundary จริงมากขึ้น ไม่ใช่แค่เป็น sample สำหรับ bias estimation อย่างเดียว
+หลังอินทิเกรต swing segment แล้ว ระบบใช้ `correctDrift()` ลบ linear drift ระหว่าง sample แรกและ sample สุดท้ายของช่วง swing
 
 ### 6.7 อินทิเกรตครั้งที่สอง: velocity เป็น displacement
 
@@ -381,15 +259,15 @@ vertical velocity ก็ทำแบบเดียวกัน
 
 ### 7.1 ค่ากลุ่ม spatial
 
-- `strideLength` ถูก clamp ไว้ในช่วง `[0.15, 1.25] m`
-- `stepLength = strideLength / 2`
+- `stepLength` มาจากผล integrate ต่อ HS หนึ่งครั้ง และถูก clamp ไว้ในช่วง `[0.15, 0.80] m`
+- `strideLength = stepLength ก่อนหน้า + stepLength ล่าสุด` และ clamp สูงสุดที่ `1.60 m`
 - `clearance` ถูก clamp ไว้ในช่วง `[0, 0.3] m`
 
 ### 7.2 ค่ากลุ่ม temporal
 
 - `cadence = (2 / strideTime) * 60`
 - `stepTime = strideTime / 2`
-- `walkingSpeed = strideLength / strideTime`
+- `walkingSpeed = strideLength / strideTime` ถ้ามี stride ครบสองก้าวแล้ว มิฉะนั้นใช้ `stepLength / stepTime`
 - ถ้า `stancePct` หาได้: `doubleSupportPct = max(0, 2 * stancePct - 100)`
 - ถ้า `stancePct` หาได้: `doubleSupport = strideTime * doubleSupportPct / 100`
 - ถ้า `stancePct` เป็น `null`: `doubleSupport` จะเป็น `null` ตามไปด้วย
@@ -414,8 +292,8 @@ vertical velocity ก็ทำแบบเดียวกัน
 2. TO ยังหาแบบ local minimum search ธรรมดา ไม่ได้ใช้ contact model โดยตรง
 3. แม้ stance gating จะ strict ขึ้นแล้ว การจับคู่ stance window กับ HS marker ยังยอมให้มีช่องว่างรอบ event ได้ จึงอาจได้ boundary ที่ใกล้เคียงแต่ไม่ตรง contact จริงเป๊ะ
 4. ถ้า shank angle คลาดเคลื่อน การหมุน acceleration ไป world frame จะคลาดเคลื่อนตาม
-5. `stepLength = strideLength / 2` เป็นสมมติฐานว่ารอบ HS-to-HS นี้แบ่งเป็นสอง step ที่สมมาตรกัน
-6. integrator ตอนนี้ยังเป็น bias-from-stance + linear endpoint drift correction ไม่ใช่ inertial navigation filter เต็มรูปแบบที่มี state estimation ของตำแหน่ง
+5. `strideLength` ยังมาจากการบวกสองก้าวล่าสุด ไม่ใช่การ integrate ยาวตลอด HS-to-HS
+6. integrator ตอนนี้ยังเป็น swing-only integration + linear drift correction ไม่ใช่ inertial navigation filter เต็มรูปแบบที่มี state estimation ของตำแหน่ง
 
 ข้อสังเกตเพิ่มเติม:
 
