@@ -1,12 +1,8 @@
 import { generateWalkingData, streamDemoData } from './data/demoDataGenerator.js';
-import { createGaitProcessorClient } from '../gait/gaitProcessorClient.js';
+import { createSharedGaitRuntime } from '../gait/sharedGaitRuntime.js';
 import { Dashboard } from './ui/dashboard.js';
 import { ChartsManager } from './ui/charts.js';
-import {
-  getRealtimeSensorLabel,
-  getRealtimeSensorSideOrder,
-  normalizeRealtimeSensorSample,
-} from '../gateway/realtimeSensorUtils.js';
+import { normalizeRealtimeSensorSample } from '../gateway/realtimeSensorUtils.js';
 import {
   TRANSPORT_MODE_WEB_BLUETOOTH,
   connectBrowserBleDevice,
@@ -18,21 +14,9 @@ import {
   supportsRememberedBrowserBleDevices,
 } from '../gateway/realtimeTransport.js';
 
-const ANALYSIS_INTERVAL_MS = 400;
-const MIN_ANALYSIS_SAMPLES = 300;
 const DEMO_PREFILL_SAMPLES = 400;
 const DASHBOARD_BLE_SLOTS = ['LEFT_SHANK', 'RIGHT_SHANK'];
 const REMOTE_RETRY_DELAY_MS = 1500;
-const SENSOR_STALE_AFTER_MS = 2500;
-
-function sortSensorEntries(left, right) {
-  const sideDelta = getRealtimeSensorSideOrder(left?.side) - getRealtimeSensorSideOrder(right?.side);
-  if (sideDelta !== 0) {
-    return sideDelta;
-  }
-
-  return (right?.lastSeenAt || 0) - (left?.lastSeenAt || 0);
-}
 
 function buildDemoSample(sample) {
   return {
@@ -150,17 +134,21 @@ export class GaitLabDashboardApp {
     this.broadcastPublisher = typeof this.options.broadcastPublisherFactory === 'function'
       ? this.options.broadcastPublisherFactory()
       : null;
-    this.sensorProcessors = new Map();
-    this.availableSensors = new Map();
-    this.visibleSensorKeys = [];
+    this.gaitRuntime = createSharedGaitRuntime();
     this.dashboard = new Dashboard();
     this.charts = new ChartsManager();
 
     this.mode = 'demo';
     this.demoStream = null;
-    this.analysisTimer = null;
     this.loadingTimer = null;
     this.remoteRetryTimer = null;
+
+    this.gaitRuntime.onParams(() => {
+      this._renderDashboard();
+    });
+    this.gaitRuntime.onVisibilityChange(({ sensorSummary }) => {
+      this.dashboard.updateSensorSummary(sensorSummary);
+    });
   }
 
   init() {
@@ -202,15 +190,13 @@ export class GaitLabDashboardApp {
     prefillSamples.forEach((sample) => {
       this._ingestSensorSample(buildDemoSample(sample));
     });
-    this._analyzeReadyProcessors();
+    this.gaitRuntime.analyzeReadyProcessors();
 
     this.demoStream = streamDemoData((sample) => {
       this._ingestSensorSample(buildDemoSample(sample));
     });
 
-    this.analysisTimer = window.setInterval(() => {
-      this._analyzeReadyProcessors();
-    }, ANALYSIS_INTERVAL_MS);
+    this.gaitRuntime.startAnalysisLoop();
   }
 
   async startRemote(options = {}) {
@@ -224,9 +210,7 @@ export class GaitLabDashboardApp {
 
       await this.stream.connect();
 
-      this.analysisTimer = window.setInterval(() => {
-        this._analyzeReadyProcessors();
-      }, ANALYSIS_INTERVAL_MS);
+      this.gaitRuntime.startAnalysisLoop();
     } catch (error) {
       if (!suppressErrorLog) {
         console.error('Remote live stream failed:', error);
@@ -272,9 +256,7 @@ export class GaitLabDashboardApp {
         }
       }
 
-      this.analysisTimer = window.setInterval(() => {
-        this._analyzeReadyProcessors();
-      }, ANALYSIS_INTERVAL_MS);
+      this.gaitRuntime.startAnalysisLoop();
     } catch (error) {
       if (!suppressErrorLog) {
         console.error('Realtime stream failed:', error);
@@ -313,10 +295,7 @@ export class GaitLabDashboardApp {
       this.demoStream = null;
     }
 
-    if (this.analysisTimer) {
-      window.clearInterval(this.analysisTimer);
-      this.analysisTimer = null;
-    }
+    this.gaitRuntime.stopAnalysisLoop();
 
     if (this.remoteRetryTimer) {
       window.clearTimeout(this.remoteRetryTimer);
@@ -331,9 +310,7 @@ export class GaitLabDashboardApp {
       void this.broadcastPublisher.disconnect();
     }
 
-    this._destroyAllSensorProcessors();
-    this.availableSensors.clear();
-    this.visibleSensorKeys = [];
+    this.gaitRuntime.reset();
     this.dashboard.updateSensorSummary([]);
     this.dashboard.updateEvents([]);
     this.charts.update([]);
@@ -341,6 +318,7 @@ export class GaitLabDashboardApp {
 
   destroy() {
     this.stopAll();
+    this.gaitRuntime.destroy();
     if (this.loadingTimer) {
       window.clearTimeout(this.loadingTimer);
       this.loadingTimer = null;
@@ -410,156 +388,17 @@ export class GaitLabDashboardApp {
     }
   }
 
-  _destroyAllSensorProcessors() {
-    this.sensorProcessors.forEach((state) => {
-      state.processor?.destroy?.();
-    });
-    this.sensorProcessors.clear();
-  }
-
-  _analyzeReadyProcessors() {
-    this.sensorProcessors.forEach((state) => {
-      if (state.sampleCount >= MIN_ANALYSIS_SAMPLES) {
-        state.processor.analyze();
-      }
-    });
-  }
-
-  _createProcessorState(displayKey, sample) {
-    const processor = createGaitProcessorClient();
-    const state = {
-      key: displayKey,
-      label: getRealtimeSensorLabel(sample),
-      side: sample.side || null,
-      sensorKey: sample.sensorKey,
-      sensorMount: sample.sensorMount || null,
-      sampleCount: 0,
-      lastSeenAt: 0,
-      latestParams: null,
-      latestProcessedData: null,
-      processor,
-    };
-
-    processor.onParams(({ params, processedData }) => {
-      state.latestParams = params;
-      state.latestProcessedData = processedData;
-      this._renderDashboard();
-    });
-
-    this.sensorProcessors.set(displayKey, state);
-    return state;
-  }
-
-  _getDisplayKey(sample) {
-    return sample.side || sample.sensorKey;
-  }
-
-  _resolveVisibleSensorKeys() {
-    const now = Date.now();
-    const activeSensors = Array.from(this.availableSensors.values())
-      .filter((sensor) => now - sensor.lastSeenAt <= SENSOR_STALE_AFTER_MS)
-      .sort(sortSensorEntries);
-
-    const shankSensors = activeSensors.filter((sensor) => sensor.sensorMount === 'shank');
-    if (shankSensors.length > 0) {
-      return shankSensors.slice(0, 2).map((sensor) => sensor.sensorKey);
-    }
-
-    return activeSensors.slice(0, 1).map((sensor) => sensor.sensorKey);
-  }
-
-  _syncVisibleProcessors() {
-    const nextVisibleDisplayKeys = new Set(
-      this.visibleSensorKeys.map((sensorKey) => {
-        const sensor = this.availableSensors.get(sensorKey);
-        return sensor?.side || sensorKey;
-      }),
-    );
-
-    this.sensorProcessors.forEach((state, displayKey) => {
-      if (!nextVisibleDisplayKeys.has(displayKey)) {
-        state.processor?.destroy?.();
-        this.sensorProcessors.delete(displayKey);
-      }
-    });
-  }
-
   _ingestSensorSample(sample) {
     const normalizedSample = normalizeRealtimeSensorSample(sample);
     if (!normalizedSample) {
       return;
     }
 
-    this.availableSensors.set(normalizedSample.sensorKey, {
-      sensorKey: normalizedSample.sensorKey,
-      side: normalizedSample.side,
-      sensorMount: normalizedSample.sensorMount,
-      label: getRealtimeSensorLabel(normalizedSample),
-      lastSeenAt: Date.now(),
-    });
-
-    const nextVisibleSensorKeys = this._resolveVisibleSensorKeys();
-    const visibilityChanged = nextVisibleSensorKeys.join('|') !== this.visibleSensorKeys.join('|');
-
-    this.visibleSensorKeys = nextVisibleSensorKeys;
-    if (visibilityChanged) {
-      this._syncVisibleProcessors();
-    }
-
-    this.dashboard.updateSensorSummary(this._buildSensorSummary());
-
-    if (!this.visibleSensorKeys.includes(normalizedSample.sensorKey)) {
-      return;
-    }
-
-    const displayKey = this._getDisplayKey(normalizedSample);
-    const state = this.sensorProcessors.get(displayKey) || this._createProcessorState(displayKey, normalizedSample);
-
-    state.label = getRealtimeSensorLabel(normalizedSample);
-    state.side = normalizedSample.side || null;
-    state.sensorKey = normalizedSample.sensorKey;
-    state.sensorMount = normalizedSample.sensorMount || null;
-    state.sampleCount += 1;
-    state.lastSeenAt = Date.now();
-    state.processor.addSample(normalizedSample);
-  }
-
-  _buildVisibleSensorEntries() {
-    return Array.from(this.sensorProcessors.values())
-      .filter((state) => state.latestProcessedData)
-      .sort(sortSensorEntries)
-      .map((state) => ({
-        key: state.key,
-        label: state.label,
-        side: state.side,
-        params: state.latestParams,
-        processedData: state.latestProcessedData,
-      }));
-  }
-
-  _buildDashboardEvents(entries) {
-    return entries
-      .flatMap((entry) => (entry.processedData?.events || []).map((event) => ({
-        ...event,
-        side: entry.side,
-      })))
-      .sort((left, right) => (left.time || 0) - (right.time || 0));
-  }
-
-  _buildSensorSummary() {
-    return this.visibleSensorKeys
-      .map((sensorKey) => this.availableSensors.get(sensorKey))
-      .filter(Boolean)
-      .sort(sortSensorEntries)
-      .map((sensor) => ({
-        label: sensor.label,
-        side: sensor.side,
-        sensorMount: sensor.sensorMount,
-      }));
+    this.gaitRuntime.ingestSample(normalizedSample);
   }
 
   _renderDashboard() {
-    const entries = this._buildVisibleSensorEntries();
+    const entries = this.gaitRuntime.getChartEntries();
 
     if (!entries.length) {
       this.dashboard.updateEvents([]);
@@ -573,7 +412,7 @@ export class GaitLabDashboardApp {
       this.dashboard.updateMultiSensorParams(entries);
     }
 
-    this.dashboard.updateEvents(this._buildDashboardEvents(entries));
+    this.dashboard.updateEvents(this.gaitRuntime.getAllEvents());
     this.charts.update(entries);
   }
 

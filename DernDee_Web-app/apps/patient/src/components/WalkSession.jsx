@@ -2,14 +2,16 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ArrowLeft, Footprints, Gauge, Wifi, WifiOff, Pause, Play, Square } from 'lucide-react';
 import { GaitFeedbackAdvisor } from '@shared/gait/feedbackAdvisor.js';
-import { createGaitProcessorClient } from '@shared/gait/gaitProcessorClient.js';
-import { GaitSessionAnalyzer } from '@shared/gait/sessionAnalyzer.js';
+import { GAIT_ALGORITHM_VERSION } from '@shared/gait/gaitRuntimeConfig.js';
+import { toSessionMetricsFromSummary } from '@shared/gait/gaitRuntimeUtils.js';
+import { createSharedGaitRuntime } from '@shared/gait/sharedGaitRuntime.js';
 import { useUserAuth } from '@shared/context/UserAuthContext.jsx';
 import {
     TRANSPORT_MODE_WEB_BLUETOOTH,
     createRealtimeConnection,
     getRealtimeTransportMode,
 } from '@shared/gateway/realtimeTransport.js';
+import { normalizeRealtimeSensorSample } from '@shared/gateway/realtimeSensorUtils.js';
 import { persistSessionFromFrontend } from '@shared/services/sessionService.js';
 import derndeeLogo from '@shared/assets/images/derndee-logo.png';
 
@@ -20,20 +22,6 @@ import avatarCircumduction from '@shared/assets/Avatar/circumduction.png';
 import avatarClearance from '@shared/assets/Avatar/clearance.png';
 import avatarShortStep from '@shared/assets/Avatar/short_step.png';
 import avatarWelcome from '@shared/assets/Avatar/welcome.png';
-
-const ANALYSIS_INTERVAL_MS = 1000;
-const MIN_ANALYSIS_SAMPLES = 300;
-
-function toSessionMetrics(summary) {
-    return {
-        total_steps: summary.totalSteps || 0,
-        cadence_spm: summary.cadenceSpm || 0,
-        avg_step_length_m: summary.avgStepLengthM || 0,
-        avg_stride_length_m: summary.avgStrideLengthM || 0,
-        avg_clearance_m: summary.avgClearanceM || 0,
-        avg_speed_mps: summary.avgSpeedMps || 0,
-    };
-}
 
 // TTS Voice Messages for each avatar state
 const AVATAR_VOICE_MESSAGES = {
@@ -66,28 +54,13 @@ const WalkSession = () => {
     const wsRef = useRef(null);
     const talkingTimeoutRef = useRef(null);
     const idleTimerRef = useRef(null);
-    const analysisTimerRef = useRef(null);
     const lastStepCountRef = useRef(0);
     const lastStepTimeRef = useRef(Date.now());
     const sessionStartedRef = useRef(false);
     const sessionStartedAtRef = useRef(null);
     const manualDisconnectRef = useRef(false);
-    const sampleCountRef = useRef(0);
-    const activeSensorNameRef = useRef(null);
-    const activeSensorMountRef = useRef(null);
-    const processorRef = useRef(null);
-    const sessionAnalyzerRef = useRef(null);
-    const feedbackAdvisorRef = useRef(null);
-
-    if (!processorRef.current) {
-        processorRef.current = createGaitProcessorClient();
-    }
-    if (!sessionAnalyzerRef.current) {
-        sessionAnalyzerRef.current = new GaitSessionAnalyzer();
-    }
-    if (!feedbackAdvisorRef.current) {
-        feedbackAdvisorRef.current = new GaitFeedbackAdvisor();
-    }
+    const gaitRuntimeRef = useRef(null);
+    const feedbackAdvisorRef = useRef(new GaitFeedbackAdvisor());
 
     // === TTS Helper Function ===
     const speakWithTTS = useCallback((text, onEnd) => {
@@ -102,14 +75,10 @@ const WalkSession = () => {
     }, []);
 
     const resetDerivedAnalysis = useCallback(() => {
-        processorRef.current?.reset();
-        sessionAnalyzerRef.current?.reset();
+        gaitRuntimeRef.current?.reset();
         feedbackAdvisorRef.current?.reset();
-        sampleCountRef.current = 0;
         lastStepCountRef.current = 0;
         lastStepTimeRef.current = Date.now();
-        activeSensorNameRef.current = null;
-        activeSensorMountRef.current = null;
         setSteps(0);
         setWalkingSpeed(0);
         setIsWalking(false);
@@ -150,25 +119,12 @@ const WalkSession = () => {
     }, [speakWithTTS]);
 
     useEffect(() => {
-        const processor = processorRef.current;
+        const runtime = createSharedGaitRuntime({ enableSessionAnalyzer: true });
+        gaitRuntimeRef.current = runtime;
 
-        const onParams = ({ params }) => {
-            if (!params) {
+        const unsubscribeParams = runtime.onParams(({ params, sensorKey }) => {
+            if (!params || !runtime.getVisibleSensorKeys().includes(sensorKey)) {
                 return;
-            }
-
-            sessionAnalyzerRef.current.record(params);
-            const summary = sessionAnalyzerRef.current.getSummary();
-            const nextSessionMetrics = toSessionMetrics(summary);
-
-            setSessionMetrics(nextSessionMetrics);
-            setWalkingSpeed(Number.isFinite(params.walkingSpeed) ? params.walkingSpeed : nextSessionMetrics.avg_speed_mps || 0);
-            setSteps(nextSessionMetrics.total_steps);
-            setIsWalking(true);
-
-            if (nextSessionMetrics.total_steps > lastStepCountRef.current) {
-                lastStepCountRef.current = nextSessionMetrics.total_steps;
-                lastStepTimeRef.current = Date.now();
             }
 
             const feedback = feedbackAdvisorRef.current.evaluate(params);
@@ -178,60 +134,48 @@ const WalkSession = () => {
                 setAvatarState('general');
                 setFeedbackText('');
             }
-        };
+        });
 
-        return processor.onParams(onParams);
+        const unsubscribeSummary = runtime.onSummary((summary) => {
+            if (!summary) {
+                return;
+            }
+
+            const nextSessionMetrics = toSessionMetricsFromSummary(summary);
+            setSessionMetrics(nextSessionMetrics);
+            setWalkingSpeed(nextSessionMetrics.avg_speed_mps || 0);
+            setSteps(nextSessionMetrics.total_steps);
+            setIsWalking(true);
+
+            if (nextSessionMetrics.total_steps > lastStepCountRef.current) {
+                lastStepCountRef.current = nextSessionMetrics.total_steps;
+                lastStepTimeRef.current = Date.now();
+            }
+        });
+
+        runtime.startAnalysisLoop();
+
+        return () => {
+            unsubscribeParams();
+            unsubscribeSummary();
+            runtime.stopAnalysisLoop();
+            runtime.destroy();
+            gaitRuntimeRef.current = null;
+        };
     }, [handleFeedback]);
 
-    useEffect(() => {
-        return () => {
-            processorRef.current?.destroy?.();
-        };
-    }, []);
-
     const handleMessage = useCallback((msg) => {
-        if (msg.type !== 'DATA') return;
-
-        const payload = msg.payload || {};
-        if (!Array.isArray(payload.raw_accel) || !Array.isArray(payload.raw_gyro)) {
+        if (msg.type !== 'DATA') {
             return;
         }
 
-        const isPreferredSensor = payload.sensor_mount === 'shank';
-        if (!activeSensorNameRef.current) {
-            activeSensorNameRef.current = payload.name ?? null;
-            activeSensorMountRef.current = payload.sensor_mount ?? 'unknown';
-        } else if (
-            isPreferredSensor
-            && activeSensorMountRef.current !== 'shank'
-            && payload.name
-            && payload.name !== activeSensorNameRef.current
-        ) {
-            activeSensorNameRef.current = payload.name;
-            activeSensorMountRef.current = 'shank';
-            resetDerivedAnalysis();
-        }
-
-        if (!payload.name || payload.name !== activeSensorNameRef.current) {
+        const sample = normalizeRealtimeSensorSample(msg.payload || {});
+        if (!sample) {
             return;
         }
 
-        const [ax, ay, az] = payload.raw_accel;
-        const [gx, gy, gz] = payload.raw_gyro;
-        processorRef.current.addSample({
-            ax,
-            ay,
-            az,
-            gx,
-            gy,
-            gz,
-            timestampMs: payload.timestamp_ms,
-            side: payload.side,
-            sensorName: payload.name,
-            sensorMount: payload.sensor_mount,
-        });
-        sampleCountRef.current += 1;
-    }, [resetDerivedAnalysis]);
+        gaitRuntimeRef.current?.ingestSample(sample);
+    }, []);
 
     const sendControlMessage = (type, payload = {}) => {
         if (wsRef.current?.readyState !== WebSocket.OPEN) {
@@ -290,21 +234,6 @@ const WalkSession = () => {
             }
         };
     }, [handleMessage, resetDerivedAnalysis]);
-
-    useEffect(() => {
-        analysisTimerRef.current = setInterval(() => {
-            if (sampleCountRef.current >= MIN_ANALYSIS_SAMPLES) {
-                processorRef.current?.analyze();
-            }
-        }, ANALYSIS_INTERVAL_MS);
-
-        return () => {
-            if (analysisTimerRef.current) {
-                clearInterval(analysisTimerRef.current);
-                analysisTimerRef.current = null;
-            }
-        };
-    }, []);
 
     useEffect(() => {
         if (!isConnected || !user?.uid || sessionStartedRef.current) {
@@ -403,7 +332,7 @@ const WalkSession = () => {
     const handleEndWalk = () => {
         setIsActive(false);
 
-        const summary = sessionAnalyzerRef.current.getSummary();
+        const summary = gaitRuntimeRef.current?.getAggregatedSessionSummary() || {};
         const cadence = Number.isFinite(summary.cadenceSpm) ? summary.cadenceSpm : 0;
         const summaryStrideLength = Number.isFinite(summary.avgStrideLengthM) ? summary.avgStrideLengthM : 0;
         const summaryStepLength = Number.isFinite(summary.avgStepLengthM)
@@ -426,9 +355,10 @@ const WalkSession = () => {
                 avg_clearance_m: summaryClearance,
             },
             details: {
-                analysis_source: 'shared_gait_processor',
+                analysis_source: 'shared_gait_runtime',
+                algorithm_version: GAIT_ALGORITHM_VERSION,
             },
-            gait_metrics_rows: sessionAnalyzerRef.current.getGaitMetricsRows(),
+            gait_metrics_rows: gaitRuntimeRef.current?.collectGaitMetricsRows?.() || [],
             source: 'frontend',
         };
 

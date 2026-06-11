@@ -1,15 +1,11 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { createGaitProcessorClient } from '@shared/gait/gaitProcessorClient.js';
-import { RealtimeStepDetector } from '@shared/gait/realtimeStepDetector.js';
-import { GaitSessionAnalyzer } from '@shared/gait/sessionAnalyzer.js';
+import { GAIT_ALGORITHM_VERSION } from '@shared/gait/gaitRuntimeConfig.js';
+import { toSessionMetricsFromSummary } from '@shared/gait/gaitRuntimeUtils.js';
+import { createSharedGaitRuntime } from '@shared/gait/sharedGaitRuntime.js';
 import { useUserAuth } from '@shared/context/UserAuthContext.jsx';
 import { createRealtimeConnection } from '@shared/gateway/realtimeTransport.js';
-import {
-    getRealtimeSensorLabel,
-    getRealtimeSensorSideOrder,
-    normalizeRealtimeSensorSample,
-} from '@shared/gateway/realtimeSensorUtils.js';
+import { normalizeRealtimeSensorSample } from '@shared/gateway/realtimeSensorUtils.js';
 import { usePersistedGatewaySession } from '@shared/hooks/usePersistedGatewaySession.js';
 import {
     ArrowLeft,
@@ -33,10 +29,6 @@ const GAME_STATES = {
     COMPLETED: 'COMPLETED',
 };
 
-const ANALYSIS_INTERVAL_MS = 400;
-const MIN_ANALYSIS_SAMPLES = 300;
-const MAX_VISIBLE_SENSORS = 2;
-const SENSOR_STALE_AFTER_MS = 2500;
 const DEFAULT_TARGET_STEP_CM = 35;
 const DEFAULT_TOTAL_TARGETS = 10;
 const MIN_TARGET_STEP_CM = 20;
@@ -74,38 +66,6 @@ const WATER_SCENERY = [
     { type: 'pebbles', left: '5%', top: '79%', scale: 0.95 },
     { type: 'lily', left: '13%', top: '84%', scale: 0.72 },
 ];
-
-function sortSensorStates(left, right) {
-    const sideDelta = getRealtimeSensorSideOrder(left?.side) - getRealtimeSensorSideOrder(right?.side);
-    if (sideDelta !== 0) {
-        return sideDelta;
-    }
-
-    return (right?.lastSeenAt || 0) - (left?.lastSeenAt || 0);
-}
-
-function resolveVisibleSensorKeys(sensorRuntimeMap) {
-    const now = Date.now();
-    const activeSensors = Array.from(sensorRuntimeMap.values())
-        .filter((sensorState) => now - sensorState.lastSeenAt <= SENSOR_STALE_AFTER_MS)
-        .sort(sortSensorStates);
-
-    const shankSensors = activeSensors.filter((sensorState) => sensorState.sensorMount === 'shank');
-    const preferredSensors = shankSensors.length > 0 ? shankSensors : activeSensors;
-
-    return preferredSensors
-        .slice(0, shankSensors.length > 0 ? MAX_VISIBLE_SENSORS : 1)
-        .map((sensorState) => sensorState.sensorKey);
-}
-
-function averageMetric(values) {
-    const numericValues = values.filter(Number.isFinite);
-    if (!numericValues.length) {
-        return null;
-    }
-
-    return numericValues.reduce((total, value) => total + value, 0) / numericValues.length;
-}
 
 function formatTime(seconds) {
     const mins = Math.floor(seconds / 60);
@@ -183,9 +143,7 @@ const GameSteppingStones = () => {
     const totalTargetsRef = useRef(DEFAULT_TOTAL_TARGETS);
     const completedTargetsRef = useRef(0);
     const manualDisconnectRef = useRef(false);
-    const sensorRuntimesRef = useRef(new Map());
-    const activeSensorKeysRef = useRef([]);
-    const analysisTimerRef = useRef(null);
+    const gaitRuntimeRef = useRef(null);
     const sessionTimerRef = useRef(null);
     const feedbackResetTimerRef = useRef(null);
     const jumpTimerRef = useRef(null);
@@ -298,60 +256,8 @@ const GameSteppingStones = () => {
         };
     }, []);
 
-    const getVisibleSensorStates = useCallback(() => {
-        return activeSensorKeysRef.current
-            .map((sensorKey) => sensorRuntimesRef.current.get(sensorKey))
-            .filter(Boolean)
-            .sort(sortSensorStates);
-    }, []);
-
-    const syncAggregatedSessionMetrics = useCallback(() => {
-        const visibleSensorStates = getVisibleSensorStates();
-        const summaries = visibleSensorStates
-            .map((sensorState) => sensorState.latestSummary)
-            .filter(Boolean);
-
-        setVisibleSensors(visibleSensorStates.map((sensorState) => ({
-            key: sensorState.sensorKey,
-            label: sensorState.label,
-            side: sensorState.side,
-        })));
-
-        if (!summaries.length) {
-            setSessionMetrics({});
-            return;
-        }
-
-        setSessionMetrics({
-            total_steps: summaries.reduce((total, summary) => total + (summary.totalSteps || 0), 0),
-            cadence_spm: averageMetric(summaries.map((summary) => summary.cadenceSpm)) || 0,
-            avg_step_length_m: averageMetric(summaries.map((summary) => summary.avgStepLengthM)),
-            avg_stride_length_m: averageMetric(summaries.map((summary) => summary.avgStrideLengthM)),
-            avg_clearance_m: averageMetric(summaries.map((summary) => summary.avgClearanceM)),
-            avg_speed_mps: averageMetric(summaries.map((summary) => summary.avgSpeedMps)),
-            avg_step_duration_s: averageMetric(summaries.map((summary) => summary.avgStepDurationS)),
-        });
-    }, [getVisibleSensorStates]);
-
-    const syncVisibleSensorViews = useCallback(() => {
-        activeSensorKeysRef.current = resolveVisibleSensorKeys(sensorRuntimesRef.current);
-        const visibleSensorStates = getVisibleSensorStates();
-        setVisibleSensors(visibleSensorStates.map((sensorState) => ({
-            key: sensorState.sensorKey,
-            label: sensorState.label,
-            side: sensorState.side,
-        })));
-        return visibleSensorStates;
-    }, [getVisibleSensorStates]);
-
-    const destroySensorRuntime = useCallback((sensorState) => {
-        sensorState.unsubscribeParams?.();
-        sensorState.processor?.destroy?.();
-    }, []);
-
     const collectGaitMetricsRows = useCallback(() => {
-        return Array.from(sensorRuntimesRef.current.values())
-            .flatMap((sensorState) => sensorState.sessionAnalyzer?.getGaitMetricsRows?.() || []);
+        return gaitRuntimeRef.current?.collectGaitMetricsRows?.() || [];
     }, []);
 
     const clearLandingState = useCallback(() => {
@@ -418,16 +324,17 @@ const GameSteppingStones = () => {
         });
     }, [clearLandingState, playLandingSound, pushFeedback, updateWeightShiftPercent]);
 
-    const advanceLandingState = useCallback((sensorState, detectorResult) => {
+    const advanceLandingState = useCallback((sensorKey) => {
         const landingState = activeLandingRef.current;
-        if (!landingState || landingState.sensorKey !== sensorState.sensorKey || gameStateRef.current !== GAME_STATES.PLAYING) {
+        if (!landingState || landingState.sensorKey !== sensorKey || gameStateRef.current !== GAME_STATES.PLAYING) {
             return;
         }
 
+        const stability = gaitRuntimeRef.current?.getStability(sensorKey);
         const now = performance.now();
-        const isStableStance = detectorResult?.phase === 'STANCE'
-            && (detectorResult?.debug?.gyroNorm ?? Infinity) <= LANDING_STABLE_GYRO_NORM
-            && Math.abs(detectorResult?.debug?.tiltRate ?? 0) <= LANDING_STABLE_TILT_RATE;
+        const isStableStance = stability?.isStable
+            && (stability?.gyroNorm ?? Infinity) <= LANDING_STABLE_GYRO_NORM
+            && Math.abs(stability?.tiltRate ?? 0) <= LANDING_STABLE_TILT_RATE;
 
         if (isStableStance) {
             if (!landingState.stableStartedAtMs) {
@@ -457,7 +364,7 @@ const GameSteppingStones = () => {
         }
     }, [clearLandingState, handleSuccessfulLanding, pushFeedback, updateWeightShiftPercent]);
 
-    const handleStepMetrics = useCallback((sensorState, params) => {
+    const handleStepMetrics = useCallback((sensorKey, params) => {
         if (!params || gameStateRef.current !== GAME_STATES.PLAYING) {
             return;
         }
@@ -478,8 +385,8 @@ const GameSteppingStones = () => {
 
         if (stepLengthCm >= targetStepCmRef.current * STEP_SUCCESS_RATIO) {
             activeLandingRef.current = {
-                sensorKey: sensorState.sensorKey,
-                side: sensorState.side,
+                sensorKey,
+                side: params.side,
                 cycleKey: params.cycleKey,
                 startedAtMs: performance.now(),
                 stableStartedAtMs: null,
@@ -509,49 +416,12 @@ const GameSteppingStones = () => {
         }, FEEDBACK_RESET_MS);
     }, [pushFeedback, updateWeightShiftPercent]);
 
-    const createSensorRuntime = useCallback((sample) => {
-        const processor = createGaitProcessorClient();
-        const stepDetector = new RealtimeStepDetector({ sensorMount: sample.sensorMount || 'shank' });
-        const sessionAnalyzer = new GaitSessionAnalyzer();
-        const sensorState = {
-            sensorKey: sample.sensorKey,
-            label: getRealtimeSensorLabel(sample),
-            side: sample.side || null,
-            sensorMount: sample.sensorMount || 'unknown',
-            lastSeenAt: Date.now(),
-            processor,
-            stepDetector,
-            sessionAnalyzer,
-            sampleCount: 0,
-            latestSummary: null,
-            unsubscribeParams: null,
-        };
-
-        sensorState.unsubscribeParams = processor.onParams(({ params }) => {
-            if (!params || gameStateRef.current !== GAME_STATES.PLAYING) {
-                return;
-            }
-
-            sensorState.sessionAnalyzer.record(params);
-            sensorState.latestSummary = sensorState.sessionAnalyzer.getSummary();
-            syncAggregatedSessionMetrics();
-            handleStepMetrics(sensorState, params);
-        });
-
-        sensorRuntimesRef.current.set(sample.sensorKey, sensorState);
-        return sensorState;
-    }, [handleStepMetrics, syncAggregatedSessionMetrics]);
-
     const resetDerivedAnalysis = useCallback(() => {
-        sensorRuntimesRef.current.forEach((sensorState) => {
-            destroySensorRuntime(sensorState);
-        });
-        sensorRuntimesRef.current.clear();
-        activeSensorKeysRef.current = [];
+        gaitRuntimeRef.current?.reset();
         setVisibleSensors([]);
         setSessionMetrics({});
         clearLandingState();
-    }, [clearLandingState, destroySensorRuntime]);
+    }, [clearLandingState]);
 
     const buildSessionSummary = useCallback(() => {
         const missionProgress = totalTargetsRef.current > 0
@@ -580,6 +450,8 @@ const GameSteppingStones = () => {
             target_landings: totalTargetsRef.current,
             progress_percent: Math.max(0, Math.min(100, progressPercent)),
             safe_easy_mode: targetStepCmRef.current <= SAFE_TARGET_THRESHOLD_CM,
+            analysis_source: 'shared_gait_runtime',
+            algorithm_version: GAIT_ALGORITHM_VERSION,
         };
     }, [completedTargets]);
 
@@ -608,48 +480,18 @@ const GameSteppingStones = () => {
             return;
         }
 
-        let sensorState = sensorRuntimesRef.current.get(sample.sensorKey);
-        if (!sensorState) {
-            sensorState = createSensorRuntime(sample);
-        }
-
-        sensorState.label = getRealtimeSensorLabel(sample);
-        sensorState.side = sample.side || null;
-        sensorState.sensorMount = sample.sensorMount || 'unknown';
-        sensorState.lastSeenAt = Date.now();
-        sensorState.stepDetector?.setSensorMount?.(sensorState.sensorMount);
-
-        syncVisibleSensorViews();
-        if (!activeSensorKeysRef.current.includes(sample.sensorKey)) {
-            return;
-        }
-
-        const detectorResult = sensorState.stepDetector?.update({
-            gx: sample.gx,
-            gy: sample.gy,
-            gz: sample.gz,
-            timestampMs: sample.timestamp_ms,
-        });
+        gaitRuntimeRef.current?.ingestSample(sample);
 
         if (gameStateRef.current !== GAME_STATES.PLAYING) {
             return;
         }
 
-        sensorState.processor.addSample({
-            ax: sample.ax,
-            ay: sample.ay,
-            az: sample.az,
-            gx: sample.gx,
-            gy: sample.gy,
-            gz: sample.gz,
-            timestampMs: sample.timestamp_ms,
-            side: sample.side,
-            sensorName: sample.name,
-            sensorMount: sample.sensorMount,
-        });
-        sensorState.sampleCount += 1;
-        advanceLandingState(sensorState, detectorResult);
-    }, [advanceLandingState, createSensorRuntime, syncVisibleSensorViews]);
+        if (!gaitRuntimeRef.current?.getVisibleSensorKeys().includes(sample.sensorKey)) {
+            return;
+        }
+
+        advanceLandingState(sample.sensorKey);
+    }, [advanceLandingState]);
 
     useEffect(() => {
         handleSensorDataRef.current = handleSensorData;
@@ -707,28 +549,45 @@ const GameSteppingStones = () => {
     }, [endSessionIfActive, resetDerivedAnalysis]);
 
     useEffect(() => {
-        analysisTimerRef.current = setInterval(() => {
-            sensorRuntimesRef.current.forEach((sensorState) => {
-                if (sensorState.sampleCount >= MIN_ANALYSIS_SAMPLES) {
-                    sensorState.processor?.analyze?.();
-                }
-            });
-        }, ANALYSIS_INTERVAL_MS);
+        const runtime = createSharedGaitRuntime({
+            enableSessionAnalyzer: true,
+            enableStanceStability: true,
+        });
+        gaitRuntimeRef.current = runtime;
 
-        return () => {
-            if (analysisTimerRef.current) {
-                clearInterval(analysisTimerRef.current);
-                analysisTimerRef.current = null;
+        const unsubscribeParams = runtime.onParams(({ sensorKey, params }) => {
+            if (!params || gameStateRef.current !== GAME_STATES.PLAYING) {
+                return;
             }
-        };
-    }, []);
 
-    useEffect(() => {
+            if (!runtime.getVisibleSensorKeys().includes(sensorKey)) {
+                return;
+            }
+
+            handleStepMetrics(sensorKey, params);
+        });
+
+        const unsubscribeSummary = runtime.onSummary((summary) => {
+            setSessionMetrics(toSessionMetricsFromSummary(summary));
+        });
+
+        const unsubscribeVisibility = runtime.onVisibilityChange(({ visibleStates }) => {
+            setVisibleSensors(visibleStates.map((sensorState) => ({
+                key: sensorState.sensorKey,
+                label: sensorState.label,
+                side: sensorState.side,
+            })));
+        });
+
+        runtime.startAnalysisLoop();
+
         return () => {
-            sensorRuntimesRef.current.forEach((sensorState) => {
-                destroySensorRuntime(sensorState);
-            });
-            sensorRuntimesRef.current.clear();
+            unsubscribeParams();
+            unsubscribeSummary();
+            unsubscribeVisibility();
+            runtime.stopAnalysisLoop();
+            runtime.destroy();
+            gaitRuntimeRef.current = null;
 
             if (feedbackResetTimerRef.current) {
                 clearTimeout(feedbackResetTimerRef.current);
@@ -737,7 +596,7 @@ const GameSteppingStones = () => {
                 clearTimeout(jumpTimerRef.current);
             }
         };
-    }, [destroySensorRuntime]);
+    }, [handleStepMetrics]);
 
     useEffect(() => {
         if (gameState !== GAME_STATES.PLAYING) {
