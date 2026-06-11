@@ -1,11 +1,11 @@
 /**
  * Shared gait runtime configuration aligned with docs/sota-stroke-gait-analysis-prd.md
- * Phase 0–1 baseline: shank-centric CSAV mode (1–2 shank sensors).
+ * Phase 3: CSAV TO→IC spatial integration + session quality scoring.
  */
 
-export const GAIT_ALGORITHM_VERSION = '1.0.0-shank-csav-baseline';
+export const GAIT_ALGORITHM_VERSION = '3.0.0-csav-spatial';
 
-export const GAIT_SENSOR_MODE = 'shank-csav-baseline';
+export const GAIT_SENSOR_MODE = 'shank-csav-spatial';
 
 export const GAIT_RUNTIME_CONFIG = {
   analysisIntervalMs: 400,

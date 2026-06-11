@@ -6,6 +6,25 @@ export function rawGyroToDps(raw) {
   return raw / 16.4;
 }
 
+/**
+ * Mirror sagittal axes for right-shank mounts so L/R share the same biomechanical sign.
+ * Assumes the sensor is mounted on the lateral shank with identical orientation.
+ */
+export function normalizeShankSagittalSample(sample) {
+  if (sample?.side !== 'R') {
+    return sample;
+  }
+
+  const flip = (value) => (Number.isFinite(value) ? -value : value);
+
+  return {
+    ...sample,
+    gx: flip(sample.gx),
+    gz: flip(sample.gz),
+    az: flip(sample.az),
+  };
+}
+
 export function deg2rad(deg) {
   return deg * Math.PI / 180.0;
 }

@@ -63,6 +63,10 @@ export class VelocityIntegrator {
 
     const integrationStartIdx = Math.max(0, Math.min(sampleCount - 1, Math.round(options.integrationStartIdx ?? 0)));
     const integrationEndIdx = Math.max(integrationStartIdx, Math.min(sampleCount - 1, Math.round(options.integrationEndIdx ?? (sampleCount - 1))));
+    const measureSwingDisplacement = options.measureSwingDisplacement === true;
+    const zuptExcludeIndices = new Set(
+      [integrationStartIdx, integrationEndIdx].filter(Number.isInteger),
+    );
     const stanceWindows = Array.isArray(options.stanceWindows)
       ? options.stanceWindows
         .map((window) => normalizeWindow(window, sampleCount))
@@ -106,12 +110,20 @@ export class VelocityIntegrator {
 
       let velocityFull = trapezoidalIntegrate(correctedHoriz, this.dt);
       velocityFull = this.correctDriftWithStanceBoundaries(velocityFull, leftStanceWindow, rightStanceWindow);
-      velocityFull = this.enforceZeroVelocityInStanceWindows(velocityFull, stanceWindows);
+      velocityFull = this.enforceZeroVelocityInStanceWindows(
+        velocityFull,
+        stanceWindows,
+        measureSwingDisplacement ? zuptExcludeIndices : new Set(),
+      );
       const displacementFull = trapezoidalIntegrate(velocityFull, this.dt);
 
       let verticalVelocityFull = trapezoidalIntegrate(correctedVert, this.dt);
       verticalVelocityFull = this.correctDriftWithStanceBoundaries(verticalVelocityFull, leftStanceWindow, rightStanceWindow);
-      verticalVelocityFull = this.enforceZeroVelocityInStanceWindows(verticalVelocityFull, stanceWindows);
+      verticalVelocityFull = this.enforceZeroVelocityInStanceWindows(
+        verticalVelocityFull,
+        stanceWindows,
+        measureSwingDisplacement ? zuptExcludeIndices : new Set(),
+      );
       const verticalDisplacementFull = trapezoidalIntegrate(verticalVelocityFull, this.dt);
 
       const startDisplacement = averageInWindow(displacementFull, leftStanceWindow);
@@ -135,8 +147,30 @@ export class VelocityIntegrator {
         .slice(integrationStartIdx, integrationEndIdx + 1)
         .map((value) => value - verticalBaseline);
 
+      const stanceBoundLength = Math.abs(endDisplacement - startDisplacement);
+      const swingReference = displacementFull[integrationStartIdx] ?? 0;
+      const swingIntegrationLength = Math.abs(
+        displacementFull[integrationEndIdx] - swingReference,
+      );
+      const relativeSwingLength = displacement.length
+        ? Math.abs(displacement[displacement.length - 1])
+        : 0;
+      let peakSwingDisplacement = 0;
+      for (let i = integrationStartIdx; i <= integrationEndIdx; i += 1) {
+        peakSwingDisplacement = Math.max(
+          peakSwingDisplacement,
+          Math.abs(displacementFull[i] - swingReference),
+        );
+      }
+      const spatialLength = measureSwingDisplacement
+        ? Math.max(swingIntegrationLength, relativeSwingLength, peakSwingDisplacement)
+        : stanceBoundLength;
+
       return {
-        strideLength: Math.abs(endDisplacement - startDisplacement),
+        strideLength: spatialLength,
+        stepLength: measureSwingDisplacement ? spatialLength : null,
+        stanceBoundLength,
+        swingIntegrationLength,
         clearance: Math.max(0, swingMaxVertical - verticalBaseline),
         velocity,
         displacement,
@@ -228,11 +262,13 @@ export class VelocityIntegrator {
     return corrected;
   }
 
-  enforceZeroVelocityInStanceWindows(velocity, stanceWindows) {
+  enforceZeroVelocityInStanceWindows(velocity, stanceWindows, excludeIndices = new Set()) {
     const corrected = [...velocity];
     for (const stanceWindow of stanceWindows) {
       for (let i = stanceWindow.startIdx; i <= stanceWindow.endIdx; i += 1) {
-        corrected[i] = 0;
+        if (!excludeIndices.has(i)) {
+          corrected[i] = 0;
+        }
       }
     }
 

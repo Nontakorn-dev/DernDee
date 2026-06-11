@@ -532,10 +532,45 @@ body {
   border-color: #ffe0b2;
 }
 
-.event-tag.msv {
+.event-tag.msv,
+.event-tag.ff,
+.event-tag.hr,
+.event-tag.fa,
+.event-tag.tbv,
+.event-tag.ic {
   background: var(--green-50);
   color: var(--green-700);
   border-color: var(--green-200);
+}
+
+.event-tag.ic {
+  background: #e8eaf6;
+  color: #283593;
+  border-color: #c5cae9;
+}
+
+.event-tag.ff {
+  background: #e0f7fa;
+  color: #006064;
+  border-color: #b2ebf2;
+}
+
+.event-tag.hr {
+  background: #f3e5f5;
+  color: #6a1b9a;
+  border-color: #e1bee7;
+}
+
+.event-tag.fa {
+  background: #e8f5e9;
+  color: #2e7d32;
+  border-color: #c8e6c9;
+}
+
+.event-tag.tbv {
+  background: #fff8e1;
+  color: #f57f17;
+  border-color: #ffecb3;
 }
 
 @keyframes pulse {

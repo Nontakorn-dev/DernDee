@@ -40,6 +40,10 @@ export class GaitSessionAnalyzer {
         temporal_source: params.temporalSource ?? null,
         sensor_name: params.sensorName ?? null,
         sensor_mount: params.sensorMount ?? null,
+        detector: params.detector ?? null,
+        cycle_confidence: params.cycleConfidence ?? null,
+        csav_phases: params.csavPhases ?? null,
+        phase_confidences: params.phaseConfidences ?? null,
       },
     };
 

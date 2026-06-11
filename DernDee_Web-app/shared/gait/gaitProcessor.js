@@ -1,6 +1,21 @@
-import { GaitEventDetector } from './gaitEventDetector.js';
+import {
+  buildCsavSwingIntegration,
+  CSAV_SWING_INTEGRATION_SOURCES,
+  isCsavSwingIntegration,
+  resolveCycleToIndex,
+  resolveSwingEndIndex,
+  selectChartIntegrationWindow,
+} from './csavIntegration.js';
+import { CsavEventDetector } from './csavEventDetector.js';
 import { KalmanFilter } from './kalmanFilter.js';
-import { rawAccelToG, rawGyroToDps, accelToAngle, movingAverage } from './signalUtils.js';
+import {
+  rawAccelToG,
+  rawGyroToDps,
+  accelToAngle,
+  movingAverage,
+  normalizeShankSagittalSample,
+} from './signalUtils.js';
+import { computeSessionQuality } from './sessionQuality.js';
 import { VelocityIntegrator } from './velocityIntegrator.js';
 
 const SAMPLE_RATE = 100;
@@ -9,8 +24,10 @@ const WINDOW_SAMPLES = SAMPLE_RATE * WINDOW_SECONDS;
 const G_MS2 = 9.81;
 const EPOCH_THRESHOLD_MS = 946684800000;
 const STANCE_ENTRY_ANGULAR_VELOCITY_ABS = 5;
-const STEP_LENGTH_MIN_M = 0.15;
-const STEP_LENGTH_MAX_M = 1.25;
+const STEP_LENGTH_MIN_M = 0.05;
+const STEP_LENGTH_MAX_M = 0.75;
+const STRIDE_LENGTH_MIN_M = 0.15;
+const STRIDE_LENGTH_MAX_M = 1.25;
 const STANCE_ENTRY_THRESHOLD_MIN = 3;
 const STANCE_ENTRY_THRESHOLD_MAX = 12;
 const STANCE_ENTRY_VALLEY_THRESHOLD_MAX = 40;
@@ -30,13 +47,20 @@ const STANCE_WINDOW_STRICT_ANGULAR_VELOCITY_ABS = 6;
 const STANCE_WINDOW_STRICT_ANGULAR_ACCELERATION_ABS = 120;
 const STANCE_WINDOW_STRICT_MIN_DURATION_SECONDS = 0.06;
 const MIN_SWING_INTEGRATION_SAMPLES = Math.max(6, Math.round(0.12 * SAMPLE_RATE));
-const PATIENT_EVENT_DETECTOR_OPTIONS = {
+const PATIENT_CSAV_DETECTOR_OPTIONS = {
   sampleRate: SAMPLE_RATE,
   maxStrideTime: 4.0,
-  toSearchStartPct: 0.20,
-  toSearchEndPct: 0.80,
-  hsVelocityThreshold: -50,
-  hsVelocityThresholdFloorAbs: 18,
+  minStrideTime: 0.6,
+  hsProminence: 30,
+  hsProminenceFloor: 8,
+  hsVelocityThresholdFloorAbs: 12,
+  swingPeakMinAbs: 6,
+  swingPeakMinAbsFallback: 2,
+  minSwingAngularVelocityAbs: 8,
+  stillAngularVelocityAbs: 12,
+  toProminence: 18,
+  toSearchStartPct: 0.2,
+  toSearchEndPct: 0.8,
   hsEnvelopeScale: 0.35,
   hsPreviousPeakScale: 0.35,
   hsPreviousHsScale: 0.75,
@@ -422,9 +446,11 @@ function buildIntegrationWindow(cycleStartIdx, endIdx, timestamps, threshold, so
   };
 }
 
-function findStepIntegrationWindow(smoothedAngVel, timestamps, cycle) {
+function findStepIntegrationWindow(smoothedAngVel, timestamps, cycle, events = [], stanceWindows = [], sampleCount = 0) {
   const cycleStartIdx = cycle?.hsStart?.index;
   const cycleEndIdx = cycle?.hsEnd?.index;
+  const resolvedToIdx = resolveCycleToIndex(cycle, events);
+  const integrationOriginIdx = Number.isInteger(resolvedToIdx) ? resolvedToIdx : cycleStartIdx;
 
   if (!Number.isInteger(cycleStartIdx) || !Number.isInteger(cycleEndIdx) || cycleEndIdx <= cycleStartIdx) {
     const fallbackIdx = cycleEndIdx ?? cycleStartIdx ?? 0;
@@ -435,6 +461,42 @@ function findStepIntegrationWindow(smoothedAngVel, timestamps, cycle) {
       STANCE_ENTRY_ANGULAR_VELOCITY_ABS,
       'fallback',
     );
+  }
+
+  if (Number.isInteger(resolvedToIdx)) {
+    const searchMaxIdx = Number.isInteger(cycleEndIdx) && cycleEndIdx > resolvedToIdx
+      ? cycleEndIdx
+      : Math.min(
+        (sampleCount || smoothedAngVel.length) - 1,
+        resolvedToIdx + Math.round(4.0 * SAMPLE_RATE),
+      );
+    const swingEnd = resolveSwingEndIndex({
+      toIdx: resolvedToIdx,
+      nextIcIdx: Number.isInteger(cycleEndIdx) && cycleEndIdx > resolvedToIdx ? cycleEndIdx : null,
+      smoothedAngVel,
+      timestamps,
+      stanceWindows,
+      sampleCount: sampleCount || smoothedAngVel.length,
+      searchMaxIdx,
+    });
+
+    if (swingEnd) {
+      const heuristicSource = swingEnd.method === 'ic'
+        ? 'to-ic-heuristic'
+        : `to-${swingEnd.method}`;
+
+      return {
+        ...buildIntegrationWindow(
+          resolvedToIdx,
+          swingEnd.endIdx,
+          timestamps,
+          null,
+          heuristicSource,
+        ),
+        measuresStepLength: true,
+        swingEndMethod: swingEnd.method === 'ic' ? 'ic' : 'zupt',
+      };
+    }
   }
 
   let peakIdx = cycleStartIdx;
@@ -472,7 +534,7 @@ function findStepIntegrationWindow(smoothedAngVel, timestamps, cycle) {
 
   if (Number.isInteger(lastValleyIdx)) {
     return buildIntegrationWindow(
-      cycleStartIdx,
+      integrationOriginIdx,
       lastValleyIdx,
       timestamps,
       adaptiveThreshold,
@@ -498,7 +560,7 @@ function findStepIntegrationWindow(smoothedAngVel, timestamps, cycle) {
 
   if (Number.isInteger(lastSustainedQuietStartIdx)) {
     return buildIntegrationWindow(
-      cycleStartIdx,
+      integrationOriginIdx,
       lastSustainedQuietStartIdx,
       timestamps,
       adaptiveThreshold,
@@ -522,7 +584,7 @@ function findStepIntegrationWindow(smoothedAngVel, timestamps, cycle) {
 
   if (Number.isInteger(lastThresholdIdx)) {
     return buildIntegrationWindow(
-      cycleStartIdx,
+      integrationOriginIdx,
       lastThresholdIdx,
       timestamps,
       adaptiveThreshold,
@@ -539,7 +601,7 @@ function findStepIntegrationWindow(smoothedAngVel, timestamps, cycle) {
 
   if (Number.isInteger(lastZeroCrossingIdx)) {
     return buildIntegrationWindow(
-      cycleStartIdx,
+      integrationOriginIdx,
       lastZeroCrossingIdx,
       timestamps,
       adaptiveThreshold,
@@ -559,7 +621,7 @@ function findStepIntegrationWindow(smoothedAngVel, timestamps, cycle) {
 
   if (Number.isFinite(minAbsValue)) {
     return buildIntegrationWindow(
-      cycleStartIdx,
+      integrationOriginIdx,
       minAbsIdx,
       timestamps,
       adaptiveThreshold,
@@ -568,7 +630,7 @@ function findStepIntegrationWindow(smoothedAngVel, timestamps, cycle) {
   }
 
   return buildIntegrationWindow(
-    cycleStartIdx,
+    integrationOriginIdx,
     cycleEndIdx,
     timestamps,
     adaptiveThreshold,
@@ -604,7 +666,7 @@ function normalizeTimestampField(sample) {
 export class GaitProcessor {
   constructor() {
     this.kalman = new KalmanFilter(1.0 / SAMPLE_RATE);
-    this.eventDetector = new GaitEventDetector(PATIENT_EVENT_DETECTOR_OPTIONS);
+    this.eventDetector = new CsavEventDetector(PATIENT_CSAV_DETECTOR_OPTIONS);
     this.velocityIntegrator = new VelocityIntegrator({ sampleRate: SAMPLE_RATE });
 
     this.buffer = [];
@@ -637,9 +699,10 @@ export class GaitProcessor {
   addSample(sample) {
     const timestampMs = this.resolveTimestampMs(sample);
     const dtSeconds = this.getSampleIntervalSeconds(timestampMs);
-    const gx = rawGyroToDps(sample.gx);
-    const aYg = rawAccelToG(sample.ay);
-    const aZg = rawAccelToG(sample.az);
+    const normalizedSample = normalizeShankSagittalSample(sample);
+    const gx = rawGyroToDps(normalizedSample.gx);
+    const aYg = rawAccelToG(normalizedSample.ay);
+    const aZg = rawAccelToG(normalizedSample.az);
     const accelAngle = accelToAngle(aYg, aZg);
     const shankAngle = this.kalman.update(gx, accelAngle, dtSeconds);
 
@@ -650,6 +713,12 @@ export class GaitProcessor {
 
     this.buffer.push({
       ...sample,
+      gx: normalizedSample.gx,
+      gy: normalizedSample.gy,
+      gz: normalizedSample.gz,
+      ax: normalizedSample.ax,
+      ay: normalizedSample.ay,
+      az: normalizedSample.az,
       sampleId: this.nextSampleId,
       timestampMs,
       shankAngle,
@@ -694,7 +763,13 @@ export class GaitProcessor {
       shankAngle[i] = Number.isFinite(sample.shankAngle) ? sample.shankAngle : 0;
     }
 
-    const { events, cycles } = this.eventDetector.detect(angVelDeg, timestamps);
+    const detection = this.eventDetector.detect(angVelDeg, timestamps);
+    const {
+      events,
+      cycles,
+      detector: detectorName,
+      cycleConfidence,
+    } = detection;
     const smoothedAngVel = movingAverage(angVelDeg, 5);
     const { stanceWindows } = detectExplicitStanceWindows(smoothedAngVel, accelMagnitudeG, timestamps);
     const stepLengths = [];
@@ -705,17 +780,42 @@ export class GaitProcessor {
     const peakAngles = [];
     const clearances = [];
     const integrationWindows = [];
+    const integrationMetricsByCycle = [];
 
     for (const cycle of cycles) {
-      const stanceToStanceIntegration = buildStanceToStanceIntegration(cycle, stanceWindows, timestamps);
+      const csavIntegration = buildCsavSwingIntegration(
+        cycle,
+        stanceWindows,
+        timestamps,
+        sampleCount,
+        events,
+        smoothedAngVel,
+      );
+      const stanceToStanceIntegration = csavIntegration
+        || buildStanceToStanceIntegration(cycle, stanceWindows, timestamps);
       const integrationWindow = stanceToStanceIntegration?.integrationWindow
-        || findStepIntegrationWindow(smoothedAngVel, timestamps, cycle);
+        || findStepIntegrationWindow(
+          smoothedAngVel,
+          timestamps,
+          cycle,
+          events,
+          stanceWindows,
+          sampleCount,
+        );
+      const integrationBundle = stanceToStanceIntegration || {
+        segmentStartIdx: integrationWindow.startIdx,
+        segmentEndIdx: integrationWindow.endIdx,
+        stanceWindowsLocal: [],
+      };
       const metricStartIdx = integrationWindow.startIdx;
       const metricEndIdx = integrationWindow.endIdx;
-      const segmentStartIdx = stanceToStanceIntegration?.segmentStartIdx ?? metricStartIdx;
-      const segmentEndIdx = stanceToStanceIntegration?.segmentEndIdx ?? metricEndIdx;
+      const segmentStartIdx = integrationBundle.segmentStartIdx ?? metricStartIdx;
+      const segmentEndIdx = integrationBundle.segmentEndIdx ?? metricEndIdx;
       const localIntegrationStartIdx = metricStartIdx - segmentStartIdx;
       const localIntegrationEndIdx = metricEndIdx - segmentStartIdx;
+      const measuresStepLength = isCsavSwingIntegration(integrationBundle)
+        || integrationWindow?.measuresStepLength === true
+        || CSAV_SWING_INTEGRATION_SOURCES.has(integrationWindow?.source);
 
       strideTimes.push(cycle.strideTime);
       stancePcts.push(cycle.stancePct);
@@ -737,21 +837,42 @@ export class GaitProcessor {
         cycleAngles.push(shankAngle[j]);
       }
 
-      const { strideLength: integratedStrideLength, clearance } = this.velocityIntegrator.computeStrideMetrics(
+      const integrationMetrics = this.velocityIntegrator.computeStrideMetrics(
         cycleAy,
         cycleAz,
         cycleAngles,
         {
           integrationStartIdx: localIntegrationStartIdx,
           integrationEndIdx: localIntegrationEndIdx,
-          stanceWindows: stanceToStanceIntegration?.stanceWindowsLocal || [],
+          stanceWindows: integrationBundle.stanceWindowsLocal || [],
+          measureSwingDisplacement: measuresStepLength,
         },
       );
+      const {
+        strideLength: integratedDisplacement,
+        stepLength: integratedStepLength,
+        clearance,
+        swingIntegrationLength,
+        stanceBoundLength,
+      } = integrationMetrics;
 
-      const strideLength = Math.max(STEP_LENGTH_MIN_M, Math.min(STEP_LENGTH_MAX_M, integratedStrideLength));
+      let stepLength;
+      let strideLength;
+      if (measuresStepLength) {
+        const rawStepLength = Number.isFinite(integratedStepLength)
+          ? integratedStepLength
+          : integratedDisplacement;
+        stepLength = Math.max(STEP_LENGTH_MIN_M, Math.min(STEP_LENGTH_MAX_M, rawStepLength));
+        strideLength = Math.max(STRIDE_LENGTH_MIN_M, Math.min(STRIDE_LENGTH_MAX_M, stepLength * 2));
+      } else {
+        strideLength = Math.max(STRIDE_LENGTH_MIN_M, Math.min(STRIDE_LENGTH_MAX_M, integratedDisplacement));
+        stepLength = strideLength / 2;
+      }
+
       strideLengths.push(strideLength);
-      stepLengths.push(strideLength / 2);
+      stepLengths.push(stepLength);
       clearances.push(Math.max(0, Math.min(0.3, clearance)));
+      integrationMetricsByCycle.push(integrationMetrics);
     }
 
     if (cycles.length === 0) {
@@ -767,9 +888,22 @@ export class GaitProcessor {
       return;
     }
 
-    const lastIdx = cycles.length - 1;
+    const findBestMetricsCycleIndex = () => {
+      for (let i = integrationWindows.length - 1; i >= 0; i -= 1) {
+        if (CSAV_SWING_INTEGRATION_SOURCES.has(integrationWindows[i]?.source)) {
+          return i;
+        }
+      }
+      return cycles.length - 1;
+    };
+
+    const lastIdx = findBestMetricsCycleIndex();
     const lastCycle = cycles[lastIdx];
-    const lastIntegrationWindow = integrationWindows[lastIdx] ?? null;
+    const lastIntegrationMetrics = integrationMetricsByCycle[lastIdx] ?? null;
+    const chartVisibleSampleCount = 400;
+    const chartStartIdx = Math.max(0, sampleCount - chartVisibleSampleCount);
+    const chartIntegrationWindow = selectChartIntegrationWindow(integrationWindows, chartStartIdx);
+    const lastIntegrationWindow = chartIntegrationWindow ?? integrationWindows[lastIdx] ?? null;
     const stepLengthLast = stepLengths[lastIdx];
     const strideLengthLast = strideLengths[lastIdx];
     const strideTimeLast = strideTimes[lastIdx];
@@ -796,6 +930,7 @@ export class GaitProcessor {
       ? (this.latestSampleTimestampMs - this.sessionStartTime) / 1000
       : 0;
 
+    const sessionQuality = computeSessionQuality(cycles, integrationWindows, cycleConfidence);
     const cadence = strideTimeLast > 0 ? (2 / strideTimeLast) * 60 : 0;
     const stepLength = stepLengthLast;
     const stepTime = strideTimeLast / 2;
@@ -838,21 +973,33 @@ export class GaitProcessor {
       side: cycleStartSample?.side ?? null,
       sensorName: cycleStartSample?.sensorName ?? null,
       sensorMount: cycleStartSample?.sensorMount ?? null,
+      detector: detectorName ?? lastCycle.detector ?? 'csav-7phase',
+      cycleConfidence: Number.isFinite(cycleConfidence) ? cycleConfidence : null,
+      csavPhases: lastCycle.csavPhases ?? null,
+      phaseConfidences: lastCycle.phaseConfidences ?? null,
+      integrationSource: lastIntegrationWindow?.source ?? null,
+      swingIntegrationLengthM: lastIntegrationMetrics?.swingIntegrationLength ?? null,
+      stanceBoundLengthM: lastIntegrationMetrics?.stanceBoundLength ?? null,
+      sessionQuality,
     };
 
-    const lastStart = lastCycle.hsStart.index;
-    const lastEnd = lastCycle.hsEnd.index;
-    const filteredEvents = events.filter((event) => event.index >= lastStart && event.index <= lastEnd);
     const filteredCycles = [lastCycle];
+    const chartEvents = events.filter(
+      (event) => Number.isInteger(event.index)
+        && event.index >= chartStartIdx
+        && event.index < sampleCount,
+    );
 
     this.processedData = {
       timestamps,
       angularVelocity: angVelDeg,
       shankAngle,
       smoothedAngularVelocity: smoothedAngVel,
-      events: filteredEvents,
+      events: chartEvents,
       cycles: filteredCycles,
-      integrationWindow: lastIntegrationWindow,
+      integrationWindow: chartIntegrationWindow ?? lastIntegrationWindow,
+      detector: detectorName ?? lastCycle.detector ?? 'csav-7phase',
+      cycleConfidence: Number.isFinite(cycleConfidence) ? cycleConfidence : null,
     };
 
     this.paramListeners.forEach((callback) => callback({

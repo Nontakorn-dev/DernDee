@@ -364,6 +364,9 @@ export class ChartsManager {
     const hsData = [];
     const toData = [];
     const msvData = [];
+    const heelStrikeIndices = new Set();
+    const toeOffIndices = new Set();
+    const midStanceIndices = new Set();
 
     for (const event of primaryData.events || []) {
       if (event.index < primaryStartIdx || event.index >= primaryData.timestamps.length) {
@@ -378,11 +381,23 @@ export class ChartsManager {
       }
 
       const point = { x, y };
-      if (event.type === 'HS') {
+      if (event.type === 'HS' || event.type === 'IC') {
+        if (heelStrikeIndices.has(event.index)) {
+          continue;
+        }
+        heelStrikeIndices.add(event.index);
         hsData.push(point);
       } else if (event.type === 'TO') {
+        if (toeOffIndices.has(event.index)) {
+          continue;
+        }
+        toeOffIndices.add(event.index);
         toData.push(point);
-      } else if (event.type === 'MSV') {
+      } else if (['MSV', 'FF', 'HR', 'FA', 'TBV'].includes(event.type)) {
+        if (midStanceIndices.has(event.index)) {
+          continue;
+        }
+        midStanceIndices.add(event.index);
         msvData.push(point);
       }
     }
@@ -408,6 +423,21 @@ export class ChartsManager {
     this.angVelChart.options.scales.x.max = visibleEndTime;
 
     const integrationWindow = primaryData.integrationWindow ?? null;
+    const usesCsavSwingIntegration = [
+      'csav-to-ic',
+      'csav-to-zupt-stance',
+      'csav-to-zupt-still',
+      'to-ic-heuristic',
+      'to-zupt-stance',
+      'to-zupt-still',
+    ].includes(integrationWindow?.source);
+    const swingEndLabel = !usesCsavSwingIntegration
+      ? 'Integration End'
+      : (integrationWindow?.swingEndMethod === 'zupt' || integrationWindow?.source?.includes('zupt')
+        ? 'Swing End (ZUPT)'
+        : 'Swing End (IC)');
+    this.angVelChart.data.datasets[5].label = usesCsavSwingIntegration ? 'Swing Start (TO)' : 'Integration Start';
+    this.angVelChart.data.datasets[6].label = swingEndLabel;
     this.angVelChart.data.datasets[5].data = buildVerticalLineData(
       integrationWindow?.startTime,
       angVelScale.min,

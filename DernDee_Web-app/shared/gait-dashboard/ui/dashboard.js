@@ -188,10 +188,15 @@ export class Dashboard {
       const typeClass = event.type.toLowerCase();
       const sideClass = event.side === 'L' ? 'left' : event.side === 'R' ? 'right' : 'neutral';
       const sideLabel = event.side === 'L' ? 'L' : event.side === 'R' ? 'R' : 'Sensor';
+      const confidenceLabel = Number.isFinite(event.confidence)
+        ? `<span style="opacity:0.65">${Math.round(event.confidence * 100)}%</span>`
+        : '';
+
       return `<span class="event-tag ${typeClass}">
         <span class="event-side ${sideClass}">${sideLabel}</span>
         <span>${event.type}</span>
         <span style="opacity:0.7">${event.time.toFixed(2)}s</span>
+        ${confidenceLabel}
       </span>`;
     }).join('');
   }
