@@ -5,6 +5,8 @@
  * and connection status for the medical dashboard layout.
  */
 
+import { aggregateGaitParams } from '../../gait/gaitParamsAggregation.js';
+
 function formatMaybeNumber(value, digits = 1, fallback = '-') {
   return Number.isFinite(value) ? value.toFixed(digits) : fallback;
 }
@@ -13,69 +15,6 @@ function formatPercentLabel(label, value) {
   return Number.isFinite(value)
     ? `${label} ${value.toFixed(1)}%`
     : `${label} -`;
-}
-
-function buildAverageParams(entries) {
-  if (!entries.length) {
-    return null;
-  }
-
-  const averaged = {
-    stepCount: 0,
-    strideCount: 0,
-    sessionDuration: 0,
-    cadence: 0,
-    stepTime: null,
-    strideTime: 0,
-    doubleSupport: null,
-    stepLength: 0,
-    strideLength: 0,
-    walkingSpeed: 0,
-    peakShankAngle: 0,
-    stancePct: 0,
-    swingPct: 0,
-  };
-
-  const numericFields = [
-    'sessionDuration',
-    'cadence',
-    'strideTime',
-    'stepLength',
-    'strideLength',
-    'walkingSpeed',
-    'peakShankAngle',
-    'stancePct',
-    'swingPct',
-  ];
-
-  numericFields.forEach((field) => {
-    const values = entries
-      .map((entry) => entry.params?.[field])
-      .filter(Number.isFinite);
-    const unresolvedIsMeaningful = field === 'stancePct' || field === 'swingPct';
-    averaged[field] = values.length
-      ? values.reduce((sum, value) => sum + value, 0) / values.length
-      : (unresolvedIsMeaningful ? null : 0);
-  });
-
-  averaged.stepCount = Math.max(...entries.map((entry) => entry.params?.stepCount || 0));
-  averaged.strideCount = Math.max(...entries.map((entry) => entry.params?.strideCount || 0));
-
-  const stepTimeValues = entries
-    .map((entry) => entry.params?.stepTime)
-    .filter(Number.isFinite);
-  averaged.stepTime = stepTimeValues.length
-    ? stepTimeValues.reduce((sum, value) => sum + value, 0) / stepTimeValues.length
-    : null;
-
-  const doubleSupportValues = entries
-    .map((entry) => entry.params?.doubleSupport)
-    .filter(Number.isFinite);
-  averaged.doubleSupport = doubleSupportValues.length
-    ? doubleSupportValues.reduce((sum, value) => sum + value, 0) / doubleSupportValues.length
-    : null;
-
-  return averaged;
 }
 
 export class Dashboard {
@@ -149,7 +88,7 @@ export class Dashboard {
       return;
     }
 
-    const averaged = buildAverageParams(entries);
+    const averaged = aggregateGaitParams(entries);
     this.updateParams(averaged);
   }
 

@@ -4,9 +4,14 @@ import { Dashboard } from './ui/dashboard.js';
 import { ChartsManager } from './ui/charts.js';
 import {
   getRealtimeSensorLabel,
-  getRealtimeSensorSideOrder,
   normalizeRealtimeSensorSample,
 } from '../gateway/realtimeSensorUtils.js';
+import {
+  GAIT_ANALYSIS_INTERVAL_MS,
+  GAIT_MIN_ANALYSIS_SAMPLES,
+  GAIT_SENSOR_STALE_AFTER_MS,
+} from '../gait/gaitRuntimeConfig.js';
+import { sortGaitSensorStates } from '../gait/gaitSensorSelection.js';
 import {
   TRANSPORT_MODE_WEB_BLUETOOTH,
   connectBrowserBleDevice,
@@ -18,21 +23,9 @@ import {
   supportsRememberedBrowserBleDevices,
 } from '../gateway/realtimeTransport.js';
 
-const ANALYSIS_INTERVAL_MS = 400;
-const MIN_ANALYSIS_SAMPLES = 300;
 const DEMO_PREFILL_SAMPLES = 400;
 const DASHBOARD_BLE_SLOTS = ['LEFT_SHANK', 'RIGHT_SHANK'];
 const REMOTE_RETRY_DELAY_MS = 1500;
-const SENSOR_STALE_AFTER_MS = 2500;
-
-function sortSensorEntries(left, right) {
-  const sideDelta = getRealtimeSensorSideOrder(left?.side) - getRealtimeSensorSideOrder(right?.side);
-  if (sideDelta !== 0) {
-    return sideDelta;
-  }
-
-  return (right?.lastSeenAt || 0) - (left?.lastSeenAt || 0);
-}
 
 function buildDemoSample(sample) {
   return {
@@ -210,7 +203,7 @@ export class GaitLabDashboardApp {
 
     this.analysisTimer = window.setInterval(() => {
       this._analyzeReadyProcessors();
-    }, ANALYSIS_INTERVAL_MS);
+    }, GAIT_ANALYSIS_INTERVAL_MS);
   }
 
   async startRemote(options = {}) {
@@ -226,7 +219,7 @@ export class GaitLabDashboardApp {
 
       this.analysisTimer = window.setInterval(() => {
         this._analyzeReadyProcessors();
-      }, ANALYSIS_INTERVAL_MS);
+      }, GAIT_ANALYSIS_INTERVAL_MS);
     } catch (error) {
       if (!suppressErrorLog) {
         console.error('Remote live stream failed:', error);
@@ -274,7 +267,7 @@ export class GaitLabDashboardApp {
 
       this.analysisTimer = window.setInterval(() => {
         this._analyzeReadyProcessors();
-      }, ANALYSIS_INTERVAL_MS);
+      }, GAIT_ANALYSIS_INTERVAL_MS);
     } catch (error) {
       if (!suppressErrorLog) {
         console.error('Realtime stream failed:', error);
@@ -419,7 +412,7 @@ export class GaitLabDashboardApp {
 
   _analyzeReadyProcessors() {
     this.sensorProcessors.forEach((state) => {
-      if (state.sampleCount >= MIN_ANALYSIS_SAMPLES) {
+      if (state.sampleCount >= GAIT_MIN_ANALYSIS_SAMPLES) {
         state.processor.analyze();
       }
     });
@@ -457,8 +450,8 @@ export class GaitLabDashboardApp {
   _resolveVisibleSensorKeys() {
     const now = Date.now();
     const activeSensors = Array.from(this.availableSensors.values())
-      .filter((sensor) => now - sensor.lastSeenAt <= SENSOR_STALE_AFTER_MS)
-      .sort(sortSensorEntries);
+      .filter((sensor) => now - sensor.lastSeenAt <= GAIT_SENSOR_STALE_AFTER_MS)
+      .sort(sortGaitSensorStates);
 
     const shankSensors = activeSensors.filter((sensor) => sensor.sensorMount === 'shank');
     if (shankSensors.length > 0) {
@@ -527,7 +520,7 @@ export class GaitLabDashboardApp {
   _buildVisibleSensorEntries() {
     return Array.from(this.sensorProcessors.values())
       .filter((state) => state.latestProcessedData)
-      .sort(sortSensorEntries)
+      .sort(sortGaitSensorStates)
       .map((state) => ({
         key: state.key,
         label: state.label,
@@ -550,7 +543,7 @@ export class GaitLabDashboardApp {
     return this.visibleSensorKeys
       .map((sensorKey) => this.availableSensors.get(sensorKey))
       .filter(Boolean)
-      .sort(sortSensorEntries)
+      .sort(sortGaitSensorStates)
       .map((sensor) => ({
         label: sensor.label,
         side: sensor.side,
