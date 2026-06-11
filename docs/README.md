@@ -1,6 +1,6 @@
 # DernDee Documentation
 
-อัปเดตตามโค้ดใน repository นี้ ณ 2026-05-05
+อัปเดตตามโค้ดใน repository นี้ ณ 2026-06-11
 
 เอกสารชุดนี้ตั้งใจให้อธิบายระบบตาม repo ปัจจุบัน แต่ถ้าเอกสารกับ implementation ขัดกัน ให้ยึดโค้ดเป็นหลัก
 
@@ -18,6 +18,9 @@
 4. `supabase-cloud-data-layer.md`
    schema, migrations, RLS, environment variables, และ deployment checklist
 
+5. `sota-stroke-gait-analysis-prd.md`
+   เอกสารเป้าหมายผลิตภัณฑ์สำหรับยกระดับระบบไปสู่ stroke gait analysis แบบ SOTA โดยอิงจาก baseline ของ repo ปัจจุบัน
+
 ## เอกสารที่ถูกดูแลใน repo ตอนนี้
 
 | File | Scope |
@@ -28,6 +31,8 @@
 | `docs/frontend-apps.md` | patient app, clinic app, shared modules, และ routes |
 | `docs/realtime-browser-ble.md` | Browser BLE runtime และ doctor live broadcast flow |
 | `docs/supabase-cloud-data-layer.md` | Supabase schema, migrations, RLS, outbox, และ operational notes |
+| `docs/current-gait-detection-and-integration.md` | อธิบาย algorithm ที่รันอยู่จริงใน gait runtime ปัจจุบัน |
+| `docs/sota-stroke-gait-analysis-prd.md` | PRD สำหรับ target product direction, performance goals, gaps, และ roadmap ของ stroke gait analysis |
 
 ## สรุปสถาปัตย์ปัจจุบัน
 
