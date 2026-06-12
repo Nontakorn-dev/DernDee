@@ -1017,10 +1017,10 @@ const GameSteppingStones = () => {
             )}
 
             {/* Main Content */}
-            <main className="flex flex-col lg:flex-row lg:gap-8 lg:p-8 lg:max-w-7xl lg:mx-auto">
+            <main className="flex flex-col lg:flex-row lg:gap-8 lg:p-8 lg:max-w-7xl lg:mx-auto xl:max-w-none xl:w-full xl:items-stretch xl:min-h-[calc(100dvh-4.75rem)]">
                 {/* Stage (River scene) */}
-                <section className="stepping-stones-stage-shell lg:flex-1">
-                    <div className="stepping-stones-stage">
+                <section className="stepping-stones-stage-shell lg:flex-1 xl:flex xl:flex-col xl:min-h-full">
+                    <div className="stepping-stones-stage xl:flex-1 xl:min-h-full">
                         {!isConnected && (
                             <div className="stepping-stones-status-pill">
                                 Waiting for sensors
@@ -1088,7 +1088,7 @@ const GameSteppingStones = () => {
                 </section>
 
                 {/* Right Panel */}
-                <aside className="flex flex-col gap-4 p-4 lg:p-0 lg:w-96 xl:w-[440px]">
+                <aside className="flex flex-col gap-4 p-4 lg:p-0 lg:w-96 xl:w-[min(100%,36rem)] xl:justify-between xl:self-stretch xl:shrink-0">
                     {/* Timer — desktop only, top of panel */}
                     <div className="hidden lg:flex items-center justify-between bg-white rounded-2xl shadow-xl px-5 py-3">
                         <div className="text-xs font-bold text-gray-400 uppercase tracking-widest">Time Elapsed</div>
