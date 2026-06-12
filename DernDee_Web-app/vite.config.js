@@ -2,6 +2,7 @@ import path from 'node:path'
 import fs from 'node:fs'
 import { createClient } from '@supabase/supabase-js'
 import { GoogleGenAI } from '@google/genai'
+import { buildCoachLiveSessionConfig } from './shared/coach/coachSystemInstruction.js'
 import { defineConfig, loadEnv } from 'vite'
 import react from '@vitejs/plugin-react'
 import { VitePWA } from 'vite-plugin-pwa'
@@ -166,12 +167,7 @@ function localDevSupabaseAuth(env) {
 
 const GEMINI_LIVE_MODEL = 'gemini-3.1-flash-live-preview'
 const GEMINI_SUMMARY_MODEL = 'gemini-2.0-flash'
-const GEMINI_COACH_SYSTEM_INSTRUCTION = `คุณเป็นโค้ชช่วยฝึกเดินสำหรับผู้ป่วยฟื้นฟูหลัง stroke ในแอป DernDee
-- ตอบเป็นภาษาไทย ประโยคสั้น 1-2 ประโยค น้ำเสียงให้กำลังใจ ไม่ตำหนิ
-- ห้ามวินิจฉัยโรค ห้ามแนะนำยา ห้ามบอกให้หยุดการรักษา
-- เมื่อได้รับข้อมูล gait_update (JSON): พูดเฉพาะเมื่อมีประเด็นสำคัญ (ก้าวสั้น clearance ต่ำ cadence ช้า) หรือเมื่อผู้ป่วยถาม
-- เมื่อได้รับ user_question: ตอบคำถามเกี่ยวกับการเดินและการฝึกอย่างปลอดภัย
-- เน้น step length (ระยะก้าว) cadence และ foot clearance`
+const GEMINI_COACH_LIVE_CONFIG = buildCoachLiveSessionConfig()
 
 function localDevGeminiCoach(env) {
   const geminiApiKey = env.GEMINI_API_KEY
@@ -211,11 +207,7 @@ function localDevGeminiCoach(env) {
             newSessionExpireTime,
             liveEphemeralParameters: {
               model: GEMINI_LIVE_MODEL,
-              config: {
-                responseModalities: ['AUDIO'],
-                systemInstruction: GEMINI_COACH_SYSTEM_INSTRUCTION,
-                outputAudioTranscription: {},
-              },
+              config: GEMINI_COACH_LIVE_CONFIG,
             },
           })
 
@@ -253,7 +245,7 @@ function localDevGeminiCoach(env) {
             contents: [{
               role: 'user',
               parts: [{
-                text: `สรุปการเดินฟื้นฟูเป็นภาษาไทย 2-3 ประโยค ให้กำลังใจ ไม่วินิจฉัยโรค
+                text: `สรุปการเดินฟื้นฟูเป็นภาษาไทยเท่านั้น ไม่เกิน 2 ประโยคสั้นๆ ให้กำลังใจ ไม่วินิจฉัยโรค ห้ามใช้ภาษาอังกฤษ
 ระยะเวลา: ${duration}
 ข้อมูล: ${JSON.stringify(summary)}`,
               }],

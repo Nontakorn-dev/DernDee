@@ -1,16 +1,19 @@
+const SCHEDULE_LEAD_SEC = 0.04;
+
 export class PcmAudioPlayer {
   constructor(sampleRate = 24000) {
     this.sampleRate = sampleRate;
     this.audioContext = null;
-    this.queue = [];
     this.playing = false;
-    this.currentSource = null;
+    this.nextPlayTime = 0;
+    this.activeSources = new Set();
     this.onSpeakingChange = null;
+    this.speakingIdleTimer = null;
   }
 
   async init() {
     if (!this.audioContext) {
-      this.audioContext = new AudioContext({ sampleRate: this.sampleRate });
+      this.audioContext = new AudioContext();
     }
 
     if (this.audioContext.state === 'suspended') {
@@ -22,70 +25,103 @@ export class PcmAudioPlayer {
     this.onSpeakingChange = listener;
   }
 
-  enqueueBase64Pcm(base64) {
-    if (!base64) {
-      return;
-    }
-
+  decodeBase64Pcm(base64) {
     const binary = atob(base64);
     const bytes = new Uint8Array(binary.length);
     for (let i = 0; i < binary.length; i += 1) {
       bytes[i] = binary.charCodeAt(i);
     }
 
+    const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
     const sampleCount = Math.floor(bytes.length / 2);
     const samples = new Float32Array(sampleCount);
+
     for (let i = 0; i < sampleCount; i += 1) {
-      const lo = bytes[i * 2];
-      const hi = bytes[i * 2 + 1];
-      let int16 = (hi << 8) | lo;
-      if (int16 >= 0x8000) {
-        int16 -= 0x10000;
-      }
-      samples[i] = int16 / 32768;
+      samples[i] = view.getInt16(i * 2, true) / 32768;
     }
 
-    this.queue.push(samples);
-    if (!this.playing) {
-      this.playNext();
-    }
+    return samples;
   }
 
-  playNext() {
-    if (!this.queue.length || !this.audioContext) {
-      this.playing = false;
-      this.onSpeakingChange?.(false);
+  enqueueBase64Pcm(base64) {
+    if (!base64 || !this.audioContext) {
       return;
     }
 
-    this.playing = true;
-    this.onSpeakingChange?.(true);
+    const samples = this.decodeBase64Pcm(base64);
+    if (!samples.length) {
+      return;
+    }
 
-    const samples = this.queue.shift();
     const buffer = this.audioContext.createBuffer(1, samples.length, this.sampleRate);
     buffer.copyToChannel(samples, 0);
 
     const source = this.audioContext.createBufferSource();
     source.buffer = buffer;
     source.connect(this.audioContext.destination);
-    this.currentSource = source;
+
+    const now = this.audioContext.currentTime;
+    if (this.nextPlayTime < now + SCHEDULE_LEAD_SEC) {
+      this.nextPlayTime = now + SCHEDULE_LEAD_SEC;
+    }
+
+    source.start(this.nextPlayTime);
+    this.nextPlayTime += buffer.duration;
+
+    this.playing = true;
+    this.onSpeakingChange?.(true);
+    this.activeSources.add(source);
+
     source.onended = () => {
-      this.currentSource = null;
-      this.playNext();
+      this.activeSources.delete(source);
+      this.scheduleSpeakingIdleCheck();
     };
-    source.start();
+  }
+
+  scheduleSpeakingIdleCheck() {
+    if (this.speakingIdleTimer) {
+      clearTimeout(this.speakingIdleTimer);
+    }
+
+    this.speakingIdleTimer = setTimeout(() => {
+      this.speakingIdleTimer = null;
+      if (!this.audioContext || this.activeSources.size > 0) {
+        return;
+      }
+
+      const tailRemaining = this.nextPlayTime - this.audioContext.currentTime;
+      if (tailRemaining > 0.08) {
+        this.scheduleSpeakingIdleCheck();
+        return;
+      }
+
+      this.playing = false;
+      this.nextPlayTime = 0;
+      this.onSpeakingChange?.(false);
+    }, 80);
   }
 
   stop() {
-    if (this.currentSource) {
+    if (this.speakingIdleTimer) {
+      clearTimeout(this.speakingIdleTimer);
+      this.speakingIdleTimer = null;
+    }
+
+    this.activeSources.forEach((source) => {
       try {
-        this.currentSource.stop();
+        source.stop();
       } catch {
         // ignore if already stopped
       }
-      this.currentSource = null;
-    }
-    this.queue = [];
+      try {
+        source.disconnect();
+      } catch {
+        // ignore disconnect errors
+      }
+    });
+
+    this.activeSources.clear();
+    this.nextPlayTime = 0;
     this.playing = false;
     this.onSpeakingChange?.(false);
   }

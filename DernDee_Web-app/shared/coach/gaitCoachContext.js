@@ -1,3 +1,11 @@
+const ALERT_HINTS_TH = {
+  low_clearance: 'ยกเข่าให้สูงขึ้นอีกนิด',
+  short_step: 'ลองก้าวให้ยาวขึ้น',
+  slow_cadence: 'ลองเดินให้จังหวะเร็วขึ้นเล็กน้อย',
+};
+
+const PROMPT_PREFIX = 'ตอบภาษาไทยเท่านั้น สั้นไม่เกิน 12 คำ: ';
+
 function toCm(meters) {
   return Number.isFinite(meters) ? Math.round(meters * 100) : null;
 }
@@ -43,24 +51,34 @@ export function buildGaitCoachSnapshot(params, options = {}) {
   };
 }
 
+function formatMetric(value, suffix = '') {
+  return Number.isFinite(value) ? `${value}${suffix}` : 'ไม่ทราบ';
+}
+
 export function buildGaitCoachPrompt(snapshot) {
   if (!snapshot) {
     return '';
   }
 
   if (snapshot.user_question) {
-    return JSON.stringify({
-      event: 'user_question',
-      question: snapshot.user_question,
-      gait_context: {
-        step_count: snapshot.step_count,
-        step_length_cm: snapshot.step_length_cm,
-        cadence_spm: snapshot.cadence_spm,
-        walking_speed_mps: snapshot.walking_speed_mps,
-        clearance_cm: snapshot.clearance_cm,
-      },
-    });
+    return `${PROMPT_PREFIX}ผู้ป่วยถามว่า "${snapshot.user_question}" — ตอบสั้นๆ เกี่ยวกับการเดิน`;
   }
 
-  return JSON.stringify(snapshot);
+  if (snapshot.event === 'encouragement') {
+    return `${PROMPT_PREFIX}ชมเชยการเดินที่ดีต่อเนื่อง`;
+  }
+
+  if (snapshot.event === 'periodic') {
+    return `${PROMPT_PREFIX}สรุปสั้นๆ ว่าเดินได้ดีหรือควรปรับอะไร (ก้าว ${formatMetric(snapshot.step_length_cm, 'ซม.')} cadence ${formatMetric(snapshot.cadence_spm)})`;
+  }
+
+  if (snapshot.alert && ALERT_HINTS_TH[snapshot.alert]) {
+    return `${PROMPT_PREFIX}${ALERT_HINTS_TH[snapshot.alert]}`;
+  }
+
+  if (snapshot.event === 'metric_alert') {
+    return `${PROMPT_PREFIX}แนะนำปรับท่าเดินเล็กน้อย`;
+  }
+
+  return `${PROMPT_PREFIX}ให้กำลังใจสั้นๆ`;
 }

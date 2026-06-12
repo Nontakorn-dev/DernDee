@@ -50,23 +50,28 @@ export class GaitCoachOrchestrator {
     } else if (Number.isFinite(params.cadence) && params.cadence > 0 && params.cadence < COACH_THRESHOLDS.cadenceSpm) {
       trigger = 'metric_alert';
       alert = 'slow_cadence';
-    } else if (stepCount > this.lastProcessedStepCount) {
-      trigger = 'new_step';
+    }
+
+    if (stepCount > this.lastProcessedStepCount) {
       this.lastProcessedStepCount = stepCount;
       this.consecutiveGoodCycles += 1;
-    } else if (
-      this.consecutiveGoodCycles >= COACH_ENCOURAGEMENT_CYCLES
-      && now - this.lastProactiveAtMs >= COACH_PROACTIVE_COOLDOWN_MS
-    ) {
-      trigger = 'encouragement';
-      this.consecutiveGoodCycles = 0;
-    } else if (
-      sessionElapsedS >= 45
-      && now - this.lastPeriodicAtMs >= COACH_PERIODIC_INTERVAL_MS
-      && now - this.lastProactiveAtMs >= COACH_PROACTIVE_COOLDOWN_MS
-    ) {
-      trigger = 'periodic';
-      this.lastPeriodicAtMs = now;
+    }
+
+    if (!trigger) {
+      if (
+        this.consecutiveGoodCycles >= COACH_ENCOURAGEMENT_CYCLES
+        && now - this.lastProactiveAtMs >= COACH_PROACTIVE_COOLDOWN_MS
+      ) {
+        trigger = 'encouragement';
+        this.consecutiveGoodCycles = 0;
+      } else if (
+        sessionElapsedS >= 60
+        && now - this.lastPeriodicAtMs >= COACH_PERIODIC_INTERVAL_MS
+        && now - this.lastProactiveAtMs >= COACH_PROACTIVE_COOLDOWN_MS
+      ) {
+        trigger = 'periodic';
+        this.lastPeriodicAtMs = now;
+      }
     }
 
     if (!trigger) {

@@ -105,23 +105,18 @@ export class GeminiLiveClient {
 
   handleServerMessage(message) {
     const serverContent = message?.serverContent;
+
+    if (serverContent?.interrupted) {
+      this.audioPlayer.stop();
+      return;
+    }
+
     const transcription = serverContent?.outputTranscription?.text
       || serverContent?.outputAudioTranscription?.text;
 
     if (typeof transcription === 'string' && transcription.trim()) {
       this.latestSubtitle = transcription.trim();
       this.onSubtitleChange?.(this.latestSubtitle);
-    } else if (typeof message?.text === 'string' && message.text.trim()) {
-      this.latestSubtitle = message.text.trim();
-      this.onSubtitleChange?.(this.latestSubtitle);
-    } else if (serverContent?.modelTurn?.parts) {
-      const textParts = serverContent.modelTurn.parts
-        .map((part) => part?.text)
-        .filter((text) => typeof text === 'string' && text.trim());
-      if (textParts.length > 0) {
-        this.latestSubtitle = textParts.join(' ').trim();
-        this.onSubtitleChange?.(this.latestSubtitle);
-      }
     }
 
     if (this.muted) {
@@ -133,12 +128,10 @@ export class GeminiLiveClient {
       return;
     }
 
-    const audioParts = serverContent?.modelTurn?.parts
-      ?.map((part) => part?.inlineData?.data)
-      .filter((chunk) => typeof chunk === 'string' && chunk.length > 0) ?? [];
-
-    audioParts.forEach((chunk) => {
-      this.audioPlayer.enqueueBase64Pcm(chunk);
+    serverContent?.modelTurn?.parts?.forEach((part) => {
+      if (typeof part?.inlineData?.data === 'string' && part.inlineData.data) {
+        this.audioPlayer.enqueueBase64Pcm(part.inlineData.data);
+      }
     });
   }
 
@@ -151,6 +144,7 @@ export class GeminiLiveClient {
       return false;
     }
 
+    this.audioPlayer.stop();
     this.session.sendRealtimeInput({ text: promptText });
     return true;
   }

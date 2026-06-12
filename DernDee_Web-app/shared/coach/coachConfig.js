@@ -13,8 +13,8 @@ export function getFreeWalkCoachMode() {
   return COACH_MODES.LIVE;
 }
 
-export const COACH_PROACTIVE_COOLDOWN_MS = 10_000;
-export const COACH_PERIODIC_INTERVAL_MS = 50_000;
+export const COACH_PROACTIVE_COOLDOWN_MS = 15_000;
+export const COACH_PERIODIC_INTERVAL_MS = 60_000;
 export const COACH_ENCOURAGEMENT_CYCLES = 6;
 
 export const COACH_THRESHOLDS = {
