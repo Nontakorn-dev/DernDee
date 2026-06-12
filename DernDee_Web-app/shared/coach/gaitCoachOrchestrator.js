@@ -1,33 +1,134 @@
 import {
+  COACH_COOLDOWN_BY_TRIGGER_MS,
   COACH_ENCOURAGEMENT_CYCLES,
+  COACH_IDLE_NO_STEP_MS,
   COACH_PERIODIC_INTERVAL_MS,
-  COACH_PROACTIVE_COOLDOWN_MS,
+  COACH_REST_AFTER_PRAISE_MS,
+  COACH_STEP_IMPROVE_DELTA_M,
   COACH_THRESHOLDS,
 } from './coachConfig.js';
-import { buildGaitCoachPrompt, buildGaitCoachSnapshot } from './gaitCoachContext.js';
+import { COACH_CUES, getAlertCoachCue, getAlertPraiseCue } from './coachPhrases.js';
+import {
+  buildGaitCoachPrompt,
+  buildGaitCoachSnapshot,
+  buildGreetingCoachPrompt,
+  getCoachHintText,
+} from './gaitCoachContext.js';
 
 export class GaitCoachOrchestrator {
   constructor(options = {}) {
-    this.lastProactiveAtMs = 0;
+    this.lastSpokenByTriggerMs = {};
     this.lastPeriodicAtMs = 0;
     this.lastProcessedStepCount = 0;
+    this.lastStepAtMs = Date.now();
     this.previousStepLengthM = null;
     this.consecutiveGoodCycles = 0;
+    this.pendingCoaching = null;
+    this.restUntilMs = 0;
     this.paused = false;
     this.onDispatch = options.onDispatch ?? null;
   }
 
   reset() {
-    this.lastProactiveAtMs = 0;
+    this.lastSpokenByTriggerMs = {};
     this.lastPeriodicAtMs = 0;
     this.lastProcessedStepCount = 0;
+    this.lastStepAtMs = Date.now();
     this.previousStepLengthM = null;
     this.consecutiveGoodCycles = 0;
+    this.pendingCoaching = null;
+    this.restUntilMs = 0;
     this.paused = false;
   }
 
   setPaused(paused) {
     this.paused = paused;
+  }
+
+  canSpeak(trigger, now = Date.now()) {
+    const cooldown = COACH_COOLDOWN_BY_TRIGGER_MS[trigger] ?? 0;
+    const lastSpoken = this.lastSpokenByTriggerMs[trigger] ?? 0;
+    return now - lastSpoken >= cooldown;
+  }
+
+  markSpoken(trigger, now = Date.now()) {
+    this.lastSpokenByTriggerMs[trigger] = now;
+  }
+
+  buildDispatch(trigger, params, options = {}) {
+    const snapshot = buildGaitCoachSnapshot(params, {
+      event: trigger,
+      alert: options.alert ?? null,
+      sessionElapsedS: options.sessionElapsedS ?? 0,
+      previousStepLengthM: this.previousStepLengthM,
+      coachingIntent: options.coachingIntent ?? null,
+      coachingExample: options.coachingExample ?? null,
+      userQuestion: options.userQuestion ?? null,
+    });
+
+    if (Number.isFinite(params?.stepLength)) {
+      this.previousStepLengthM = params.stepLength;
+    }
+
+    const dispatch = {
+      trigger,
+      snapshot,
+      prompt: buildGaitCoachPrompt(snapshot),
+      hintText: getCoachHintText(snapshot),
+    };
+
+    this.onDispatch?.(dispatch);
+    return dispatch;
+  }
+
+  detectMetricAlert(params) {
+    if (Number.isFinite(params.clearance) && params.clearance > 0 && params.clearance < COACH_THRESHOLDS.clearanceM) {
+      return 'low_clearance';
+    }
+
+    if (Number.isFinite(params.stepLength) && params.stepLength > 0 && params.stepLength < COACH_THRESHOLDS.stepLengthM) {
+      return 'short_step';
+    }
+
+    if (Number.isFinite(params.cadence) && params.cadence > 0 && params.cadence < COACH_THRESHOLDS.cadenceSpm) {
+      return 'slow_cadence';
+    }
+
+    return null;
+  }
+
+  hasImprovedSinceCoaching(params) {
+    if (!this.pendingCoaching || !params) {
+      return false;
+    }
+
+    const { alert, baseline } = this.pendingCoaching;
+
+    if (alert === 'short_step' && Number.isFinite(params.stepLength)) {
+      return params.stepLength >= baseline.stepLengthM + COACH_STEP_IMPROVE_DELTA_M;
+    }
+
+    if (alert === 'low_clearance' && Number.isFinite(params.clearance)) {
+      return params.clearance >= baseline.clearanceM + 0.01;
+    }
+
+    if (alert === 'slow_cadence' && Number.isFinite(params.cadence)) {
+      return params.cadence >= baseline.cadenceSpm + 5;
+    }
+
+    return false;
+  }
+
+  setPendingCoaching(alert, params, stepCount) {
+    this.pendingCoaching = {
+      alert,
+      baseline: {
+        stepLengthM: params.stepLength ?? null,
+        clearanceM: params.clearance ?? null,
+        cadenceSpm: params.cadence ?? null,
+      },
+      atStepCount: stepCount,
+    };
   }
 
   evaluate(params, options = {}) {
@@ -38,71 +139,124 @@ export class GaitCoachOrchestrator {
     const now = Date.now();
     const sessionElapsedS = options.sessionElapsedS ?? 0;
     const stepCount = params.stepCount ?? 0;
-    let trigger = null;
-    let alert = null;
+    const hadNewStep = stepCount > this.lastProcessedStepCount;
 
-    if (Number.isFinite(params.clearance) && params.clearance > 0 && params.clearance < COACH_THRESHOLDS.clearanceM) {
-      trigger = 'metric_alert';
-      alert = 'low_clearance';
-    } else if (Number.isFinite(params.stepLength) && params.stepLength > 0 && params.stepLength < COACH_THRESHOLDS.stepLengthM) {
-      trigger = 'metric_alert';
-      alert = 'short_step';
-    } else if (Number.isFinite(params.cadence) && params.cadence > 0 && params.cadence < COACH_THRESHOLDS.cadenceSpm) {
-      trigger = 'metric_alert';
-      alert = 'slow_cadence';
+    if (!hadNewStep) {
+      return null;
     }
 
-    if (stepCount > this.lastProcessedStepCount) {
-      this.lastProcessedStepCount = stepCount;
-      this.consecutiveGoodCycles += 1;
+    this.lastStepAtMs = now;
+    this.lastProcessedStepCount = stepCount;
+    this.consecutiveGoodCycles += 1;
+
+    if (now < this.restUntilMs) {
+      return null;
     }
 
-    if (!trigger) {
-      if (
-        this.consecutiveGoodCycles >= COACH_ENCOURAGEMENT_CYCLES
-        && now - this.lastProactiveAtMs >= COACH_PROACTIVE_COOLDOWN_MS
-      ) {
-        trigger = 'encouragement';
-        this.consecutiveGoodCycles = 0;
-      } else if (
-        sessionElapsedS >= 60
-        && now - this.lastPeriodicAtMs >= COACH_PERIODIC_INTERVAL_MS
-        && now - this.lastProactiveAtMs >= COACH_PROACTIVE_COOLDOWN_MS
-      ) {
-        trigger = 'periodic';
-        this.lastPeriodicAtMs = now;
+    if (this.pendingCoaching && this.hasImprovedSinceCoaching(params)) {
+      if (!this.canSpeak('step_improved', now)) {
+        return null;
       }
+
+      const praiseCue = getAlertPraiseCue(this.pendingCoaching.alert);
+      const pendingAlert = this.pendingCoaching.alert;
+      this.pendingCoaching = null;
+      this.restUntilMs = now + COACH_REST_AFTER_PRAISE_MS;
+      this.markSpoken('step_improved', now);
+
+      return this.buildDispatch('step_improved', params, {
+        sessionElapsedS,
+        alert: pendingAlert,
+        coachingIntent: praiseCue?.intent,
+        coachingExample: praiseCue?.example,
+      });
     }
 
-    if (!trigger) {
+    const alert = this.detectMetricAlert(params);
+    if (alert && this.canSpeak('metric_alert', now)) {
+      const coachCue = getAlertCoachCue(alert);
+      this.setPendingCoaching(alert, params, stepCount);
+      this.markSpoken('metric_alert', now);
+
+      return this.buildDispatch('metric_alert', params, {
+        sessionElapsedS,
+        alert,
+        coachingIntent: coachCue?.intent,
+        coachingExample: coachCue?.example,
+      });
+    }
+
+    if (
+      !alert
+      && this.consecutiveGoodCycles >= COACH_ENCOURAGEMENT_CYCLES
+      && this.canSpeak('encouragement', now)
+    ) {
+      this.consecutiveGoodCycles = 0;
+      this.markSpoken('encouragement', now);
+
+      return this.buildDispatch('encouragement', params, {
+        sessionElapsedS,
+        coachingIntent: COACH_CUES.ENCOURAGEMENT.intent,
+        coachingExample: COACH_CUES.ENCOURAGEMENT.example,
+      });
+    }
+
+    if (
+      sessionElapsedS >= 60
+      && now - this.lastPeriodicAtMs >= COACH_PERIODIC_INTERVAL_MS
+      && this.canSpeak('periodic', now)
+    ) {
+      this.lastPeriodicAtMs = now;
+      this.markSpoken('periodic', now);
+
+      return this.buildDispatch('periodic', params, { sessionElapsedS });
+    }
+
+    return null;
+  }
+
+  evaluateIdle(options = {}) {
+    if (this.paused) {
       return null;
     }
 
-    if (now - this.lastProactiveAtMs < COACH_PROACTIVE_COOLDOWN_MS && trigger !== 'user_ask') {
+    const now = Date.now();
+    const sessionElapsedS = options.sessionElapsedS ?? 0;
+    const params = options.params ?? null;
+
+    if (this.lastProcessedStepCount === 0) {
       return null;
     }
 
-    const snapshot = buildGaitCoachSnapshot(params, {
-      event: trigger,
-      alert,
-      sessionElapsedS: sessionElapsedS,
-      previousStepLengthM: this.previousStepLengthM,
+    if (now - this.lastStepAtMs < COACH_IDLE_NO_STEP_MS) {
+      return null;
+    }
+
+    if (!this.canSpeak('idle_resume', now)) {
+      return null;
+    }
+
+    if (now < this.restUntilMs) {
+      return null;
+    }
+
+    this.markSpoken('idle_resume', now);
+    this.lastStepAtMs = now;
+
+    return this.buildDispatch('idle_resume', params, {
+      sessionElapsedS,
+      coachingIntent: COACH_CUES.IDLE_RESUME.intent,
+      coachingExample: COACH_CUES.IDLE_RESUME.example,
     });
+  }
 
-    if (Number.isFinite(params.stepLength)) {
-      this.previousStepLengthM = params.stepLength;
-    }
-
-    const prompt = buildGaitCoachPrompt(snapshot);
-    this.lastProactiveAtMs = now;
-
-    const dispatch = {
-      trigger,
-      snapshot,
-      prompt,
+  buildGreetingDispatch() {
+    return {
+      trigger: 'greeting',
+      snapshot: { event: 'greeting' },
+      prompt: buildGreetingCoachPrompt(),
+      hintText: COACH_CUES.GREETING.example,
     };
-    this.onDispatch?.(dispatch);
-    return dispatch;
   }
 
   buildUserQuestionDispatch(params, question, sessionElapsedS = 0) {
@@ -117,6 +271,7 @@ export class GaitCoachOrchestrator {
       trigger: 'user_ask',
       snapshot,
       prompt: buildGaitCoachPrompt(snapshot),
+      hintText: '',
     };
   }
 }

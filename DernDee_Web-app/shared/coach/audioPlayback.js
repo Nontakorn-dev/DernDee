@@ -25,6 +25,10 @@ export class PcmAudioPlayer {
     this.onSpeakingChange = listener;
   }
 
+  isPlaying() {
+    return this.playing || this.activeSources.size > 0;
+  }
+
   decodeBase64Pcm(base64) {
     const binary = atob(base64);
     const bytes = new Uint8Array(binary.length);

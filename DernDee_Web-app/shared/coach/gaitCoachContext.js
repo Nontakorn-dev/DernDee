@@ -1,10 +1,9 @@
-const ALERT_HINTS_TH = {
-  low_clearance: 'ยกเข่าให้สูงขึ้นอีกนิด',
-  short_step: 'ลองก้าวให้ยาวขึ้น',
-  slow_cadence: 'ลองเดินให้จังหวะเร็วขึ้นเล็กน้อย',
-};
-
-const PROMPT_PREFIX = 'ตอบภาษาไทยเท่านั้น สั้นไม่เกิน 12 คำ: ';
+import {
+  COACH_CUES,
+  getAlertCoachCue,
+  getAlertPraiseCue,
+  getCoachCue,
+} from './coachPhrases.js';
 
 function toCm(meters) {
   return Number.isFinite(meters) ? Math.round(meters * 100) : null;
@@ -23,6 +22,21 @@ function detectTrend(previousStepLengthM, currentStepLengthM) {
     return 'step_length_improving';
   }
   return 'stable';
+}
+
+export function buildNaturalCoachPrompt({ intent, example = null }) {
+  const exampleLine = example
+    ? `\nแนวประโยค (ปรับถ้อยคำให้ฟังสนทนาและอบอุ่น ไม่ต้องอ่านตามตัวอักษร): ${example}`
+    : '';
+
+  return `พูดภาษาไทยแบบโค้ชฟื้นฟู น้ำเสียงอบอุ่น เป็นกันเอง เหมือนเพื่อนคอยให้กำลังใจ
+พูดประโยคเดียวสั้นๆ ไม่เกิน 15 คำ ห้ามพูดตัวเลขยาว ห้ามถามคำถามกลับ
+สิ่งที่ต้องสื่อ: ${intent}${exampleLine}`;
+}
+
+export function buildGreetingCoachPrompt() {
+  const cue = getCoachCue('GREETING');
+  return `ทักทายผู้ป่วยสั้นๆ ภาษาไทย น้ำเสียงอบอุ่น ประโยคเดียวไม่เกิน 12 คำ: ${cue.intent} (แนวประโยค: ${cue.example})`;
 }
 
 export function buildGaitCoachSnapshot(params, options = {}) {
@@ -48,6 +62,8 @@ export function buildGaitCoachSnapshot(params, options = {}) {
     session_elapsed_s: options.sessionElapsedS ?? 0,
     alert: options.alert ?? null,
     user_question: options.userQuestion ?? null,
+    coaching_intent: options.coachingIntent ?? null,
+    coaching_example: options.coachingExample ?? null,
   };
 }
 
@@ -60,25 +76,99 @@ export function buildGaitCoachPrompt(snapshot) {
     return '';
   }
 
+  if (snapshot.coaching_intent) {
+    return buildNaturalCoachPrompt({
+      intent: snapshot.coaching_intent,
+      example: snapshot.coaching_example,
+    });
+  }
+
   if (snapshot.user_question) {
-    return `${PROMPT_PREFIX}ผู้ป่วยถามว่า "${snapshot.user_question}" — ตอบสั้นๆ เกี่ยวกับการเดิน`;
+    return buildNaturalCoachPrompt({
+      intent: `ตอบคำถามของผู้ป่วยเกี่ยวกับการเดินและการฝึกอย่างปลอดภัย: "${snapshot.user_question}"`,
+    });
+  }
+
+  if (snapshot.event === 'greeting') {
+    return buildGreetingCoachPrompt();
   }
 
   if (snapshot.event === 'encouragement') {
-    return `${PROMPT_PREFIX}ชมเชยการเดินที่ดีต่อเนื่อง`;
+    const cue = getCoachCue('ENCOURAGEMENT');
+    return buildNaturalCoachPrompt({
+      intent: cue.intent,
+      example: cue.example,
+    });
   }
 
   if (snapshot.event === 'periodic') {
-    return `${PROMPT_PREFIX}สรุปสั้นๆ ว่าเดินได้ดีหรือควรปรับอะไร (ก้าว ${formatMetric(snapshot.step_length_cm, 'ซม.')} cadence ${formatMetric(snapshot.cadence_spm)})`;
+    return buildNaturalCoachPrompt({
+      intent: `สรุปสั้นๆ ว่าเดินได้ดีหรือควรปรับอะไร จากก้าวประมาณ ${formatMetric(snapshot.step_length_cm, 'ซม.')} และ cadence ${formatMetric(snapshot.cadence_spm)}`,
+    });
   }
 
-  if (snapshot.alert && ALERT_HINTS_TH[snapshot.alert]) {
-    return `${PROMPT_PREFIX}${ALERT_HINTS_TH[snapshot.alert]}`;
+  if (snapshot.event === 'step_improved' && snapshot.alert) {
+    const cue = getAlertPraiseCue(snapshot.alert);
+    if (cue) {
+      return buildNaturalCoachPrompt({
+        intent: cue.intent,
+        example: cue.example,
+      });
+    }
   }
 
-  if (snapshot.event === 'metric_alert') {
-    return `${PROMPT_PREFIX}แนะนำปรับท่าเดินเล็กน้อย`;
+  if (snapshot.event === 'idle_resume') {
+    const cue = getCoachCue('IDLE_RESUME');
+    return buildNaturalCoachPrompt({
+      intent: cue.intent,
+      example: cue.example,
+    });
   }
 
-  return `${PROMPT_PREFIX}ให้กำลังใจสั้นๆ`;
+  if (snapshot.alert) {
+    const cue = getAlertCoachCue(snapshot.alert);
+    if (cue) {
+      return buildNaturalCoachPrompt({
+        intent: cue.intent,
+        example: cue.example,
+      });
+    }
+  }
+
+  return buildNaturalCoachPrompt({
+    intent: 'ให้กำลังใจสั้นๆ ว่าเดินได้ดี',
+    example: 'เดินต่อได้ดีมากครับ',
+  });
+}
+
+export function getCoachHintText(snapshot) {
+  if (!snapshot) {
+    return '';
+  }
+
+  if (snapshot.coaching_example) {
+    return snapshot.coaching_example;
+  }
+
+  if (snapshot.event === 'greeting') {
+    return getCoachCue('GREETING')?.example ?? '';
+  }
+
+  if (snapshot.event === 'encouragement') {
+    return getCoachCue('ENCOURAGEMENT')?.example ?? '';
+  }
+
+  if (snapshot.event === 'idle_resume') {
+    return getCoachCue('IDLE_RESUME')?.example ?? '';
+  }
+
+  if (snapshot.event === 'step_improved' && snapshot.alert) {
+    return getAlertPraiseCue(snapshot.alert)?.example ?? '';
+  }
+
+  if (snapshot.alert) {
+    return getAlertCoachCue(snapshot.alert)?.example ?? '';
+  }
+
+  return '';
 }

@@ -135,8 +135,70 @@ export class GeminiLiveClient {
     });
   }
 
+  async waitUntilReady(timeoutMs = 12_000) {
+    if (this.state === COACH_CONNECTION_STATES.READY) {
+      return true;
+    }
+
+    const startedAt = Date.now();
+    while (Date.now() - startedAt < timeoutMs) {
+      await new Promise((resolve) => {
+        setTimeout(resolve, 100);
+      });
+
+      if (this.state === COACH_CONNECTION_STATES.READY) {
+        return true;
+      }
+
+      if (this.state === COACH_CONNECTION_STATES.ERROR || this.state === COACH_CONNECTION_STATES.CLOSED) {
+        return false;
+      }
+    }
+
+    return false;
+  }
+
+  async ensureAudioReady() {
+    try {
+      await this.audioPlayer.init();
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  async waitForAudioResponse(timeoutMs = 6000) {
+    const startedAt = Date.now();
+    const initialSubtitle = this.latestSubtitle;
+
+    while (Date.now() - startedAt < timeoutMs) {
+      if (
+        this.audioPlayer.isPlaying()
+        || this.state === COACH_CONNECTION_STATES.SPEAKING
+      ) {
+        return true;
+      }
+
+      if (this.latestSubtitle && this.latestSubtitle !== initialSubtitle) {
+        return true;
+      }
+
+      await new Promise((resolve) => {
+        setTimeout(resolve, 100);
+      });
+    }
+
+    return false;
+  }
+
   async sendGaitPrompt(promptText, options = {}) {
     if (!this.session || !promptText) {
+      return false;
+    }
+
+    try {
+      await this.audioPlayer.init();
+    } catch {
       return false;
     }
 
@@ -144,7 +206,10 @@ export class GeminiLiveClient {
       return false;
     }
 
-    this.audioPlayer.stop();
+    if (options.force) {
+      this.audioPlayer.stop();
+    }
+
     this.session.sendRealtimeInput({ text: promptText });
     return true;
   }

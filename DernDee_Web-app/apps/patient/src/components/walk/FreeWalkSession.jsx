@@ -65,6 +65,17 @@ const FreeWalkSession = () => {
     }
     return window.localStorage.getItem(COACH_CONSENT_KEY) !== 'true';
   });
+  const [showStartTap, setShowStartTap] = useState(() => {
+    if (typeof window === 'undefined') {
+      return false;
+    }
+
+    if (getFreeWalkCoachMode() === COACH_MODES.LEGACY) {
+      return true;
+    }
+
+    return window.localStorage.getItem(COACH_CONSENT_KEY) === 'true';
+  });
 
   const wsRef = useRef(null);
   const analysisTimerRef = useRef(null);
@@ -83,6 +94,15 @@ const FreeWalkSession = () => {
   const coachModeRef = useRef(coachMode);
   const isActiveRef = useRef(isActive);
   const handleMessageRef = useRef(null);
+  const greetingPlayedRef = useRef(false);
+  const greetingAttemptRef = useRef(0);
+  const audioUnlockedRef = useRef(false);
+  const showConsentRef = useRef(showConsent);
+  const [audioUnlocked, setAudioUnlocked] = useState(false);
+
+  useEffect(() => {
+    showConsentRef.current = showConsent;
+  }, [showConsent]);
 
   if (!orchestratorRef.current) {
     orchestratorRef.current = new GaitCoachOrchestrator();
@@ -126,25 +146,93 @@ const FreeWalkSession = () => {
     latestParamsRef.current = null;
   }, [destroySensorRuntime]);
 
-  const dispatchCoachPrompt = useCallback(async (dispatch) => {
+  const dispatchCoachLine = useCallback(async (dispatch) => {
     if (!dispatch?.prompt) {
-      return;
+      return false;
+    }
+
+    if (coachMuted) {
+      return false;
+    }
+
+    const forceSpeak = [
+      'user_ask',
+      'greeting',
+      'step_improved',
+      'idle_resume',
+      'metric_alert',
+      'encouragement',
+    ].includes(dispatch.trigger);
+
+    if (coachModeRef.current === COACH_MODES.LIVE && coachClientRef.current) {
+      return coachClientRef.current.sendGaitPrompt(dispatch.prompt, { force: forceSpeak });
+    }
+
+    legacyCoachRef.current?.speakWithWebSpeech(
+      dispatch.hintText || dispatch.prompt,
+    );
+    return true;
+  }, [coachMuted]);
+
+  const tryPlaySessionGreeting = useCallback(async () => {
+    if (
+      greetingPlayedRef.current
+      || coachMuted
+      || showConsentRef.current
+      || !audioUnlockedRef.current
+      || greetingAttemptRef.current >= 3
+    ) {
+      return false;
+    }
+
+    const dispatch = orchestratorRef.current?.buildGreetingDispatch();
+    if (!dispatch) {
+      return false;
+    }
+
+    if (coachModeRef.current === COACH_MODES.LIVE) {
+      if (!coachClientRef.current) {
+        return false;
+      }
+
+      const ready = await coachClientRef.current.waitUntilReady();
+      if (!ready) {
+        return false;
+      }
+
+      const audioReady = await coachClientRef.current.ensureAudioReady();
+      if (!audioReady) {
+        return false;
+      }
+    }
+
+    greetingAttemptRef.current += 1;
+    const spoke = await dispatchCoachLine(dispatch);
+    if (!spoke) {
+      return false;
     }
 
     if (coachModeRef.current === COACH_MODES.LIVE && coachClientRef.current) {
-      const sent = await coachClientRef.current.sendGaitPrompt(dispatch.prompt, {
-        force: dispatch.trigger === 'user_ask',
-      });
-      if (!sent) {
-        return;
+      const heard = await coachClientRef.current.waitForAudioResponse(6000);
+      if (heard) {
+        greetingPlayedRef.current = true;
       }
-      return;
+      return heard;
     }
 
-    legacyCoachRef.current?.speakWithWebSpeech(dispatch.snapshot?.alert
-      ? 'ลองปรับท่าเดินเล็กน้อยนะครับ'
-      : 'เดินต่อได้ดีมาก');
-  }, []);
+    greetingPlayedRef.current = true;
+    return true;
+  }, [coachMuted, dispatchCoachLine]);
+
+  const unlockCoachAudio = useCallback(async () => {
+    audioUnlockedRef.current = true;
+    setAudioUnlocked(true);
+    setShowStartTap(false);
+    showConsentRef.current = false;
+
+    await coachClientRef.current?.ensureAudioReady?.();
+    await tryPlaySessionGreeting();
+  }, [tryPlaySessionGreeting]);
 
   const applyAggregatedLiveParams = useCallback((aggregatedParams) => {
     if (!aggregatedParams) {
@@ -164,19 +252,14 @@ const FreeWalkSession = () => {
       return;
     }
 
-    if (coachModeRef.current === COACH_MODES.LEGACY) {
-      legacyCoachRef.current?.evaluate(aggregatedParams);
-      return;
-    }
-
     const dispatch = orchestratorRef.current?.evaluate(aggregatedParams, {
       sessionElapsedS: sessionElapsedRef.current,
     });
 
     if (dispatch) {
-      void dispatchCoachPrompt(dispatch);
+      void dispatchCoachLine(dispatch);
     }
-  }, [dispatchCoachPrompt]);
+  }, [dispatchCoachLine]);
 
   const initializeCoach = useCallback(async () => {
     if (coachMode === COACH_MODES.LEGACY) {
@@ -416,14 +499,47 @@ const FreeWalkSession = () => {
     coachClientRef.current?.setMuted(coachMuted);
   }, [coachMuted]);
 
+  useEffect(() => {
+    if (!audioUnlocked || showConsent) {
+      return undefined;
+    }
+
+    void tryPlaySessionGreeting();
+
+    const retryTimer = setInterval(() => {
+      if (greetingPlayedRef.current || greetingAttemptRef.current >= 3) {
+        return;
+      }
+      void tryPlaySessionGreeting();
+    }, 2500);
+
+    return () => clearInterval(retryTimer);
+  }, [coachState, showConsent, audioUnlocked, tryPlaySessionGreeting]);
+
+  useEffect(() => {
+    if (!isActive) {
+      return undefined;
+    }
+
+    const idleTimer = setInterval(() => {
+      const dispatch = orchestratorRef.current?.evaluateIdle({
+        sessionElapsedS: sessionElapsedRef.current,
+        params: latestParamsRef.current,
+      });
+
+      if (dispatch) {
+        void dispatchCoachLine(dispatch);
+      }
+    }, 2000);
+
+    return () => clearInterval(idleTimer);
+  }, [dispatchCoachLine, isActive]);
+
   const acceptConsent = async () => {
     window.localStorage.setItem(COACH_CONSENT_KEY, 'true');
+    showConsentRef.current = false;
     setShowConsent(false);
-    try {
-      await coachClientRef.current?.audioPlayer?.init?.();
-    } catch {
-      // Audio unlock is best-effort; browser may still block until a later gesture.
-    }
+    await unlockCoachAudio();
   };
 
   const handleAskCoachStart = () => {
@@ -454,7 +570,7 @@ const FreeWalkSession = () => {
         transcript,
         timeElapsed,
       );
-      void dispatchCoachPrompt(dispatch);
+      void dispatchCoachLine(dispatch);
     };
     recognition.onerror = () => {
       setAskCoachActive(false);
@@ -646,6 +762,24 @@ const FreeWalkSession = () => {
               className="w-full py-3 rounded-xl bg-blue-600 text-white font-bold"
             >
               เข้าใจแล้ว เริ่มเดิน
+            </button>
+          </div>
+        </div>
+      )}
+
+      {showStartTap && !showConsent && (
+        <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-2xl p-6 max-w-md w-full text-center">
+            <h2 className="text-xl font-extrabold text-gray-800 mb-3">พร้อมเริ่มเดิน</h2>
+            <p className="text-sm text-gray-600 mb-4">
+              แตะปุ่มด้านล่างเพื่อเปิดเสียงโค้ชและเริ่มเซสชัน
+            </p>
+            <button
+              type="button"
+              onClick={unlockCoachAudio}
+              className="w-full py-3 rounded-xl bg-blue-600 text-white font-bold"
+            >
+              เริ่มเดิน
             </button>
           </div>
         </div>
