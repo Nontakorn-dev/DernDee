@@ -1,6 +1,7 @@
 import path from 'node:path'
 import fs from 'node:fs'
 import { createClient } from '@supabase/supabase-js'
+import { GoogleGenAI } from '@google/genai'
 import { defineConfig, loadEnv } from 'vite'
 import react from '@vitejs/plugin-react'
 import { VitePWA } from 'vite-plugin-pwa'
@@ -163,6 +164,115 @@ function localDevSupabaseAuth(env) {
   }
 }
 
+const GEMINI_LIVE_MODEL = 'gemini-3.1-flash-live-preview'
+const GEMINI_SUMMARY_MODEL = 'gemini-2.0-flash'
+const GEMINI_COACH_SYSTEM_INSTRUCTION = `คุณเป็นโค้ชช่วยฝึกเดินสำหรับผู้ป่วยฟื้นฟูหลัง stroke ในแอป DernDee
+- ตอบเป็นภาษาไทย ประโยคสั้น 1-2 ประโยค น้ำเสียงให้กำลังใจ ไม่ตำหนิ
+- ห้ามวินิจฉัยโรค ห้ามแนะนำยา ห้ามบอกให้หยุดการรักษา
+- เมื่อได้รับข้อมูล gait_update (JSON): พูดเฉพาะเมื่อมีประเด็นสำคัญ (ก้าวสั้น clearance ต่ำ cadence ช้า) หรือเมื่อผู้ป่วยถาม
+- เมื่อได้รับ user_question: ตอบคำถามเกี่ยวกับการเดินและการฝึกอย่างปลอดภัย
+- เน้น step length (ระยะก้าว) cadence และ foot clearance`
+
+function localDevGeminiCoach(env) {
+  const geminiApiKey = env.GEMINI_API_KEY
+
+  if (!geminiApiKey) {
+    return {
+      name: 'local-dev-gemini-coach-disabled',
+    }
+  }
+
+  return {
+    name: 'local-dev-gemini-coach',
+    configureServer(server) {
+      server.middlewares.use('/__dev/gemini/live-token', async (req, res, next) => {
+        if (req.method !== 'POST') {
+          next()
+          return
+        }
+
+        if (!isLoopbackAddress(req.socket.remoteAddress)) {
+          res.statusCode = 403
+          res.setHeader('Content-Type', 'application/json')
+          res.end(JSON.stringify({ error: 'Gemini dev helper is restricted to loopback requests.' }))
+          return
+        }
+
+        try {
+          const expireTime = new Date(Date.now() + 30 * 60 * 1000).toISOString()
+          const newSessionExpireTime = new Date(Date.now() + 2 * 60 * 1000).toISOString()
+          const ai = new GoogleGenAI({
+            apiKey: geminiApiKey,
+            httpOptions: { apiVersion: 'v1alpha' },
+          })
+          const token = await ai.authTokens.create({
+            uses: 1,
+            expireTime,
+            newSessionExpireTime,
+            liveEphemeralParameters: {
+              model: GEMINI_LIVE_MODEL,
+              config: {
+                responseModalities: ['AUDIO'],
+                systemInstruction: GEMINI_COACH_SYSTEM_INSTRUCTION,
+                outputAudioTranscription: {},
+              },
+            },
+          })
+
+          res.statusCode = 200
+          res.setHeader('Content-Type', 'application/json')
+          res.end(JSON.stringify({
+            token: token.name,
+            model: GEMINI_LIVE_MODEL,
+          }))
+        } catch (error) {
+          res.statusCode = 500
+          res.setHeader('Content-Type', 'application/json')
+          res.end(JSON.stringify({ error: error.message || 'Failed to create live token' }))
+        }
+      })
+
+      server.middlewares.use('/__dev/gemini/coach-summary', async (req, res, next) => {
+        if (req.method !== 'POST') {
+          next()
+          return
+        }
+
+        if (!isLoopbackAddress(req.socket.remoteAddress)) {
+          res.statusCode = 403
+          res.setHeader('Content-Type', 'application/json')
+          res.end(JSON.stringify({ error: 'Gemini dev helper is restricted to loopback requests.' }))
+          return
+        }
+
+        try {
+          const { summary = {}, duration = '' } = await readJsonBody(req)
+          const ai = new GoogleGenAI({ apiKey: geminiApiKey })
+          const response = await ai.models.generateContent({
+            model: GEMINI_SUMMARY_MODEL,
+            contents: [{
+              role: 'user',
+              parts: [{
+                text: `สรุปการเดินฟื้นฟูเป็นภาษาไทย 2-3 ประโยค ให้กำลังใจ ไม่วินิจฉัยโรค
+ระยะเวลา: ${duration}
+ข้อมูล: ${JSON.stringify(summary)}`,
+              }],
+            }],
+          })
+
+          res.statusCode = 200
+          res.setHeader('Content-Type', 'application/json')
+          res.end(JSON.stringify({ recapText: response.text?.trim() || '' }))
+        } catch (error) {
+          res.statusCode = 500
+          res.setHeader('Content-Type', 'application/json')
+          res.end(JSON.stringify({ error: error.message || 'Failed to generate coach summary' }))
+        }
+      })
+    },
+  }
+}
+
 function appRouteAliases() {
   const rewrite = (req, targetPath) => {
     const originalUrl = req.url || ''
@@ -234,6 +344,7 @@ export default defineConfig(({ mode }) => {
     plugins: [
       react(),
       localDevSupabaseAuth(env),
+      localDevGeminiCoach(env),
       appRouteAliases(),
       VitePWA({
         strategies: 'injectManifest',

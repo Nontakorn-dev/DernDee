@@ -7,7 +7,7 @@ import Profile from '@patient/components/Profile.jsx'
 import Settings from '@patient/components/Settings.jsx'
 import Position from '@patient/components/Position.jsx'
 import Calibration from '@patient/components/Calibration.jsx'
-import WalkSession from '@patient/components/WalkSession.jsx'
+import FreeWalkSession from '@patient/components/walk/FreeWalkSession.jsx'
 import WalkSummary from '@patient/components/WalkSummary.jsx'
 import AnalysisResult from '@patient/components/AnalysisResult.jsx'
 import DeviceConnection from '@patient/components/DeviceConnection.jsx'
@@ -66,7 +66,11 @@ const router = createBrowserRouter([
   },
   {
     path: "/walk-session",
-    element: <ProtectedRoute><WalkSession /></ProtectedRoute>
+    element: <ProtectedRoute><FreeWalkSession /></ProtectedRoute>
+  },
+  {
+    path: "/free-walk",
+    element: <ProtectedRoute><Navigate to="/walk-session" replace /></ProtectedRoute>
   },
   {
     path: "/walk-summary",

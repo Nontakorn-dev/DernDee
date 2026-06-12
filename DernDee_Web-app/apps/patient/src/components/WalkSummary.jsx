@@ -1,23 +1,20 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useUserAuth } from '@shared/context/UserAuthContext.jsx';
-import { ArrowLeft, Footprints, Gauge, TrendingUp, Clock, Zap } from 'lucide-react';
+import { COACH_MODES } from '@shared/coach/coachConfig.js';
+import { fetchCoachSessionRecap } from '@shared/coach/geminiCoachApi.js';
+import { Footprints, Gauge, TrendingUp, Clock, Zap, MessageCircle } from 'lucide-react';
 import derndeeLogo from '@shared/assets/images/derndee-logo.png';
-// User will provide the doctor image path
-import doctorEncouragementSrc from '@shared/assets/images/good-boy.png';
 
 const WalkSummary = () => {
     const navigate = useNavigate();
     const location = useLocation();
     const { user } = useUserAuth();
 
-    // Doctor image state - user will set the path
-    const [doctorImage, setDoctorImage] = useState(doctorEncouragementSrc);
-
-    // Get session data from navigation state or use defaults
     const sessionState = location.state || {};
+    const [coachRecap, setCoachRecap] = useState(sessionState.coachRecap || '');
+    const [coachRecapLoading, setCoachRecapLoading] = useState(false);
 
-    // Session data - combine from navigation state and defaults
     const [sessionData] = useState({
         patientName: user?.displayName || 'ผู้ใช้งาน',
         patientId: user?.uid?.substring(0, 8) || '12345',
@@ -31,6 +28,34 @@ const WalkSummary = () => {
         duration: sessionState.duration || '00:00',
         totalSteps: sessionState.steps || sessionState.totalSteps || 0
     });
+
+    useEffect(() => {
+        if (coachRecap || sessionState.coachMode !== COACH_MODES.LIVE || !sessionState.sessionSummary) {
+            return;
+        }
+
+        let cancelled = false;
+        setCoachRecapLoading(true);
+
+        void fetchCoachSessionRecap(sessionState.sessionSummary, sessionState.duration || sessionData.duration)
+            .then((payload) => {
+                if (!cancelled && payload?.recapText) {
+                    setCoachRecap(payload.recapText);
+                }
+            })
+            .catch((error) => {
+                console.warn('Failed to load coach recap:', error);
+            })
+            .finally(() => {
+                if (!cancelled) {
+                    setCoachRecapLoading(false);
+                }
+            });
+
+        return () => {
+            cancelled = true;
+        };
+    }, [coachRecap, sessionData.duration, sessionState.coachMode, sessionState.duration, sessionState.sessionSummary]);
 
     return (
         <div className="min-h-screen bg-gradient-to-b from-blue-50 via-blue-100 to-blue-200">
@@ -159,6 +184,20 @@ const WalkSummary = () => {
                         </div>
                     </div>
                 </div>
+
+                {(coachRecap || coachRecapLoading || sessionState.coachMode === COACH_MODES.LIVE) && (
+                    <div className="bg-gradient-to-br from-violet-50 to-blue-50 border-2 border-violet-200 rounded-2xl sm:rounded-3xl shadow-2xl p-4 sm:p-5 md:p-6 lg:p-7 xl:p-8 mb-3 sm:mb-4 md:mb-5">
+                        <h3 className="text-lg sm:text-xl md:text-2xl font-extrabold text-gray-800 mb-3 flex items-center gap-2">
+                            <MessageCircle className="w-6 h-6 text-violet-600" />
+                            AI Coach Recap
+                        </h3>
+                        <p className="text-base sm:text-lg text-gray-700 leading-relaxed">
+                            {coachRecapLoading
+                                ? 'กำลังสรุปผลการเดิน...'
+                                : (coachRecap || 'โค้ชไม่สามารถสรุปผลได้ในครั้งนี้')}
+                        </p>
+                    </div>
+                )}
 
                 {/* Session Summary Card */}
                 <div className="bg-white border-2 border-blue-100 rounded-2xl sm:rounded-3xl shadow-2xl p-4 sm:p-5 md:p-6 lg:p-7 xl:p-8 mb-3 sm:mb-4 md:mb-5">
