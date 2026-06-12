@@ -56,6 +56,8 @@ const LANDING_STABLE_GYRO_NORM = 0.24;
 const LANDING_STABLE_TILT_RATE = 1.4;
 const FEEDBACK_RESET_MS = 950;
 const SAFE_TARGET_THRESHOLD_CM = 35;
+const HEEL_STRIKE_LOOKBACK_MS = 2500;
+const MIN_LANDING_INTERVAL_MS = 1200;
 
 // 3 stones — mobile & iPad portrait (< 1024 px)
 const STONE_SLOT_LAYOUT_SMALL = [
@@ -167,6 +169,8 @@ const GameSteppingStones = () => {
     const handleSensorDataRef = useRef(null);
     const weightShiftPercentRef = useRef(null);
     const activeLandingRef = useRef(null);
+    const lastConsumedStepCountRef = useRef(0);
+    const lastSuccessfulLandingAtMsRef = useRef(0);
 
     useEffect(() => {
         gameStateRef.current = gameState;
@@ -348,6 +352,8 @@ const GameSteppingStones = () => {
         setSessionTime(0);
         setIsJumping(false);
         setSessionMetrics({});
+        lastConsumedStepCountRef.current = 0;
+        lastSuccessfulLandingAtMsRef.current = 0;
         pushFeedback('Step to the green stone', 'sky');
     }, [clearLandingState, pushFeedback, updateWeightShiftPercent]);
 
@@ -395,6 +401,8 @@ const GameSteppingStones = () => {
 
             return nextCompletedTargets;
         });
+
+        lastSuccessfulLandingAtMsRef.current = performance.now();
     }, [clearLandingState, playLandingSound, pushFeedback, updateWeightShiftPercent]);
 
     const advanceLandingState = useCallback((sensorState, detectorResult) => {
@@ -450,6 +458,9 @@ const GameSteppingStones = () => {
             : params.stepLength;
         const strideLengthCm = Number.isFinite(strideLengthM) ? strideLengthM * 100 : null;
         const stepLengthCm = Number.isFinite(stepLengthM) ? stepLengthM * 100 : null;
+        const stepCount = Number.isFinite(aggregatedParams?.stepCount)
+            ? aggregatedParams.stepCount
+            : params.stepCount;
 
         setCurrentStrideCm(strideLengthCm);
         setCurrentStepCm(stepLengthCm);
@@ -462,11 +473,26 @@ const GameSteppingStones = () => {
             return;
         }
 
+        if (!Number.isFinite(stepCount) || stepCount <= lastConsumedStepCountRef.current) {
+            return;
+        }
+
+        if (performance.now() - lastSuccessfulLandingAtMsRef.current < MIN_LANDING_INTERVAL_MS) {
+            return;
+        }
+
+        const heelStrikeAgeMs = Date.now() - (triggeringSensorState.lastHeelStrikeAtMs ?? 0);
+        if (heelStrikeAgeMs > HEEL_STRIKE_LOOKBACK_MS) {
+            return;
+        }
+
         if (stepLengthCm >= targetStepCmRef.current * STEP_SUCCESS_RATIO) {
+            lastConsumedStepCountRef.current = stepCount;
             activeLandingRef.current = {
                 sensorKey: triggeringSensorState.sensorKey,
                 side: triggeringSensorState.side,
                 cycleKey: params.cycleKey,
+                stepCount,
                 startedAtMs: performance.now(),
                 stableStartedAtMs: null,
                 stepLengthCm,
@@ -511,6 +537,7 @@ const GameSteppingStones = () => {
             sampleCount: 0,
             latestParams: null,
             unsubscribeParams: null,
+            lastHeelStrikeAtMs: null,
         };
 
         sensorState.unsubscribeParams = processor.onParams(({ params }) => {
@@ -621,8 +648,12 @@ const GameSteppingStones = () => {
             gx: sample.gx,
             gy: sample.gy,
             gz: sample.gz,
-            timestampMs: sample.timestamp_ms,
+            timestampMs: sample.timestampMs ?? sample.timestamp_ms,
         });
+
+        if (detectorResult?.event === 'HEEL_STRIKE') {
+            sensorState.lastHeelStrikeAtMs = Date.now();
+        }
 
         if (gameStateRef.current !== GAME_STATES.PLAYING) {
             return;
@@ -809,13 +840,10 @@ const GameSteppingStones = () => {
         .map((_, index) => visibleStartStoneNumber + index)
         .filter((stoneNumber) => stoneNumber <= totalTargets + 1);
     const progressPercent = totalTargets > 0 ? Math.round((completedTargets / totalTargets) * 100) : 0;
-    const displayStrideCm = Number.isFinite(currentStrideCm)
-        ? currentStrideCm
-        : (Number.isFinite(sessionMetrics?.avg_stride_length_m) ? sessionMetrics.avg_stride_length_m * 100 : null);
     const displayStepCm = Number.isFinite(currentStepCm)
         ? currentStepCm
         : (Number.isFinite(sessionMetrics?.avg_step_length_m) ? sessionMetrics.avg_step_length_m * 100 : null);
-    const displayedStrideCm = Number.isFinite(displayStrideCm) ? Math.round(displayStrideCm) : 0;
+    const displayedStepCm = Number.isFinite(displayStepCm) ? Math.round(displayStepCm) : 0;
     const displayedWeightBearing = Number.isFinite(weightShiftPercent) ? Math.round(weightShiftPercent) : 0;
     const midpointTarget = Math.max(1, Math.round(totalTargets / 2));
     const safeModeEnabled = targetStepCm <= SAFE_TARGET_THRESHOLD_CM;
@@ -1077,9 +1105,9 @@ const GameSteppingStones = () => {
                     {/* Metrics Grid */}
                     <div className="grid grid-cols-3 gap-3">
                         <div className="bg-white rounded-2xl shadow-xl p-3 sm:p-4 flex flex-col items-center text-center">
-                            <div className="text-xs font-bold text-gray-400 uppercase tracking-wide mb-1">Stride</div>
+                            <div className="text-xs font-bold text-gray-400 uppercase tracking-wide mb-1">Step</div>
                             <div className="text-2xl font-black text-blue-600 tabular-nums leading-tight">
-                                {displayedStrideCm}<span className="text-sm text-gray-400 ml-0.5">cm</span>
+                                {displayedStepCm}<span className="text-sm text-gray-400 ml-0.5">cm</span>
                             </div>
                             <div className="text-xs text-gray-400 font-medium mt-1">เป้า {targetStepCm} cm</div>
                         </div>
