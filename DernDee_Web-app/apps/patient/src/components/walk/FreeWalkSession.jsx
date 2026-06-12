@@ -31,6 +31,7 @@ import { GaitCoachOrchestrator } from '@shared/coach/gaitCoachOrchestrator.js';
 import { LegacyWalkCoach } from '@shared/coach/legacyCoach.js';
 import derndeeLogo from '@shared/assets/images/derndee-logo.png';
 import WalkConnectionPills from './WalkConnectionPills.jsx';
+import WalkSessionHud from './WalkSessionHud.jsx';
 import WalkVoiceOrb from './WalkVoiceOrb.jsx';
 import WalkGaitStrip from './WalkGaitStrip.jsx';
 import WalkMicButton from './WalkMicButton.jsx';
@@ -665,72 +666,105 @@ const FreeWalkSession = () => {
     });
   };
 
+  const gaitStepCm = liveMetrics.stepCm ?? (sessionMetrics.avg_step_length_m ? sessionMetrics.avg_step_length_m * 100 : null);
+  const gaitCadenceSpm = liveMetrics.cadenceSpm ?? sessionMetrics.cadence_spm;
+  const gaitSpeedMps = liveMetrics.speedMps ?? sessionMetrics.avg_speed_mps;
+
   return (
-    <div className="min-h-screen bg-gradient-to-b from-blue-50 via-blue-100 to-blue-200">
-      <header className="bg-white shadow-xl px-4 sm:px-6 py-3 sm:py-4 flex items-center justify-between gap-3">
+    <div className="relative flex h-dvh flex-col overflow-hidden bg-gradient-to-br from-sky-100 via-blue-200 to-cyan-100">
+      <div className="pointer-events-none absolute inset-0 overflow-hidden">
+        <div className="absolute -left-24 top-16 h-64 w-64 rounded-full bg-white/30 blur-3xl sm:h-80 sm:w-80" />
+        <div className="absolute -right-16 bottom-24 h-72 w-72 rounded-full bg-cyan-200/40 blur-3xl sm:h-96 sm:w-96" />
+        <div className="absolute left-1/2 top-1/3 h-56 w-56 -translate-x-1/2 rounded-full bg-blue-300/20 blur-3xl" />
+      </div>
+
+      <header className="relative z-20 flex shrink-0 items-center justify-between gap-3 border-b border-white/50 bg-white/70 px-4 py-3 backdrop-blur-md sm:px-6 lg:px-8">
         <div className="flex items-center gap-3">
-          <button type="button" onClick={() => navigate('/therapy')} className="text-gray-600 hover:text-gray-800">
-            <ArrowLeft className="w-5 h-5" />
+          <button
+            type="button"
+            onClick={() => navigate('/therapy')}
+            className="rounded-full p-2 text-slate-600 transition hover:bg-white/80 hover:text-slate-900"
+          >
+            <ArrowLeft className="h-5 w-5" />
           </button>
-          <img src={derndeeLogo} alt="DernDee" className="h-10 object-contain" />
+          <img src={derndeeLogo} alt="DernDee" className="h-9 object-contain sm:h-10" />
         </div>
         <WalkConnectionPills coachState={coachState} coachMode={coachMode} />
       </header>
 
-      <main className="p-4 sm:p-6 max-w-3xl mx-auto space-y-4">
-        {!sensorStreaming && (
-          <div className="bg-amber-50 border-2 border-amber-200 rounded-2xl p-4 text-sm text-amber-900">
-            ยังไม่มีข้อมูลจากเซ็นเซอร์ — ไปที่ Device Connection เชื่อมเซ็นเซอร์ที่ขา (Shank) ก่อนเริ่มเดิน
-          </div>
-        )}
+      <main className="relative z-10 flex min-h-0 flex-1 flex-col">
+        <div className="shrink-0 space-y-3 px-4 pt-3 sm:px-6 sm:pt-4 lg:px-8">
+          <WalkSessionHud timeElapsed={timeElapsed} targetSeconds={TARGET_TIME_SECONDS} />
 
-        <div className="bg-white rounded-3xl shadow-xl p-5 sm:p-6 text-center">
-          <div className="text-3xl sm:text-4xl font-black text-blue-900 tabular-nums mb-4">
-            {formatTime(timeElapsed)}
-            <span className="text-blue-900/70 font-black"> / {formatTime(TARGET_TIME_SECONDS)}</span>
+          {!sensorStreaming && (
+            <div className="rounded-xl border border-amber-200/80 bg-amber-50/90 px-3 py-2.5 text-xs text-amber-900 backdrop-blur-sm sm:text-sm">
+              ยังไม่มีข้อมูลจากเซ็นเซอร์ — เชื่อมเซ็นเซอร์ที่ขา (Shank) ก่อนเริ่มเดิน
+            </div>
+          )}
+        </div>
+
+        <div className="grid min-h-0 flex-1 grid-cols-1 items-stretch px-4 py-2 sm:px-6 lg:grid-cols-[minmax(160px,220px)_1fr_minmax(160px,220px)] lg:gap-6 lg:px-8 lg:py-4 xl:grid-cols-[minmax(180px,260px)_1fr_minmax(180px,260px)]">
+          <div className="hidden min-h-0 lg:flex lg:flex-col lg:justify-center">
+            <WalkGaitStrip
+              layout="left"
+              stepCm={gaitStepCm}
+              cadenceSpm={gaitCadenceSpm}
+              speedMps={gaitSpeedMps}
+            />
           </div>
-          <div className="w-full bg-gray-200 rounded-full h-2.5 overflow-hidden">
-            <div
-              className="bg-blue-600 h-full rounded-full transition-all duration-300"
-              style={{ width: `${Math.min((timeElapsed / TARGET_TIME_SECONDS) * 100, 100)}%` }}
+
+          <div className="flex min-h-0 items-center justify-center">
+            <WalkVoiceOrb
+              isSpeaking={coachState === COACH_CONNECTION_STATES.SPEAKING}
+              isListening={askCoachActive}
+            />
+          </div>
+
+          <div className="hidden min-h-0 lg:flex lg:flex-col lg:justify-center">
+            <WalkGaitStrip
+              layout="right"
+              stepCm={gaitStepCm}
+              cadenceSpm={gaitCadenceSpm}
+              speedMps={gaitSpeedMps}
             />
           </div>
         </div>
 
-        <WalkVoiceOrb
-          isSpeaking={coachState === COACH_CONNECTION_STATES.SPEAKING}
-          isListening={askCoachActive}
-        />
-
-        <WalkGaitStrip
-          stepCm={liveMetrics.stepCm ?? (sessionMetrics.avg_step_length_m ? sessionMetrics.avg_step_length_m * 100 : null)}
-          cadenceSpm={liveMetrics.cadenceSpm ?? sessionMetrics.cadence_spm}
-          speedMps={liveMetrics.speedMps ?? sessionMetrics.avg_speed_mps}
-        />
-
-        <div className="grid grid-cols-3 gap-3 pt-1">
-          <WalkMicButton
-            active={askCoachActive}
-            disabled={coachState === COACH_CONNECTION_STATES.ERROR || coachState === COACH_CONNECTION_STATES.CONNECTING}
-            onPressStart={handleAskCoachStart}
-            onPressEnd={handleAskCoachEnd}
+        <div className="shrink-0 px-4 pb-2 pt-1 sm:px-6 lg:hidden">
+          <WalkGaitStrip
+            stepCm={gaitStepCm}
+            cadenceSpm={gaitCadenceSpm}
+            speedMps={gaitSpeedMps}
           />
-          <button
-            type="button"
-            onClick={() => setIsActive((previous) => !previous)}
-            className="py-4 rounded-2xl bg-amber-400 shadow-xl font-bold text-white flex flex-col items-center justify-center gap-1"
-          >
-            {isActive ? <Pause className="w-6 h-6" /> : <Play className="w-6 h-6" />}
-            <span className="text-xs">{isActive ? 'Pause' : 'Resume'}</span>
-          </button>
-          <button
-            type="button"
-            onClick={handleEndWalk}
-            className="py-4 rounded-2xl bg-red-500 shadow-xl font-bold text-white flex flex-col items-center justify-center gap-1"
-          >
-            <Square className="w-6 h-6" />
-            <span className="text-xs">End</span>
-          </button>
+        </div>
+
+        <div className="shrink-0 border-t border-white/50 bg-white/55 px-4 py-4 backdrop-blur-xl sm:px-6 sm:py-5 lg:px-8">
+          <div className="mx-auto grid max-w-5xl grid-cols-3 gap-2 sm:gap-4">
+            <WalkMicButton
+              active={askCoachActive}
+              disabled={coachState === COACH_CONNECTION_STATES.ERROR || coachState === COACH_CONNECTION_STATES.CONNECTING}
+              onPressStart={handleAskCoachStart}
+              onPressEnd={handleAskCoachEnd}
+            />
+            <button
+              type="button"
+              onClick={() => setIsActive((previous) => !previous)}
+              className="flex min-h-[4.5rem] flex-col items-center justify-center gap-1.5 rounded-2xl border border-amber-300/80 bg-gradient-to-b from-amber-300 to-amber-500 font-bold text-white shadow-lg shadow-amber-500/25 transition active:scale-[0.97] sm:min-h-[5rem] sm:rounded-3xl"
+            >
+              {isActive ? <Pause className="h-6 w-6 sm:h-7 sm:w-7" /> : <Play className="h-6 w-6 sm:h-7 sm:w-7" />}
+              <span className="text-xs font-extrabold uppercase tracking-wide sm:text-sm">
+                {isActive ? 'Pause' : 'Resume'}
+              </span>
+            </button>
+            <button
+              type="button"
+              onClick={handleEndWalk}
+              className="flex min-h-[4.5rem] flex-col items-center justify-center gap-1.5 rounded-2xl border border-red-400/80 bg-gradient-to-b from-red-500 to-red-600 font-bold text-white shadow-lg shadow-red-500/25 transition active:scale-[0.97] sm:min-h-[5rem] sm:rounded-3xl"
+            >
+              <Square className="h-6 w-6 sm:h-7 sm:w-7" />
+              <span className="text-xs font-extrabold uppercase tracking-wide sm:text-sm">End</span>
+            </button>
+          </div>
         </div>
       </main>
 

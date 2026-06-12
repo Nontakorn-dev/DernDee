@@ -16,14 +16,16 @@ const WalkMicButton = ({ active, disabled, onPressStart, onPressEnd }) => {
       }}
       onPointerCancel={onPressEnd}
       onPointerLeave={onPressEnd}
-      className={`py-4 rounded-2xl shadow-xl font-bold flex flex-col items-center justify-center gap-1 transition-all touch-none select-none ${
+      className={`flex min-h-[4.5rem] flex-col items-center justify-center gap-1.5 rounded-2xl border font-bold transition-all touch-none select-none sm:min-h-[5rem] sm:rounded-3xl ${
         active
-          ? 'bg-violet-100 text-violet-700 ring-2 ring-violet-300'
-          : 'bg-white text-violet-700'
-      } ${disabled ? 'opacity-50 cursor-not-allowed' : ''}`}
+          ? 'border-violet-300 bg-violet-500 text-white shadow-lg shadow-violet-500/30 ring-2 ring-violet-200'
+          : 'border-white/70 bg-white/90 text-violet-700 shadow-lg shadow-blue-900/5 hover:bg-white'
+      } ${disabled ? 'cursor-not-allowed opacity-50' : 'active:scale-[0.97]'}`}
     >
-      <Mic className="w-6 h-6" />
-      <span className="text-xs">{active ? 'Listening' : 'Ask'}</span>
+      <Mic className="h-6 w-6 sm:h-7 sm:w-7" />
+      <span className="text-xs font-extrabold uppercase tracking-wide sm:text-sm">
+        {active ? 'Listening' : 'Ask'}
+      </span>
     </button>
   );
 };

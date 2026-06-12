@@ -14,10 +14,19 @@ export const COACH_SYSTEM_INSTRUCTION = `คุณเป็นเดินดี
 - ถ่ายทอดความหมายที่ได้รับด้วยถ้อยคำของตัวเอง ให้ฟังเป็นธรรมชาติ
 - ไม่ต้องพูดตามตัวอักษรเป๊ะๆ ถ้ามีแนวประโยค ให้ปรับให้ลื่นไหล`;
 
-export function buildCoachLiveSessionConfig() {
+export const COACH_LIVE_SPEECH_CONFIG = {
+  voiceConfig: {
+    prebuiltVoiceConfig: {
+      voiceName: 'Puck',
+    },
+  },
+};
+
+export function buildCoachLiveSessionConfig(options = {}) {
   return {
-    responseModalities: ['AUDIO'],
+    responseModalities: options.responseModalities ?? ['AUDIO'],
     systemInstruction: COACH_SYSTEM_INSTRUCTION,
     outputAudioTranscription: {},
+    speechConfig: COACH_LIVE_SPEECH_CONFIG,
   };
 }

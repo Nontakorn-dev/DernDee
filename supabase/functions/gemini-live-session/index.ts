@@ -84,6 +84,13 @@ Deno.serve(async (req) => {
           responseModalities: ['AUDIO'],
           systemInstruction: SYSTEM_INSTRUCTION,
           outputAudioTranscription: {},
+          speechConfig: {
+            voiceConfig: {
+              prebuiltVoiceConfig: {
+                voiceName: 'Puck',
+              },
+            },
+          },
         },
       },
     })

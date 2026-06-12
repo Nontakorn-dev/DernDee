@@ -1,6 +1,7 @@
 import { GoogleGenAI, Modality } from '@google/genai';
 import { PcmAudioPlayer } from './audioPlayback.js';
 import { LIVE_MODEL } from './coachConfig.js';
+import { buildCoachLiveSessionConfig } from './coachSystemInstruction.js';
 import { fetchLiveCoachToken } from './geminiCoachApi.js';
 
 export const COACH_CONNECTION_STATES = {
@@ -77,10 +78,9 @@ export class GeminiLiveClient {
 
       this.session = await ai.live.connect({
         model,
-        config: {
+        config: buildCoachLiveSessionConfig({
           responseModalities: [Modality.AUDIO],
-          outputAudioTranscription: {},
-        },
+        }),
         callbacks: {
           onopen: () => {
             this.setState(COACH_CONNECTION_STATES.READY);
