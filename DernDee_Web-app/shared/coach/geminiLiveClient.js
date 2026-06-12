@@ -167,6 +167,29 @@ export class GeminiLiveClient {
     }
   }
 
+  isBusy() {
+    return (
+      this.state === COACH_CONNECTION_STATES.SPEAKING
+      || this.audioPlayer.isPlaying()
+    );
+  }
+
+  async waitUntilIdle(timeoutMs = 12_000) {
+    const startedAt = Date.now();
+
+    while (Date.now() - startedAt < timeoutMs) {
+      if (!this.isBusy()) {
+        return true;
+      }
+
+      await new Promise((resolve) => {
+        setTimeout(resolve, 100);
+      });
+    }
+
+    return !this.isBusy();
+  }
+
   async waitForAudioResponse(timeoutMs = 6000) {
     const startedAt = Date.now();
     const initialSubtitle = this.latestSubtitle;
@@ -202,12 +225,17 @@ export class GeminiLiveClient {
       return false;
     }
 
-    if (!options.force && this.state === COACH_CONNECTION_STATES.SPEAKING) {
-      return false;
+    if (options.interrupt) {
+      this.audioPlayer.stop();
+    } else if (this.isBusy()) {
+      const idle = await this.waitUntilIdle();
+      if (!idle) {
+        return false;
+      }
     }
 
-    if (options.force) {
-      this.audioPlayer.stop();
+    if (!options.force && this.isBusy()) {
+      return false;
     }
 
     this.session.sendRealtimeInput({ text: promptText });

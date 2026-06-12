@@ -15,7 +15,7 @@ export function getFreeWalkCoachMode() {
 
 export const COACH_PROACTIVE_COOLDOWN_MS = 15_000;
 export const COACH_PERIODIC_INTERVAL_MS = 60_000;
-export const COACH_ENCOURAGEMENT_CYCLES = 6;
+export const COACH_ENCOURAGEMENT_CYCLES = 3;
 export const COACH_IDLE_NO_STEP_MS = 15_000;
 export const COACH_REST_AFTER_PRAISE_MS = 8_000;
 export const COACH_STEP_IMPROVE_DELTA_M = 0.03;

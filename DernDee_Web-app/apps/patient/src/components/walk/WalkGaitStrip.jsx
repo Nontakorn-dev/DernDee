@@ -1,7 +1,7 @@
 import React from 'react';
 
-function formatMetric(value, digits = 0, suffix = '') {
-  return Number.isFinite(value) ? `${value.toFixed(digits)}${suffix}` : '--';
+function formatMetric(value, digits = 0) {
+  return Number.isFinite(value) ? value.toFixed(digits) : '--';
 }
 
 const WalkGaitStrip = ({ stepCm, cadenceSpm, speedMps }) => {

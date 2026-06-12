@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, Pause, Play, Square, Volume2, VolumeX } from 'lucide-react';
+import { ArrowLeft, Pause, Play, Square } from 'lucide-react';
 import { createGaitProcessorClient } from '@shared/gait/gaitProcessorClient.js';
 import {
   aggregateGaitParams,
@@ -31,9 +31,9 @@ import { GaitCoachOrchestrator } from '@shared/coach/gaitCoachOrchestrator.js';
 import { LegacyWalkCoach } from '@shared/coach/legacyCoach.js';
 import derndeeLogo from '@shared/assets/images/derndee-logo.png';
 import WalkConnectionPills from './WalkConnectionPills.jsx';
-import WalkCoachPanel from './WalkCoachPanel.jsx';
+import WalkVoiceOrb from './WalkVoiceOrb.jsx';
 import WalkGaitStrip from './WalkGaitStrip.jsx';
-import WalkAskCoachButton from './WalkAskCoachButton.jsx';
+import WalkMicButton from './WalkMicButton.jsx';
 
 const TARGET_TIME_SECONDS = 300;
 const COACH_CONSENT_KEY = 'derndee_free_walk_ai_consent_v1';
@@ -57,7 +57,6 @@ const FreeWalkSession = () => {
   const [coachSubtitle, setCoachSubtitle] = useState('');
   const [coachState, setCoachState] = useState(COACH_CONNECTION_STATES.IDLE);
   const [coachMode, setCoachMode] = useState(getFreeWalkCoachMode());
-  const [coachMuted, setCoachMuted] = useState(false);
   const [askCoachActive, setAskCoachActive] = useState(false);
   const [showConsent, setShowConsent] = useState(() => {
     if (typeof window === 'undefined' || getFreeWalkCoachMode() === COACH_MODES.LEGACY) {
@@ -95,6 +94,7 @@ const FreeWalkSession = () => {
   const isActiveRef = useRef(isActive);
   const handleMessageRef = useRef(null);
   const greetingPlayedRef = useRef(false);
+  const greetingInFlightRef = useRef(false);
   const greetingAttemptRef = useRef(0);
   const audioUnlockedRef = useRef(false);
   const showConsentRef = useRef(showConsent);
@@ -151,10 +151,6 @@ const FreeWalkSession = () => {
       return false;
     }
 
-    if (coachMuted) {
-      return false;
-    }
-
     const forceSpeak = [
       'user_ask',
       'greeting',
@@ -165,22 +161,25 @@ const FreeWalkSession = () => {
     ].includes(dispatch.trigger);
 
     if (coachModeRef.current === COACH_MODES.LIVE && coachClientRef.current) {
-      return coachClientRef.current.sendGaitPrompt(dispatch.prompt, { force: forceSpeak });
+      return coachClientRef.current.sendGaitPrompt(dispatch.prompt, {
+        force: forceSpeak,
+        interrupt: dispatch.trigger === 'user_ask',
+      });
     }
 
     legacyCoachRef.current?.speakWithWebSpeech(
       dispatch.hintText || dispatch.prompt,
     );
     return true;
-  }, [coachMuted]);
+  }, []);
 
   const tryPlaySessionGreeting = useCallback(async () => {
     if (
       greetingPlayedRef.current
-      || coachMuted
+      || greetingInFlightRef.current
       || showConsentRef.current
       || !audioUnlockedRef.current
-      || greetingAttemptRef.current >= 3
+      || greetingAttemptRef.current >= 2
     ) {
       return false;
     }
@@ -206,23 +205,26 @@ const FreeWalkSession = () => {
       }
     }
 
+    greetingInFlightRef.current = true;
     greetingAttemptRef.current += 1;
-    const spoke = await dispatchCoachLine(dispatch);
-    if (!spoke) {
-      return false;
-    }
 
-    if (coachModeRef.current === COACH_MODES.LIVE && coachClientRef.current) {
-      const heard = await coachClientRef.current.waitForAudioResponse(6000);
-      if (heard) {
-        greetingPlayedRef.current = true;
+    try {
+      const spoke = await dispatchCoachLine(dispatch);
+      if (!spoke) {
+        return false;
       }
-      return heard;
-    }
 
-    greetingPlayedRef.current = true;
-    return true;
-  }, [coachMuted, dispatchCoachLine]);
+      greetingPlayedRef.current = true;
+
+      if (coachModeRef.current === COACH_MODES.LIVE && coachClientRef.current) {
+        await coachClientRef.current.waitForAudioResponse(6000);
+      }
+
+      return true;
+    } finally {
+      greetingInFlightRef.current = false;
+    }
+  }, [dispatchCoachLine]);
 
   const unlockCoachAudio = useCallback(async () => {
     audioUnlockedRef.current = true;
@@ -231,8 +233,7 @@ const FreeWalkSession = () => {
     showConsentRef.current = false;
 
     await coachClientRef.current?.ensureAudioReady?.();
-    await tryPlaySessionGreeting();
-  }, [tryPlaySessionGreeting]);
+  }, []);
 
   const applyAggregatedLiveParams = useCallback((aggregatedParams) => {
     if (!aggregatedParams) {
@@ -496,25 +497,20 @@ const FreeWalkSession = () => {
   }, [isActive]);
 
   useEffect(() => {
-    coachClientRef.current?.setMuted(coachMuted);
-  }, [coachMuted]);
-
-  useEffect(() => {
     if (!audioUnlocked || showConsent) {
       return undefined;
     }
 
     void tryPlaySessionGreeting();
 
-    const retryTimer = setInterval(() => {
-      if (greetingPlayedRef.current || greetingAttemptRef.current >= 3) {
-        return;
+    const retryTimer = setTimeout(() => {
+      if (!greetingPlayedRef.current) {
+        void tryPlaySessionGreeting();
       }
-      void tryPlaySessionGreeting();
-    }, 2500);
+    }, 3000);
 
-    return () => clearInterval(retryTimer);
-  }, [coachState, showConsent, audioUnlocked, tryPlaySessionGreeting]);
+    return () => clearTimeout(retryTimer);
+  }, [showConsent, audioUnlocked, tryPlaySessionGreeting]);
 
   useEffect(() => {
     if (!isActive) {
@@ -678,11 +674,7 @@ const FreeWalkSession = () => {
           </button>
           <img src={derndeeLogo} alt="DernDee" className="h-10 object-contain" />
         </div>
-        <WalkConnectionPills
-          sensorConnected={sensorStreaming}
-          coachState={coachState}
-          coachMode={coachMode}
-        />
+        <WalkConnectionPills coachState={coachState} coachMode={coachMode} />
       </header>
 
       <main className="p-4 sm:p-6 max-w-3xl mx-auto space-y-4">
@@ -692,12 +684,12 @@ const FreeWalkSession = () => {
           </div>
         )}
 
-        <div className="bg-white rounded-3xl shadow-xl p-5 text-center">
-          <div className="text-4xl sm:text-5xl font-black text-gray-900 tabular-nums mb-3">
+        <div className="bg-white rounded-3xl shadow-xl p-5 sm:p-6 text-center">
+          <div className="text-3xl sm:text-4xl font-black text-blue-900 tabular-nums mb-4">
             {formatTime(timeElapsed)}
-            <span className="text-lg text-gray-400 font-bold ml-2">/ {formatTime(TARGET_TIME_SECONDS)}</span>
+            <span className="text-blue-900/70 font-black"> / {formatTime(TARGET_TIME_SECONDS)}</span>
           </div>
-          <div className="w-full bg-gray-200 rounded-full h-3 overflow-hidden">
+          <div className="w-full bg-gray-200 rounded-full h-2.5 overflow-hidden">
             <div
               className="bg-blue-600 h-full rounded-full transition-all duration-300"
               style={{ width: `${Math.min((timeElapsed / TARGET_TIME_SECONDS) * 100, 100)}%` }}
@@ -705,7 +697,10 @@ const FreeWalkSession = () => {
           </div>
         </div>
 
-        <WalkCoachPanel subtitle={coachSubtitle} coachState={coachState} muted={coachMuted} />
+        <WalkVoiceOrb
+          isSpeaking={coachState === COACH_CONNECTION_STATES.SPEAKING}
+          isListening={askCoachActive}
+        />
 
         <WalkGaitStrip
           stepCm={liveMetrics.stepCm ?? (sessionMetrics.avg_step_length_m ? sessionMetrics.avg_step_length_m * 100 : null)}
@@ -713,37 +708,28 @@ const FreeWalkSession = () => {
           speedMps={liveMetrics.speedMps ?? sessionMetrics.avg_speed_mps}
         />
 
-        <WalkAskCoachButton
-          active={askCoachActive}
-          disabled={coachState === COACH_CONNECTION_STATES.ERROR || coachState === COACH_CONNECTION_STATES.CONNECTING}
-          onPressStart={handleAskCoachStart}
-          onPressEnd={handleAskCoachEnd}
-        />
-
-        <div className="grid grid-cols-3 gap-3">
-          <button
-            type="button"
-            onClick={() => setCoachMuted((previous) => !previous)}
-            className="py-4 rounded-2xl bg-white shadow-xl font-bold text-gray-700 flex items-center justify-center gap-2"
-          >
-            {coachMuted ? <VolumeX className="w-5 h-5" /> : <Volume2 className="w-5 h-5" />}
-            {coachMuted ? 'Unmute' : 'Mute'}
-          </button>
+        <div className="grid grid-cols-3 gap-3 pt-1">
+          <WalkMicButton
+            active={askCoachActive}
+            disabled={coachState === COACH_CONNECTION_STATES.ERROR || coachState === COACH_CONNECTION_STATES.CONNECTING}
+            onPressStart={handleAskCoachStart}
+            onPressEnd={handleAskCoachEnd}
+          />
           <button
             type="button"
             onClick={() => setIsActive((previous) => !previous)}
-            className="py-4 rounded-2xl bg-amber-400 shadow-xl font-bold text-white flex items-center justify-center gap-2"
+            className="py-4 rounded-2xl bg-amber-400 shadow-xl font-bold text-white flex flex-col items-center justify-center gap-1"
           >
-            {isActive ? <Pause className="w-5 h-5" /> : <Play className="w-5 h-5" />}
-            {isActive ? 'Pause' : 'Resume'}
+            {isActive ? <Pause className="w-6 h-6" /> : <Play className="w-6 h-6" />}
+            <span className="text-xs">{isActive ? 'Pause' : 'Resume'}</span>
           </button>
           <button
             type="button"
             onClick={handleEndWalk}
-            className="py-4 rounded-2xl bg-red-500 shadow-xl font-bold text-white flex items-center justify-center gap-2"
+            className="py-4 rounded-2xl bg-red-500 shadow-xl font-bold text-white flex flex-col items-center justify-center gap-1"
           >
-            <Square className="w-5 h-5" />
-            End
+            <Square className="w-6 h-6" />
+            <span className="text-xs">End</span>
           </button>
         </div>
       </main>
