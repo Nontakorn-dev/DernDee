@@ -11,7 +11,7 @@ import {
   GAIT_MIN_ANALYSIS_SAMPLES,
   GAIT_SENSOR_STALE_AFTER_MS,
 } from '../gait/gaitRuntimeConfig.js';
-import { sortGaitSensorStates } from '../gait/gaitSensorSelection.js';
+import { sortGaitSensorStates, resolveVisibleShankSensorKeys } from '../gait/gaitSensorSelection.js';
 import {
   TRANSPORT_MODE_WEB_BLUETOOTH,
   connectBrowserBleDevice,
@@ -448,17 +448,9 @@ export class GaitLabDashboardApp {
   }
 
   _resolveVisibleSensorKeys() {
-    const now = Date.now();
-    const activeSensors = Array.from(this.availableSensors.values())
-      .filter((sensor) => now - sensor.lastSeenAt <= GAIT_SENSOR_STALE_AFTER_MS)
-      .sort(sortGaitSensorStates);
-
-    const shankSensors = activeSensors.filter((sensor) => sensor.sensorMount === 'shank');
-    if (shankSensors.length > 0) {
-      return shankSensors.slice(0, 2).map((sensor) => sensor.sensorKey);
-    }
-
-    return activeSensors.slice(0, 1).map((sensor) => sensor.sensorKey);
+    return resolveVisibleShankSensorKeys(Array.from(this.availableSensors.values()), {
+      staleAfterMs: GAIT_SENSOR_STALE_AFTER_MS,
+    });
   }
 
   _syncVisibleProcessors() {

@@ -5,10 +5,10 @@ import { useUserAuth } from '@shared/context/UserAuthContext.jsx';
 import { createRealtimeConnection } from '@shared/gateway/realtimeTransport.js';
 import {
     getRealtimeSensorLabel,
-    getRealtimeSensorSideOrder,
     normalizeRealtimeSensorSample,
 } from '@shared/gateway/realtimeSensorUtils.js';
 import { usePersistedGatewaySession } from '@shared/hooks/usePersistedGatewaySession.js';
+import { resolveVisibleShankSensorKeys, sortGaitSensorStates } from '@shared/gait/gaitSensorSelection.js';
 import { ArrowLeft, ArrowRight, Settings, Target, Play, Pause, Square, Star, X, ChevronLeft, ChevronRight, ChevronUp, ChevronDown, Volume2, VolumeX } from 'lucide-react';
 import derndeeLogo from '@shared/assets/images/derndee-logo.png';
 
@@ -157,15 +157,6 @@ function buildTargetMissionQueue(singleSide = null) {
     return missionQueue;
 }
 
-function sortSensorStates(left, right) {
-    const sideDelta = getRealtimeSensorSideOrder(left?.side) - getRealtimeSensorSideOrder(right?.side);
-    if (sideDelta !== 0) {
-        return sideDelta;
-    }
-
-    return (right?.lastSeenAt || 0) - (left?.lastSeenAt || 0);
-}
-
 function createSensorRuntime(sample) {
     return {
         sensorKey: sample.sensorKey,
@@ -219,18 +210,6 @@ function buildSensorView(sensorState) {
         distanceFromCenter,
         zone: getZoneForDistance(distanceFromCenter),
     };
-}
-
-function resolveVisibleSensorKeys(sensorRuntimeMap) {
-    const now = Date.now();
-    const activeSensors = Array.from(sensorRuntimeMap.values())
-        .filter((sensorState) => now - sensorState.lastSeenAt <= SENSOR_STALE_AFTER_MS)
-        .sort(sortSensorStates);
-
-    const shankSensors = activeSensors.filter((sensorState) => sensorState.sensorMount === 'shank');
-    const preferredSensors = shankSensors.length > 0 ? shankSensors : activeSensors;
-
-    return preferredSensors.slice(0, shankSensors.length > 0 ? MAX_VISIBLE_SENSORS : 1).map((sensorState) => sensorState.sensorKey);
 }
 
 function averageSensorMetric(sensorViews, metricKey, fallbackValue = 0) {
@@ -543,11 +522,14 @@ const GameBalance = () => {
         return activeSensorKeysRef.current
             .map((sensorKey) => sensorRuntimesRef.current.get(sensorKey))
             .filter(Boolean)
-            .sort(sortSensorStates);
+            .sort(sortGaitSensorStates);
     }, []);
 
     const syncVisibleSensorViews = useCallback(() => {
-        activeSensorKeysRef.current = resolveVisibleSensorKeys(sensorRuntimesRef.current);
+        activeSensorKeysRef.current = resolveVisibleShankSensorKeys(
+            Array.from(sensorRuntimesRef.current.values()),
+            { staleAfterMs: SENSOR_STALE_AFTER_MS, maxVisibleSensors: MAX_VISIBLE_SENSORS },
+        );
         const visibleSensorStates = getVisibleSensorStates();
         setSensorViews(visibleSensorStates.map(buildSensorView));
         return visibleSensorStates;

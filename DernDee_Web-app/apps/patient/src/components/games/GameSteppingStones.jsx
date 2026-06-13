@@ -139,6 +139,7 @@ const GameSteppingStones = () => {
     const [sessionTime, setSessionTime] = useState(0);
     const [completedTargets, setCompletedTargets] = useState(0);
     const [isConnected, setIsConnected] = useState(false);
+    const [hasShankSensor, setHasShankSensor] = useState(false);
     const [sessionMetrics, setSessionMetrics] = useState({});
     const [currentStrideCm, setCurrentStrideCm] = useState(null);
     const [currentStepCm, setCurrentStepCm] = useState(null);
@@ -315,6 +316,7 @@ const GameSteppingStones = () => {
             Array.from(sensorRuntimesRef.current.values()),
             { staleAfterMs: GAIT_SENSOR_STALE_AFTER_MS },
         );
+        setHasShankSensor(activeSensorKeysRef.current.length > 0);
         const visibleSensorStates = getVisibleSensorStates();
         setVisibleSensors(visibleSensorStates.map((sensorState) => ({
             key: sensorState.sensorKey,
@@ -561,6 +563,7 @@ const GameSteppingStones = () => {
         });
         sensorRuntimesRef.current.clear();
         activeSensorKeysRef.current = [];
+        setHasShankSensor(false);
         setVisibleSensors([]);
         setSessionMetrics({});
         clearLandingState();
@@ -938,8 +941,8 @@ const GameSteppingStones = () => {
 
                         {/* Sensor status */}
                         <div className="flex items-center gap-2 text-sm text-gray-600 mb-5">
-                            <span className={`w-2.5 h-2.5 rounded-full ${isConnected ? 'bg-emerald-400' : 'bg-amber-400'}`}></span>
-                            <span className="font-medium">{isConnected ? 'Sensors connected' : 'Waiting for sensors'}</span>
+                            <span className={`w-2.5 h-2.5 rounded-full ${hasShankSensor ? 'bg-emerald-400' : 'bg-amber-400'}`}></span>
+                            <span className="font-medium">{hasShankSensor ? 'Shank sensor ready' : 'Connect a shank sensor'}</span>
                         </div>
 
                         {/* Target step reach */}
@@ -1021,9 +1024,9 @@ const GameSteppingStones = () => {
                 {/* Stage (River scene) */}
                 <section className="stepping-stones-stage-shell lg:flex-1 xl:flex xl:flex-col xl:min-h-full">
                     <div className="stepping-stones-stage xl:flex-1 xl:min-h-full">
-                        {!isConnected && (
+                        {!hasShankSensor && (
                             <div className="stepping-stones-status-pill">
-                                Waiting for sensors
+                                Connect a shank sensor to play
                             </div>
                         )}
 

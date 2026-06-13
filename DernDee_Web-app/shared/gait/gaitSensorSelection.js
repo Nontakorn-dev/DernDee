@@ -4,6 +4,12 @@ import {
   GAIT_SENSOR_STALE_AFTER_MS,
 } from './gaitRuntimeConfig.js';
 
+export const SHANK_BODY_POSITION_IDS = new Set(['LEFT_SHANK', 'RIGHT_SHANK']);
+
+export function isShankBodyPositionId(positionId) {
+  return SHANK_BODY_POSITION_IDS.has(positionId);
+}
+
 export function sortGaitSensorStates(left, right) {
   const sideDelta = getRealtimeSensorSideOrder(left?.side) - getRealtimeSensorSideOrder(right?.side);
   if (sideDelta !== 0) {
@@ -13,21 +19,35 @@ export function sortGaitSensorStates(left, right) {
   return (right?.lastSeenAt || 0) - (left?.lastSeenAt || 0);
 }
 
+export function filterActiveShankSensorStates(sensorStates = [], options = {}) {
+  const { staleAfterMs = GAIT_SENSOR_STALE_AFTER_MS } = options;
+  const now = Date.now();
+
+  return sensorStates
+    .filter((sensorState) => now - (sensorState.lastSeenAt || 0) <= staleAfterMs)
+    .filter((sensorState) => sensorState.sensorMount === 'shank')
+    .sort(sortGaitSensorStates);
+}
+
+export function hasActiveShankSensorStates(sensorStates = [], options = {}) {
+  return filterActiveShankSensorStates(sensorStates, options).length > 0;
+}
+
+export function hasStreamingShankBleDevices(devices = []) {
+  return devices.some((device) => (
+    isShankBodyPositionId(device.positionId)
+    && device.status === 'connected'
+    && device.packetCount > 0
+  ));
+}
+
 export function resolveVisibleShankSensorKeys(sensorStates = [], options = {}) {
   const {
     staleAfterMs = GAIT_SENSOR_STALE_AFTER_MS,
     maxVisibleSensors = GAIT_MAX_VISIBLE_SHANK_SENSORS,
   } = options;
 
-  const now = Date.now();
-  const activeSensors = sensorStates
-    .filter((sensorState) => now - (sensorState.lastSeenAt || 0) <= staleAfterMs)
-    .sort(sortGaitSensorStates);
-
-  const shankSensors = activeSensors.filter((sensorState) => sensorState.sensorMount === 'shank');
-  const preferredSensors = shankSensors.length > 0 ? shankSensors : activeSensors;
-
-  return preferredSensors
-    .slice(0, shankSensors.length > 0 ? maxVisibleSensors : 1)
+  return filterActiveShankSensorStates(sensorStates, { staleAfterMs })
+    .slice(0, maxVisibleSensors)
     .map((sensorState) => sensorState.sensorKey);
 }

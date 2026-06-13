@@ -7,10 +7,10 @@ import { useUserAuth } from '@shared/context/UserAuthContext.jsx';
 import { createRealtimeConnection } from '@shared/gateway/realtimeTransport.js';
 import {
     getRealtimeSensorLabel,
-    getRealtimeSensorSideOrder,
     normalizeRealtimeSensorSample,
 } from '@shared/gateway/realtimeSensorUtils.js';
 import { usePersistedGatewaySession } from '@shared/hooks/usePersistedGatewaySession.js';
+import { resolveVisibleShankSensorKeys, sortGaitSensorStates } from '@shared/gait/gaitSensorSelection.js';
 import { ArrowLeft, Settings, Music, Play, Pause, Square, X, Volume2, VolumeX, Activity } from 'lucide-react';
 import derndeeLogo from '@shared/assets/images/derndee-logo.png';
 
@@ -46,29 +46,6 @@ function getRhythmJudgmentOffsetMs(audioContext) {
         return Math.max(RHYTHM_JUDGMENT_OFFSET_MS, measuredLatencyMs);
     }
     return RHYTHM_JUDGMENT_OFFSET_MS;
-}
-
-function sortSensorStates(left, right) {
-    const sideDelta = getRealtimeSensorSideOrder(left?.side) - getRealtimeSensorSideOrder(right?.side);
-    if (sideDelta !== 0) {
-        return sideDelta;
-    }
-
-    return (right?.lastSeenAt || 0) - (left?.lastSeenAt || 0);
-}
-
-function resolveVisibleSensorKeys(sensorRuntimeMap) {
-    const now = Date.now();
-    const activeSensors = Array.from(sensorRuntimeMap.values())
-        .filter((sensorState) => now - sensorState.lastSeenAt <= SENSOR_STALE_AFTER_MS)
-        .sort(sortSensorStates);
-
-    const shankSensors = activeSensors.filter((sensorState) => sensorState.sensorMount === 'shank');
-    const preferredSensors = shankSensors.length > 0 ? shankSensors : activeSensors;
-
-    return preferredSensors
-        .slice(0, shankSensors.length > 0 ? MAX_VISIBLE_SENSORS : 1)
-        .map((sensorState) => sensorState.sensorKey);
 }
 
 function averageMetric(values) {
@@ -179,7 +156,7 @@ const GameRhythm = () => {
         return activeSensorKeysRef.current
             .map((sensorKey) => sensorRuntimesRef.current.get(sensorKey))
             .filter(Boolean)
-            .sort(sortSensorStates);
+            .sort(sortGaitSensorStates);
     }, []);
 
     const syncAggregatedSessionMetrics = useCallback(() => {
@@ -205,7 +182,10 @@ const GameRhythm = () => {
     }, [getVisibleSensorStates]);
 
     const syncVisibleSensorViews = useCallback(() => {
-        activeSensorKeysRef.current = resolveVisibleSensorKeys(sensorRuntimesRef.current);
+        activeSensorKeysRef.current = resolveVisibleShankSensorKeys(
+            Array.from(sensorRuntimesRef.current.values()),
+            { staleAfterMs: SENSOR_STALE_AFTER_MS, maxVisibleSensors: MAX_VISIBLE_SENSORS },
+        );
         const visibleSensorStates = getVisibleSensorStates();
         return visibleSensorStates;
     }, [getVisibleSensorStates]);

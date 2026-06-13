@@ -13,7 +13,7 @@ import {
   GAIT_MIN_ANALYSIS_SAMPLES,
 } from '@shared/gait/gaitRuntimeConfig.js';
 import { GaitSessionAnalyzer } from '@shared/gait/sessionAnalyzer.js';
-import { resolveVisibleShankSensorKeys } from '@shared/gait/gaitSensorSelection.js';
+import { resolveVisibleShankSensorKeys, hasStreamingShankBleDevices } from '@shared/gait/gaitSensorSelection.js';
 import { useUserAuth } from '@shared/context/UserAuthContext.jsx';
 import {
   TRANSPORT_MODE_WEB_BLUETOOTH,
@@ -469,11 +469,9 @@ const FreeWalkSession = () => {
 
   useEffect(() => {
     const unsubscribe = subscribeToBrowserBleDevices((devices) => {
-      const streaming = devices.some((device) => device.status === 'connected' && device.packetCount > 0);
-      setSensorStreaming(streaming);
+      setSensorStreaming(hasStreamingShankBleDevices(devices));
     });
-    const snapshot = getBrowserBleDevicesSnapshot();
-    setSensorStreaming(snapshot.some((device) => device.status === 'connected' && device.packetCount > 0));
+    setSensorStreaming(hasStreamingShankBleDevices(getBrowserBleDevicesSnapshot()));
     return unsubscribe;
   }, []);
 
