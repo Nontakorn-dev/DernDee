@@ -7,11 +7,11 @@ const BLE_DEVICE_PREFIX = 'DernDee'
 const CALIBRATION_DELAY_MS = 3000
 
 const BODY_POSITIONS = [
-  { id: 'PELVIS', name: 'Chest', order: 1, deviceId: 'DernDee_Sensor_001' },
-  { id: 'LEFT_THIGH', name: 'Left Thigh', order: 2, deviceId: 'DernDee_Sensor_002' },
-  { id: 'RIGHT_THIGH', name: 'Right Thigh', order: 3, deviceId: 'DernDee_Sensor_003' },
-  { id: 'LEFT_SHANK', name: 'Left Ankle', order: 4, deviceId: 'DernDee_Sensor_004' },
-  { id: 'RIGHT_SHANK', name: 'Right Ankle', order: 5, deviceId: 'DernDee_Sensor_005' },
+  { id: 'PELVIS', name: 'Chest', order: 1, deviceId: 'DernDee_Chest' },
+  { id: 'LEFT_THIGH', name: 'Left Thigh', order: 2, deviceId: 'DernDee_L_Thigh' },
+  { id: 'RIGHT_THIGH', name: 'Right Thigh', order: 3, deviceId: 'DernDee_R_Thigh' },
+  { id: 'LEFT_SHANK', name: 'Left Shank', order: 4, deviceId: 'DernDee_L_Shank' },
+  { id: 'RIGHT_SHANK', name: 'Right Shank', order: 5, deviceId: 'DernDee_R_Shank' },
 ]
 
 function getStoredMode() {
@@ -114,6 +114,44 @@ function inferSensorMount(senderName = '', positionId = '') {
   }
 
   return senderName.includes('Shank') ? 'shank' : 'foot'
+}
+
+function findPositionIdForBleName(name = '') {
+  const normalizedName = String(name || '').trim()
+  if (!normalizedName) {
+    return null
+  }
+
+  const exactMatch = BODY_POSITIONS.find((position) => position.deviceId === normalizedName)
+  if (exactMatch) {
+    return exactMatch.id
+  }
+
+  const upperName = normalizedName.toUpperCase()
+  if (upperName.includes('CHEST') || upperName.includes('PELVIS')) {
+    return 'PELVIS'
+  }
+  if (upperName.includes('L_THIGH') || (upperName.includes('LEFT') && upperName.includes('THIGH'))) {
+    return 'LEFT_THIGH'
+  }
+  if (upperName.includes('R_THIGH') || (upperName.includes('RIGHT') && upperName.includes('THIGH'))) {
+    return 'RIGHT_THIGH'
+  }
+  if (upperName.includes('L_SHANK') || (upperName.includes('LEFT') && upperName.includes('SHANK'))) {
+    return 'LEFT_SHANK'
+  }
+  if (upperName.includes('R_SHANK') || (upperName.includes('RIGHT') && upperName.includes('SHANK'))) {
+    return 'RIGHT_SHANK'
+  }
+  // Legacy firmware names still map to shank slots.
+  if (upperName.includes('L_FOOT') || (upperName.includes('LEFT') && upperName.includes('FOOT'))) {
+    return 'LEFT_SHANK'
+  }
+  if (upperName.includes('R_FOOT') || (upperName.includes('RIGHT') && upperName.includes('FOOT'))) {
+    return 'RIGHT_SHANK'
+  }
+
+  return null
 }
 
 function inferSide(senderName = '', positionId = '') {
@@ -298,10 +336,29 @@ class BrowserBleManager {
     this.persistAssignments()
   }
 
-  async resolveDeviceForPosition(positionId, { preferKnownDevice = false, pickerFallback = true } = {}) {
+  async requestBleDeviceForTarget() {
+    return navigator.bluetooth.requestDevice({
+      filters: [{ namePrefix: BLE_DEVICE_PREFIX }],
+      optionalServices: [BLE_SERVICE_UUID],
+    })
+  }
+
+  async resolveDeviceForPosition(positionId, {
+    preferKnownDevice = false,
+    pickerFallback = true,
+    bluetoothDevice = null,
+  } = {}) {
     const target = this.devices.find((device) => device.positionId === positionId)
     if (!target) {
       throw new Error('Unknown device slot.')
+    }
+
+    if (bluetoothDevice) {
+      return {
+        bluetoothDevice,
+        selectedDeviceKey: bluetoothDevice.id || bluetoothDevice.name || target.expectedDeviceId,
+        target,
+      }
     }
 
     const assignment = this.deviceAssignments[positionId]
@@ -322,18 +379,29 @@ class BrowserBleManager {
       }
     }
 
+    if (preferKnownDevice && this.supportsRememberedDevices()) {
+      const grantedDevices = await navigator.bluetooth.getDevices()
+      const matchedByName = grantedDevices.find((device) => (
+        findPositionIdForBleName(device.name) === positionId
+      ))
+      if (matchedByName) {
+        return {
+          bluetoothDevice: matchedByName,
+          selectedDeviceKey: matchedByName.id || matchedByName.name || target.expectedDeviceId,
+          target,
+        }
+      }
+    }
+
     if (!pickerFallback) {
       throw new Error('No reusable browser BLE permission was found for this sensor on the new page.')
     }
 
-    const bluetoothDevice = await navigator.bluetooth.requestDevice({
-      filters: [{ namePrefix: BLE_DEVICE_PREFIX, services: [BLE_SERVICE_UUID] }],
-      optionalServices: [BLE_SERVICE_UUID],
-    })
+    const pickedDevice = await this.requestBleDeviceForTarget()
 
     return {
-      bluetoothDevice,
-      selectedDeviceKey: bluetoothDevice.id || bluetoothDevice.name || target.expectedDeviceId,
+      bluetoothDevice: pickedDevice,
+      selectedDeviceKey: pickedDevice.id || pickedDevice.name || target.expectedDeviceId,
       target,
     }
   }
@@ -382,15 +450,95 @@ class BrowserBleManager {
     return this.devices.some((device) => device.status === 'connected')
   }
 
+  getDisconnectedPositionIds() {
+    return this.devices
+      .filter((device) => device.status !== 'connected' && device.status !== 'connecting')
+      .map((device) => device.positionId)
+  }
+
+  async autoConnectBrowserBleDevices() {
+    if (!this.isWebBluetoothSupported() || !this.supportsRememberedDevices()) {
+      return { connected: [], skipped: this.getDisconnectedPositionIds(), failed: [] }
+    }
+
+    const grantedDevices = await navigator.bluetooth.getDevices()
+    const results = { connected: [], skipped: [], failed: [] }
+
+    for (const position of BODY_POSITIONS) {
+      const current = this.devices.find((device) => device.positionId === position.id)
+      if (current?.status === 'connected' || current?.status === 'connecting') {
+        continue
+      }
+
+      const matchedDevice = grantedDevices.find((device) => (
+        findPositionIdForBleName(device.name) === position.id
+      ))
+      if (!matchedDevice) {
+        results.skipped.push(position.id)
+        continue
+      }
+
+      try {
+        await this.connectDevice(position.id, {
+          bluetoothDevice: matchedDevice,
+          pickerFallback: false,
+        })
+        results.connected.push(position.id)
+      } catch {
+        results.failed.push(position.id)
+      }
+    }
+
+    return results
+  }
+
+  async connectAllBrowserBleDevices() {
+    const results = await this.autoConnectBrowserBleDevices()
+
+    while (this.getDisconnectedPositionIds().length > 0) {
+      const [positionId] = this.getDisconnectedPositionIds()
+      try {
+        await this.connectDevice(positionId, {
+          preferKnownDevice: true,
+          pickerFallback: true,
+        })
+        results.connected.push(positionId)
+      } catch (error) {
+        if (error?.name === 'NotFoundError') {
+          break
+        }
+        results.failed.push(positionId)
+        break
+      }
+    }
+
+    return results
+  }
+
   async connectDevice(positionId, options = {}) {
     if (!this.isWebBluetoothSupported()) {
       throw new Error('Web Bluetooth is not available in this browser.')
     }
 
-    const target = this.devices.find((device) => device.positionId === positionId)
+    let bluetoothDevice = options.bluetoothDevice || null
+    let selectedDeviceKey = null
+
+    if (!bluetoothDevice) {
+      const resolved = await this.resolveDeviceForPosition(positionId, options)
+      bluetoothDevice = resolved.bluetoothDevice
+      selectedDeviceKey = resolved.selectedDeviceKey
+    } else {
+      selectedDeviceKey = bluetoothDevice.id || bluetoothDevice.name || null
+    }
+
+    const resolvedPositionId = findPositionIdForBleName(bluetoothDevice?.name) || positionId
+    const target = this.devices.find((device) => device.positionId === resolvedPositionId)
     if (!target) {
       throw new Error('Unknown device slot.')
     }
+
+    positionId = resolvedPositionId
+    selectedDeviceKey = selectedDeviceKey || bluetoothDevice.id || bluetoothDevice.name || target.expectedDeviceId
 
     await this.disconnectDevice(positionId, { silent: true })
     this.updateDevice(positionId, (device) => ({
@@ -405,11 +553,6 @@ class BrowserBleManager {
     }))
 
     try {
-      const {
-        bluetoothDevice,
-        selectedDeviceKey,
-      } = await this.resolveDeviceForPosition(positionId, options)
-
       if (!bluetoothDevice.gatt) {
         throw new Error('This browser does not expose a usable GATT transport for the selected sensor.')
       }
@@ -700,6 +843,14 @@ export function subscribeToBrowserBleDevices(listener) {
 
 export async function connectBrowserBleDevice(positionId, options) {
   return browserBleManager.connectDevice(positionId, options)
+}
+
+export async function autoConnectBrowserBleDevices() {
+  return browserBleManager.autoConnectBrowserBleDevices()
+}
+
+export async function connectAllBrowserBleDevices() {
+  return browserBleManager.connectAllBrowserBleDevices()
 }
 
 export async function disconnectBrowserBleDevice(positionId, options) {

@@ -54,8 +54,8 @@ transport เตรียม body positions ไว้ 5 slot
 | `PELVIS` | Chest | pelvis |
 | `LEFT_THIGH` | Left Thigh | thigh |
 | `RIGHT_THIGH` | Right Thigh | thigh |
-| `LEFT_SHANK` | Left Ankle | shank |
-| `RIGHT_SHANK` | Right Ankle | shank |
+| `LEFT_SHANK` | Left Shank | shank |
+| `RIGHT_SHANK` | Right Shank | shank |
 
 พฤติกรรมสำคัญ
 
