@@ -26,7 +26,7 @@ import {
 } from 'lucide-react';
 import derndeeLogo from '@shared/assets/images/derndee-logo.png';
 
-const MAX_SCALE_FLEXION_DEG = 90;
+const GAUGE_MAX_SCALE = 100;
 const REP_REARM_HOLD_MS = 140;
 const MIN_REP_INTERVAL_MS = 1800;
 const VISUAL_FLOOR_SNAP_THRESHOLD_DEG = 5;
@@ -45,6 +45,7 @@ const TRAINING_MODES = {
     SEATED: {
         id: 'seated',
         label: 'นั่ง',
+        displayLabel: 'Seated',
         description: 'งอเข่าขณะนั่ง',
         icon: Armchair,
         targetFlexionDeg: 70,
@@ -54,6 +55,7 @@ const TRAINING_MODES = {
     STANDING_RAIL: {
         id: 'standing_rail',
         label: 'ยืนจับราว',
+        displayLabel: 'Standing Rail',
         description: 'ยืนจับราวยกขา',
         icon: Hand,
         targetFlexionDeg: 55,
@@ -63,6 +65,7 @@ const TRAINING_MODES = {
     WALKING: {
         id: 'walking',
         label: 'เดิน',
+        displayLabel: 'Walking',
         description: 'ยกขาแบบก้าวเดิน',
         icon: Footprints,
         targetFlexionDeg: 45,
@@ -134,7 +137,7 @@ const GameKneeFlexion = () => {
         return () => mediaQuery.removeEventListener('change', handler);
     }, []);
 
-    const displayMaxScale = isWideScreen ? MAX_SCALE_FLEXION_DEG : 75;
+    const displayMaxScale = GAUGE_MAX_SCALE;
     const displayFlexionPercent = Math.min(100, (displayFlexionDeg / displayMaxScale) * 100);
     const targetLinePercent = Math.min(100, (targetFlexionDeg / displayMaxScale) * 100);
 
@@ -370,7 +373,7 @@ const GameKneeFlexion = () => {
             return;
         }
 
-        const clampedFlexion = Math.min(MAX_SCALE_FLEXION_DEG, Math.max(0, flexionDeg));
+        const clampedFlexion = Math.min(GAUGE_MAX_SCALE, Math.max(0, flexionDeg));
         setCurrentFlexionDeg(clampedFlexion);
 
         const extensionCandidate = clampedFlexion <= resetThresholdDeg;
@@ -784,7 +787,7 @@ const GameKneeFlexion = () => {
 
                     <div className="relative h-full w-full max-w-sm mx-auto flex justify-center">
                         <div className="absolute left-0 top-0 bottom-0 flex flex-col justify-between py-4 text-sm font-bold text-gray-400">
-                            {(isWideScreen ? [90, 75, 60, 45, 30, 15, 0] : [75, 60, 45, 30, 15, 0]).map((val) => (
+                            {(isWideScreen ? [100, 80, 60, 40, 20, 0] : [100, 75, 50, 25, 0]).map((val) => (
                                 <span key={val} className="relative">
                                     {val}
                                     <span className="absolute left-6 top-1/2 w-4 h-[2px] bg-gray-200" />
@@ -797,15 +800,6 @@ const GameKneeFlexion = () => {
                                 className="absolute inset-0 opacity-10"
                                 style={{ backgroundImage: 'linear-gradient(#000 1px, transparent 1px)', backgroundSize: '100% 10%' }}
                             />
-
-                            <div
-                                className="absolute left-0 right-0 border-t-2 border-dashed border-gray-400 z-10 opacity-60"
-                                style={{ bottom: `${(resetThresholdDeg / displayMaxScale) * 100}%` }}
-                            >
-                                <span className="absolute -left-16 -top-2.5 text-[10px] font-bold text-gray-500 bg-gray-100 px-1.5 py-0.5 rounded">
-                                    EXTEND
-                                </span>
-                            </div>
 
                             <div
                                 className="absolute left-0 right-0 border-t-4 border-dashed border-red-500 z-20"
@@ -861,7 +855,7 @@ const GameKneeFlexion = () => {
                         </div>
 
                         <div className="mb-4 flex items-center justify-between text-xs font-semibold text-gray-500">
-                            <span>โหมด: <span className="text-blue-600">{trainingMode.label}</span></span>
+                            <span>Mode: <span className="text-blue-600">{trainingMode.displayLabel}</span></span>
                             <span>{activeLegLabel}</span>
                         </div>
 
@@ -949,10 +943,10 @@ const GameKneeFlexion = () => {
                     </div>
 
                     <button
-                        onClick={() => navigate('/game/clearance')}
+                        onClick={() => navigate('/game/stepping-stones')}
                         className="w-full py-4 border-2 border-blue-200 bg-white hover:bg-blue-50 text-blue-700 font-black text-lg rounded-2xl shadow-lg transition-all hover:scale-[1.01] flex items-center justify-center gap-2"
                     >
-                        <span>Next: High Stepper</span>
+                        <span>Next: Stepping Stones</span>
                         <ArrowRight className="w-5 h-5" />
                     </button>
                 </div>

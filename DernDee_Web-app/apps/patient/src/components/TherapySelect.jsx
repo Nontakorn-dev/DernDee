@@ -35,15 +35,6 @@ const TherapySelect = () => {
             route: '/game/rhythm'
         },
         {
-            id: 'stepping-stones',
-            title: 'Stepping Stones',
-            description: 'Train step reach and safe weight shift.',
-            icon: Footprints,
-            iconBg: 'bg-emerald-100',
-            iconColor: 'text-emerald-600',
-            route: '/game/stepping-stones'
-        },
-        {
             id: 'knee-flexion',
             title: 'Knee Flexion Quest',
             description: 'Train knee bend and foot clearance with thigh + shank sensors.',
@@ -51,6 +42,15 @@ const TherapySelect = () => {
             iconBg: 'bg-violet-100',
             iconColor: 'text-violet-600',
             route: '/game/knee-flexion'
+        },
+        {
+            id: 'stepping-stones',
+            title: 'Stepping Stones',
+            description: 'Train step reach and safe weight shift.',
+            icon: Footprints,
+            iconBg: 'bg-emerald-100',
+            iconColor: 'text-emerald-600',
+            route: '/game/stepping-stones'
         },
         {
             id: 'freewalk',

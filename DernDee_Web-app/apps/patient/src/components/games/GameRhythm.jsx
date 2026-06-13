@@ -11,7 +11,7 @@ import {
 } from '@shared/gateway/realtimeSensorUtils.js';
 import { usePersistedGatewaySession } from '@shared/hooks/usePersistedGatewaySession.js';
 import { resolveVisibleShankSensorKeys, sortGaitSensorStates } from '@shared/gait/gaitSensorSelection.js';
-import { ArrowLeft, Settings, Music, Play, Pause, Square, X, Volume2, VolumeX, Activity } from 'lucide-react';
+import { ArrowLeft, Settings, Music, Play, Pause, Square, X, Volume2, VolumeX, Activity, ArrowRight } from 'lucide-react';
 import derndeeLogo from '@shared/assets/images/derndee-logo.png';
 
 // === CONSTANTS ===
@@ -1083,6 +1083,14 @@ const GameRhythm = () => {
                             </button>
                         )}
                     </div>
+
+                    <button
+                        onClick={() => navigate('/game/knee-flexion')}
+                        className="w-full py-4 border-2 border-blue-200 bg-white hover:bg-blue-50 text-blue-700 font-black text-lg rounded-2xl shadow-lg transition-all hover:scale-[1.01] flex items-center justify-center gap-2"
+                    >
+                        <span>Next: Knee Flexion Quest</span>
+                        <ArrowRight className="w-5 h-5" />
+                    </button>
 
                     {/* Completion Message */}
                     {gameState === GAME_STATES.COMPLETED && (
