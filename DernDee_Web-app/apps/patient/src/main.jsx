@@ -20,6 +20,7 @@ import GameClearance from '@patient/components/games/GameClearance.jsx'
 import GameBalance from '@patient/components/games/GameBalance.jsx'
 import GameRhythm from '@patient/components/games/GameRhythm.jsx'
 import GameSteppingStones from '@patient/components/games/GameSteppingStones.jsx'
+import GameKneeFlexion from '@patient/components/games/GameKneeFlexion.jsx'
 import ProtectedRoute from '@shared/auth/ProtectedRoute.jsx'
 import { registerDernDeePwa } from '@shared/pwa/registerPwa.js'
 
@@ -115,6 +116,10 @@ const router = createBrowserRouter([
   {
     path: "/game/stepping-stones",
     element: <ProtectedRoute><GameSteppingStones /></ProtectedRoute>
+  },
+  {
+    path: "/game/knee-flexion",
+    element: <ProtectedRoute><GameKneeFlexion /></ProtectedRoute>
   }
 ])
 

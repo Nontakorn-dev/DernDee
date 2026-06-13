@@ -1,6 +1,6 @@
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Activity, ArrowLeft, Footprints, Mountain, Target, Music, Timer } from 'lucide-react';
+import { Activity, ArrowLeft, Footprints, Mountain, Target, Music, Timer, Accessibility } from 'lucide-react';
 import derndeeLogo from '@shared/assets/images/derndee-logo.png';
 
 const TherapySelect = () => {
@@ -42,6 +42,15 @@ const TherapySelect = () => {
             iconBg: 'bg-emerald-100',
             iconColor: 'text-emerald-600',
             route: '/game/stepping-stones'
+        },
+        {
+            id: 'knee-flexion',
+            title: 'Knee Flexion Quest',
+            description: 'Train knee bend and foot clearance with thigh + shank sensors.',
+            icon: Accessibility,
+            iconBg: 'bg-violet-100',
+            iconColor: 'text-violet-600',
+            route: '/game/knee-flexion'
         },
         {
             id: 'freewalk',
