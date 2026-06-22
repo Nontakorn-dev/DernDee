@@ -1,4 +1,5 @@
 import { GaitEventDetector } from './gaitEventDetector.js';
+import { DEFAULT_SHANK_LENGTH_M } from './gaitCalibration.js';
 import { KalmanFilter } from './kalmanFilter.js';
 import { rawAccelToG, rawGyroToDps, accelToAngle, movingAverage } from './signalUtils.js';
 import { VelocityIntegrator } from './velocityIntegrator.js';
@@ -352,6 +353,26 @@ function normalizeTimestampField(sample) {
   return { valueMs: Date.now(), isAbsolute: true };
 }
 
+function getRawAxis(sample, key, arrayKey, arrayIndex) {
+  if (Number.isFinite(sample[key])) {
+    return sample[key];
+  }
+
+  if (Array.isArray(sample[arrayKey]) && Number.isFinite(sample[arrayKey][arrayIndex])) {
+    return sample[arrayKey][arrayIndex];
+  }
+
+  return 0;
+}
+
+function readGyroDps(sample, gyroBiasDps) {
+  return {
+    gx: rawGyroToDps(getRawAxis(sample, 'gx', 'raw_gyro', 0)) - (gyroBiasDps?.gx ?? 0),
+    gy: rawGyroToDps(getRawAxis(sample, 'gy', 'raw_gyro', 1)) - (gyroBiasDps?.gy ?? 0),
+    gz: rawGyroToDps(getRawAxis(sample, 'gz', 'raw_gyro', 2)) - (gyroBiasDps?.gz ?? 0),
+  };
+}
+
 export class GaitProcessor {
   constructor() {
     this.kalman = new KalmanFilter(1.0 / SAMPLE_RATE);
@@ -372,6 +393,8 @@ export class GaitProcessor {
     this.relativeTimestampOriginMs = null;
     this.absoluteTimestampOriginMs = null;
     this.lastSourceTimestampMs = null;
+    this.gyroBiasDps = { gx: 0, gy: 0, gz: 0 };
+    this.calibration = null;
     this.processedData = {
       timestamps: [],
       angularVelocity: [],
@@ -382,6 +405,34 @@ export class GaitProcessor {
     };
   }
 
+  applyCalibration(profile = {}) {
+    this.gyroBiasDps = {
+      gx: profile.gyroBiasDps?.gx ?? 0,
+      gy: profile.gyroBiasDps?.gy ?? 0,
+      gz: profile.gyroBiasDps?.gz ?? 0,
+    };
+    this.calibration = {
+      appliedAt: Date.now(),
+      gyroBiasDps: { ...this.gyroBiasDps },
+      gyroStdDps: profile.gyroStdDps ?? null,
+      accelMeanG: profile.accelMeanG ?? null,
+      shankLengthM: Number.isFinite(profile.shankLengthM) ? profile.shankLengthM : DEFAULT_SHANK_LENGTH_M,
+      sampleCount: profile.sampleCount ?? null,
+      quality: profile.quality ?? null,
+    };
+    this.kalman.reset();
+  }
+
+  getCalibration() {
+    return this.calibration;
+  }
+
+  warmStartFromSamples(samples = []) {
+    for (const sample of samples) {
+      this.addSample(sample);
+    }
+  }
+
   onParams(callback) {
     this.paramListeners.push(callback);
   }
@@ -389,9 +440,10 @@ export class GaitProcessor {
   addSample(sample) {
     const timestampMs = this.resolveTimestampMs(sample);
     const dtSeconds = this.getSampleIntervalSeconds(timestampMs);
-    const gx = rawGyroToDps(sample.gx);
-    const aYg = rawAccelToG(sample.ay);
-    const aZg = rawAccelToG(sample.az);
+    const gyro = readGyroDps(sample, this.gyroBiasDps);
+    const gx = gyro.gx;
+    const aYg = rawAccelToG(getRawAxis(sample, 'ay', 'raw_accel', 1));
+    const aZg = rawAccelToG(getRawAxis(sample, 'az', 'raw_accel', 2));
     const accelAngle = accelToAngle(aYg, aZg);
     const shankAngle = this.kalman.update(gx, accelAngle, dtSeconds);
 
@@ -433,9 +485,10 @@ export class GaitProcessor {
         ? Math.max(0, (sample.timestampMs - firstTimestampMs) / 1000)
         : i * (1.0 / SAMPLE_RATE);
 
-      const gx = rawGyroToDps(sample.gx);
-      const aYg = rawAccelToG(sample.ay);
-      const aZg = rawAccelToG(sample.az);
+      const gyro = readGyroDps(sample, this.gyroBiasDps);
+      const gx = gyro.gx;
+      const aYg = rawAccelToG(getRawAxis(sample, 'ay', 'raw_accel', 1));
+      const aZg = rawAccelToG(getRawAxis(sample, 'az', 'raw_accel', 2));
 
       angVelDeg[i] = gx;
       ayG[i] = aYg;
@@ -607,6 +660,8 @@ export class GaitProcessor {
       side: cycleStartSample?.side ?? null,
       sensorName: cycleStartSample?.sensorName ?? null,
       sensorMount: cycleStartSample?.sensorMount ?? null,
+      calibrated: Boolean(this.calibration),
+      shankLengthM: this.calibration?.shankLengthM ?? DEFAULT_SHANK_LENGTH_M,
     };
 
     const lastStart = lastCycle.hsStart.index;
@@ -644,6 +699,10 @@ export class GaitProcessor {
     this.relativeTimestampOriginMs = null;
     this.absoluteTimestampOriginMs = null;
     this.lastSourceTimestampMs = null;
+    const preservedCalibration = this.calibration;
+    const preservedBias = { ...this.gyroBiasDps };
+    this.gyroBiasDps = preservedBias;
+    this.calibration = preservedCalibration;
     this.processedData = {
       timestamps: [],
       angularVelocity: [],

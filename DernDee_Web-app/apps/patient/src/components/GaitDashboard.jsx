@@ -69,9 +69,50 @@ const GaitDashboard = () => {
                     </button>
 
                     <button className="btn" id="btn-demo" title="Start Demo Mode" type="button">▶ Demo</button>
+                    <button className="btn" id="btn-calibrate" title="Calibrate gyro bias and shank length" type="button">🎯 Calibrate</button>
                     <button className="btn btn-primary" id="btn-connect" title="Connect a sensor directly from this browser" type="button">📶 Connect Sensor</button>
                 </div>
+                <div className="calibration-badge pending" id="calibration-badge">Not calibrated</div>
             </header>
+
+            <div id="calibration-overlay" className="calibration-overlay hidden">
+                <div className="calibration-card" id="calibration-panel">
+                    <h2>Sensor Calibration</h2>
+                    <p className="calibration-lede">Stand still with feet together for 3 seconds. Calibration removes gyro bias for more accurate event detection and step integration.</p>
+                    <p className="calibration-blocked hidden" id="calibration-blocked-message"></p>
+                    <div className="calibration-form">
+                        <label>
+                            Height (cm)
+                            <input id="calibration-height" type="number" min="120" max="220" step="1" placeholder="170" />
+                        </label>
+                        <label>
+                            Shank length (cm, optional)
+                            <input id="calibration-shank" type="number" min="30" max="60" step="0.5" placeholder="auto from height" />
+                        </label>
+                    </div>
+                    <div className="calibration-actions">
+                        <button className="btn" id="btn-calibration-cancel" type="button">Cancel</button>
+                        <button className="btn btn-primary" id="btn-calibration-start" type="button">Start Calibration</button>
+                    </div>
+                </div>
+
+                <div className="calibration-card hidden" id="calibration-progress-panel">
+                    <h2>Calibrating...</h2>
+                    <p className="calibration-lede">Stand still. Keep the shank sensor stable.</p>
+                    <div className="calibration-progress-track">
+                        <div className="calibration-progress-bar" id="calibration-progress-bar"></div>
+                    </div>
+                    <p className="calibration-progress-text" id="calibration-progress-text">Collecting samples...</p>
+                </div>
+
+                <div className="calibration-card hidden" id="calibration-result-panel">
+                    <h2>Calibration Result</h2>
+                    <p className="calibration-result-text" id="calibration-result-text"></p>
+                    <div className="calibration-actions">
+                        <button className="btn btn-primary" id="btn-calibration-done" type="button">Continue</button>
+                    </div>
+                </div>
+            </div>
 
             <main className="main-container">
                 <div className="dashboard-grid">

@@ -80,6 +80,19 @@ export function findZeroCrossing(signal, startIdx, endIdx) {
   return null;
 }
 
+export function median(values) {
+  const numeric = values.filter(Number.isFinite);
+  if (!numeric.length) {
+    return null;
+  }
+
+  const sorted = [...numeric].sort((left, right) => left - right);
+  const mid = Math.floor(sorted.length / 2);
+  return sorted.length % 2 === 0
+    ? (sorted[mid - 1] + sorted[mid]) / 2
+    : sorted[mid];
+}
+
 export function trapezoidalIntegrate(signal, dt) {
   const result = new Array(signal.length);
   result[0] = 0;

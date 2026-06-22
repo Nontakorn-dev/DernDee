@@ -3,6 +3,11 @@ import { createGaitProcessorClient } from '../gait/gaitProcessorClient.js';
 import { Dashboard } from './ui/dashboard.js';
 import { ChartsManager } from './ui/charts.js';
 import {
+  computeCalibrationProfile,
+  estimateShankLengthM,
+  CALIBRATION_DURATION_MS,
+} from '../gait/gaitCalibration.js';
+import {
   getRealtimeSensorLabel,
   normalizeRealtimeSensorSample,
 } from '../gateway/realtimeSensorUtils.js';
@@ -26,6 +31,8 @@ import {
 const DEMO_PREFILL_SAMPLES = 400;
 const DASHBOARD_BLE_SLOTS = ['LEFT_SHANK', 'RIGHT_SHANK'];
 const REMOTE_RETRY_DELAY_MS = 1500;
+const CALIBRATION_STORAGE_KEY = 'derndee:gait-calibration-prefs';
+const CALIBRATION_WARMSTART_SAMPLES = 120;
 
 function buildDemoSample(sample) {
   return {
@@ -154,6 +161,11 @@ export class GaitLabDashboardApp {
     this.analysisTimer = null;
     this.loadingTimer = null;
     this.remoteRetryTimer = null;
+    this.calibrationActive = false;
+    this.calibrationBuckets = new Map();
+    this.calibrationTimer = null;
+    this.calibrationProgressTimer = null;
+    this.pendingShankLengthM = estimateShankLengthM();
   }
 
   init() {
@@ -172,6 +184,7 @@ export class GaitLabDashboardApp {
 
     this._bindEvents();
     this._startInitialMode();
+    this.dashboard.setCalibrationBadge(false);
 
     if (this.loadingTimer) {
       window.clearTimeout(this.loadingTimer);
@@ -301,6 +314,10 @@ export class GaitLabDashboardApp {
   }
 
   stopAll() {
+    this._clearCalibrationTimers();
+    this.calibrationActive = false;
+    this.calibrationBuckets.clear();
+
     if (this.demoStream) {
       this.demoStream.stop();
       this.demoStream = null;
@@ -500,6 +517,10 @@ export class GaitLabDashboardApp {
     const displayKey = this._getDisplayKey(normalizedSample);
     const state = this.sensorProcessors.get(displayKey) || this._createProcessorState(displayKey, normalizedSample);
 
+    if (this.calibrationActive) {
+      this._collectCalibrationSample(normalizedSample);
+    }
+
     state.label = getRealtimeSensorLabel(normalizedSample);
     state.side = normalizedSample.side || null;
     state.sensorKey = normalizedSample.sensorKey;
@@ -582,6 +603,211 @@ export class GaitLabDashboardApp {
     document.getElementById('btn-demo')?.addEventListener('click', () => {
       void this.startDemo();
     });
+
+    document.getElementById('btn-calibrate')?.addEventListener('click', () => {
+      this.openCalibration();
+    });
+
+    document.getElementById('btn-calibration-cancel')?.addEventListener('click', () => {
+      this.dashboard.closeCalibrationPanel();
+    });
+
+    document.getElementById('btn-calibration-start')?.addEventListener('click', () => {
+      void this.beginCalibrationCapture();
+    });
+
+    document.getElementById('btn-calibration-done')?.addEventListener('click', () => {
+      this.dashboard.closeCalibrationPanel();
+    });
+  }
+
+  _readCalibrationPrefs() {
+    try {
+      const raw = window.localStorage.getItem(CALIBRATION_STORAGE_KEY);
+      return raw ? JSON.parse(raw) : {};
+    } catch {
+      return {};
+    }
+  }
+
+  _writeCalibrationPrefs(prefs) {
+    try {
+      window.localStorage.setItem(CALIBRATION_STORAGE_KEY, JSON.stringify(prefs));
+    } catch {
+      // Ignore storage failures in private browsing.
+    }
+  }
+
+  openCalibration() {
+    if (this.mode === 'demo') {
+      this.dashboard.openCalibrationPanel({
+        blocked: true,
+        reason: 'Connect a BLE sensor before calibrating for best accuracy.',
+        ...this._readCalibrationPrefs(),
+      });
+      return;
+    }
+
+    if (!this.visibleSensorKeys.length) {
+      this.dashboard.openCalibrationPanel({
+        blocked: true,
+        reason: 'No shank sensor is streaming yet. Connect a sensor and wait for data.',
+        ...this._readCalibrationPrefs(),
+      });
+      return;
+    }
+
+    this.dashboard.openCalibrationPanel(this._readCalibrationPrefs());
+  }
+
+  async beginCalibrationCapture() {
+    const heightCm = Number.parseFloat(document.getElementById('calibration-height')?.value);
+    const shankLengthCm = Number.parseFloat(document.getElementById('calibration-shank')?.value);
+    this._writeCalibrationPrefs({
+      heightCm: Number.isFinite(heightCm) ? heightCm : null,
+      shankLengthCm: Number.isFinite(shankLengthCm) ? shankLengthCm : null,
+    });
+    this.pendingShankLengthM = estimateShankLengthM({
+      heightCm: Number.isFinite(heightCm) ? heightCm : null,
+      shankLengthCm: Number.isFinite(shankLengthCm) ? shankLengthCm : null,
+    });
+
+    this.calibrationActive = true;
+    this.calibrationBuckets = new Map();
+    this._sendTransportCommand('CALIBRATE');
+    this._pauseAnalysisTimer();
+
+    this.sensorProcessors.forEach((state) => {
+      state.processor.reset();
+      state.sampleCount = 0;
+      state.latestParams = null;
+      state.latestProcessedData = null;
+    });
+    this.dashboard.updateEvents([]);
+    this.charts.update([]);
+
+    const startedAt = Date.now();
+    this.dashboard.showCalibrationProgress(0, 'Stand still and keep the sensor stable...');
+
+    this.calibrationProgressTimer = window.setInterval(() => {
+      const elapsed = Date.now() - startedAt;
+      const percent = (elapsed / CALIBRATION_DURATION_MS) * 100;
+      const remaining = Math.max(0, Math.ceil((CALIBRATION_DURATION_MS - elapsed) / 1000));
+      this.dashboard.showCalibrationProgress(
+        percent,
+        `Collecting IMU samples... ${remaining}s remaining`,
+      );
+    }, 100);
+
+    this.calibrationTimer = window.setTimeout(() => {
+      this._finishCalibration();
+    }, CALIBRATION_DURATION_MS);
+  }
+
+  _collectCalibrationSample(sample) {
+    const bucket = this.calibrationBuckets.get(sample.sensorKey) || [];
+    bucket.push(sample);
+    this.calibrationBuckets.set(sample.sensorKey, bucket);
+  }
+
+  _finishCalibration() {
+    this._clearCalibrationTimers();
+    this.calibrationActive = false;
+
+    const sensorKeys = this.visibleSensorKeys.length
+      ? this.visibleSensorKeys
+      : Array.from(this.calibrationBuckets.keys());
+    const results = sensorKeys.map((sensorKey) => {
+      const samples = this.calibrationBuckets.get(sensorKey) || [];
+      const profile = computeCalibrationProfile(samples, {
+        shankLengthM: this.pendingShankLengthM,
+      });
+      return { sensorKey, samples, profile };
+    });
+
+    let successCount = 0;
+    const failureReasons = [];
+
+    for (const state of this.sensorProcessors.values()) {
+      const result = results.find((item) => item.sensorKey === state.sensorKey);
+      if (!result) {
+        continue;
+      }
+
+      if (!result.profile.ok) {
+        failureReasons.push(`${state.label}: ${result.profile.reason}`);
+        continue;
+      }
+
+      state.processor.reset();
+      state.processor.applyCalibration(result.profile);
+      const warmStartSamples = result.samples.slice(-CALIBRATION_WARMSTART_SAMPLES);
+      state.processor.warmStartFromSamples(warmStartSamples);
+      state.sampleCount = warmStartSamples.length;
+      state.latestParams = null;
+      state.latestProcessedData = null;
+      successCount += 1;
+    }
+
+    this._resumeAnalysisTimer();
+
+    if (successCount > 0) {
+      const firstSuccess = results.find((item) => item.profile.ok);
+      const summary = firstSuccess
+        ? `shank ${(firstSuccess.profile.shankLengthM).toFixed(2)} m, gyro σ ${firstSuccess.profile.quality.maxGyroStdDps.toFixed(1)}°/s`
+        : '';
+      this.dashboard.showCalibrationResult({
+        ok: true,
+        message: `Calibration complete for ${successCount} sensor(s). You can start walking.`,
+        summary,
+      });
+      this.dashboard.setCalibrationBadge(true, summary);
+      return;
+    }
+
+    const message = failureReasons.length
+      ? failureReasons.join(' ')
+      : 'Calibration failed. Stand still on a flat surface and try again.';
+    this.dashboard.showCalibrationResult({
+      ok: false,
+      message,
+      summary: '',
+    });
+    this.dashboard.setCalibrationBadge(false);
+  }
+
+  _clearCalibrationTimers() {
+    if (this.calibrationTimer) {
+      window.clearTimeout(this.calibrationTimer);
+      this.calibrationTimer = null;
+    }
+    if (this.calibrationProgressTimer) {
+      window.clearInterval(this.calibrationProgressTimer);
+      this.calibrationProgressTimer = null;
+    }
+  }
+
+  _pauseAnalysisTimer() {
+    if (this.analysisTimer) {
+      window.clearInterval(this.analysisTimer);
+      this.analysisTimer = null;
+    }
+  }
+
+  _resumeAnalysisTimer() {
+    if (this.analysisTimer) {
+      return;
+    }
+
+    this.analysisTimer = window.setInterval(() => {
+      this._analyzeReadyProcessors();
+    }, GAIT_ANALYSIS_INTERVAL_MS);
+  }
+
+  _sendTransportCommand(command) {
+    if (typeof this.stream?.ws?.send === 'function') {
+      this.stream.ws.send(command);
+    }
   }
 
   async _connectBroadcastPublisher() {

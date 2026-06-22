@@ -51,6 +51,14 @@ export class Dashboard {
     this.statusText = document.getElementById('status-text');
     this.modeLabel = document.getElementById('mode-label');
     this.sensorSummary = document.getElementById('sensor-side-summary');
+    this.calibrationOverlay = document.getElementById('calibration-overlay');
+    this.calibrationPanel = document.getElementById('calibration-panel');
+    this.calibrationProgressPanel = document.getElementById('calibration-progress-panel');
+    this.calibrationResultPanel = document.getElementById('calibration-result-panel');
+    this.calibrationProgressBar = document.getElementById('calibration-progress-bar');
+    this.calibrationProgressText = document.getElementById('calibration-progress-text');
+    this.calibrationResultText = document.getElementById('calibration-result-text');
+    this.calibrationBadge = document.getElementById('calibration-badge');
   }
 
   updateParams(params) {
@@ -177,6 +185,80 @@ export class Dashboard {
 
   activatePipelineStep() {
     // No longer used in the new layout.
+  }
+
+  openCalibrationPanel(prefs = {}) {
+    if (!this.calibrationOverlay) {
+      return;
+    }
+
+    this.calibrationOverlay.classList.remove('hidden');
+    this.calibrationPanel?.classList.remove('hidden');
+    this.calibrationProgressPanel?.classList.add('hidden');
+    this.calibrationResultPanel?.classList.add('hidden');
+
+    const heightInput = document.getElementById('calibration-height');
+    const shankInput = document.getElementById('calibration-shank');
+    const blockedMessage = document.getElementById('calibration-blocked-message');
+
+    if (heightInput && Number.isFinite(prefs.heightCm)) {
+      heightInput.value = String(prefs.heightCm);
+    }
+    if (shankInput && Number.isFinite(prefs.shankLengthCm)) {
+      shankInput.value = String(prefs.shankLengthCm);
+    }
+
+    const blocked = Boolean(prefs.blocked);
+    if (blockedMessage) {
+      blockedMessage.textContent = prefs.reason || 'Connect a BLE sensor before calibrating.';
+      blockedMessage.classList.toggle('hidden', !blocked);
+    }
+    document.getElementById('btn-calibration-start')?.toggleAttribute('disabled', blocked);
+  }
+
+  closeCalibrationPanel() {
+    this.calibrationOverlay?.classList.add('hidden');
+  }
+
+  showCalibrationProgress(percent, message) {
+    this.calibrationPanel?.classList.add('hidden');
+    this.calibrationProgressPanel?.classList.remove('hidden');
+    this.calibrationResultPanel?.classList.add('hidden');
+
+    if (this.calibrationProgressBar) {
+      this.calibrationProgressBar.style.width = `${Math.max(0, Math.min(100, percent))}%`;
+    }
+    if (this.calibrationProgressText) {
+      this.calibrationProgressText.textContent = message;
+    }
+  }
+
+  showCalibrationResult(result) {
+    this.calibrationPanel?.classList.add('hidden');
+    this.calibrationProgressPanel?.classList.add('hidden');
+    this.calibrationResultPanel?.classList.remove('hidden');
+
+    if (this.calibrationResultText) {
+      this.calibrationResultText.textContent = result.message;
+      this.calibrationResultText.className = result.ok
+        ? 'calibration-result-text success'
+        : 'calibration-result-text error';
+    }
+
+    this.setCalibrationBadge(result.ok, result.summary);
+  }
+
+  setCalibrationBadge(isCalibrated, summary = '') {
+    if (!this.calibrationBadge) {
+      return;
+    }
+
+    this.calibrationBadge.className = isCalibrated
+      ? 'calibration-badge calibrated'
+      : 'calibration-badge pending';
+    this.calibrationBadge.textContent = isCalibrated
+      ? `Calibrated${summary ? ` · ${summary}` : ''}`
+      : 'Not calibrated';
   }
 
   _animateValue(key, newValue) {

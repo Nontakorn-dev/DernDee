@@ -1,15 +1,12 @@
 import { GaitProcessor } from './gaitProcessor.js'
 
 class LocalGaitProcessorClient {
-  constructor() {
-    this.processor = new GaitProcessor()
+  constructor(options = {}) {
+    this.processor = new GaitProcessor(options)
   }
 
   onParams(callback) {
-    this.processor.onParams(callback)
-    return () => {
-      this.processor.paramListeners = this.processor.paramListeners.filter((listener) => listener !== callback)
-    }
+    return this.processor.onParams(callback)
   }
 
   addSample(sample) {
@@ -18,6 +15,18 @@ class LocalGaitProcessorClient {
 
   analyze() {
     this.processor.analyze()
+  }
+
+  applyCalibration(profile) {
+    this.processor.applyCalibration(profile)
+  }
+
+  warmStartFromSamples(samples) {
+    this.processor.warmStartFromSamples(samples)
+  }
+
+  getCalibration() {
+    return this.processor.getCalibration()
   }
 
   reset() {
@@ -31,23 +40,18 @@ class LocalGaitProcessorClient {
 }
 
 class WorkerGaitProcessorClient {
-  constructor() {
+  constructor(options = {}) {
     this.listeners = new Set()
     this.worker = new Worker(new URL('./gaitProcessor.worker.js', import.meta.url), {
       type: 'module',
     })
-
+    this.worker.postMessage({ type: 'configure', payload: options })
     this.worker.onmessage = (event) => {
       const { type, payload } = event.data || {}
-      if (type !== 'analysis') {
-        return
+      if (type === 'analysis') {
+        this.listeners.forEach((listener) => listener(payload))
       }
-
-      this.listeners.forEach((listener) => {
-        listener(payload)
-      })
     }
-
     this.worker.onerror = (error) => {
       console.error('Gait processor worker failed:', error)
     }
@@ -55,20 +59,27 @@ class WorkerGaitProcessorClient {
 
   onParams(callback) {
     this.listeners.add(callback)
-    return () => {
-      this.listeners.delete(callback)
-    }
+    return () => this.listeners.delete(callback)
   }
 
   addSample(sample) {
-    this.worker.postMessage({
-      type: 'add-sample',
-      payload: sample,
-    })
+    this.worker.postMessage({ type: 'add-sample', payload: sample })
   }
 
   analyze() {
     this.worker.postMessage({ type: 'analyze' })
+  }
+
+  applyCalibration(profile) {
+    this.worker.postMessage({ type: 'apply-calibration', payload: profile })
+  }
+
+  warmStartFromSamples(samples) {
+    this.worker.postMessage({ type: 'warm-start', payload: samples })
+  }
+
+  getCalibration() {
+    return null
   }
 
   reset() {
@@ -82,15 +93,15 @@ class WorkerGaitProcessorClient {
   }
 }
 
-export function createGaitProcessorClient() {
-  if (typeof Worker === 'undefined') {
-    return new LocalGaitProcessorClient()
+export function createGaitProcessorClient(options = {}) {
+  if (typeof Worker === 'undefined' || options.forceLocal) {
+    return new LocalGaitProcessorClient(options)
   }
 
   try {
-    return new WorkerGaitProcessorClient()
+    return new WorkerGaitProcessorClient(options)
   } catch (error) {
     console.warn('Falling back to main-thread gait processing:', error)
-    return new LocalGaitProcessorClient()
+    return new LocalGaitProcessorClient(options)
   }
 }

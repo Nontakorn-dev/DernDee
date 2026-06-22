@@ -1,6 +1,6 @@
 import { GaitProcessor } from './gaitProcessor.js'
 
-const processor = new GaitProcessor()
+let processor = new GaitProcessor()
 
 processor.onParams((payload) => {
   self.postMessage({
@@ -11,6 +11,20 @@ processor.onParams((payload) => {
 
 self.onmessage = (event) => {
   const { type, payload } = event.data || {}
+
+  if (type === 'configure') {
+    return
+  }
+
+  if (type === 'apply-calibration') {
+    processor.applyCalibration(payload || {})
+    return
+  }
+
+  if (type === 'warm-start') {
+    processor.warmStartFromSamples(Array.isArray(payload) ? payload : [])
+    return
+  }
 
   if (type === 'add-sample') {
     processor.addSample(payload)
