@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ArrowLeft, Footprints, Gauge, Wifi, WifiOff, Pause, Play, Square } from 'lucide-react';
 import { GaitFeedbackAdvisor } from '@shared/gait/feedbackAdvisor.js';
-import { createGaitProcessorClient } from '@shared/gait/gaitProcessorClient.js';
+import { createCalibratedGaitProcessorClient } from '@shared/gait/gaitProcessorClient.js';
 import {
     aggregateGaitParams,
     buildLiveSessionMetricsFromParams,
@@ -190,7 +190,7 @@ const WalkSession = () => {
     }, [handleFeedback]);
 
     const createSensorRuntime = useCallback((sample) => {
-        const processor = createGaitProcessorClient();
+        const processor = createCalibratedGaitProcessorClient(sample.sensorKey);
         const sessionAnalyzer = new GaitSessionAnalyzer();
         const sensorState = {
             sensorKey: sample.sensorKey,

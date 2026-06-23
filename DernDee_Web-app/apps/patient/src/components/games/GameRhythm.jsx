@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { createGaitProcessorClient } from '@shared/gait/gaitProcessorClient.js';
+import { createCalibratedGaitProcessorClient } from '@shared/gait/gaitProcessorClient.js';
 import { RealtimeStepDetector } from '@shared/gait/realtimeStepDetector.js';
 import { GaitSessionAnalyzer } from '@shared/gait/sessionAnalyzer.js';
 import { useUserAuth } from '@shared/context/UserAuthContext.jsx';
@@ -196,7 +196,7 @@ const GameRhythm = () => {
     }, []);
 
     const createSensorRuntime = useCallback((sample) => {
-        const processor = createGaitProcessorClient();
+        const processor = createCalibratedGaitProcessorClient(sample.sensorKey);
         const stepDetector = new RealtimeStepDetector({ sensorMount: sample.sensorMount || 'shank' });
         const sessionAnalyzer = new GaitSessionAnalyzer();
         const sensorState = {

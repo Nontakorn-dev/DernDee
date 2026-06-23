@@ -3,10 +3,17 @@ import { createGaitProcessorClient } from '../gait/gaitProcessorClient.js';
 import { Dashboard } from './ui/dashboard.js';
 import { ChartsManager } from './ui/charts.js';
 import {
-  computeCalibrationProfile,
   estimateShankLengthM,
   CALIBRATION_DURATION_MS,
 } from '../gait/gaitCalibration.js';
+import {
+  GAIT_CALIBRATION_WARMSTART_SAMPLES,
+  finishGaitCalibrationCapture,
+} from '../gait/gaitCalibrationCapture.js';
+import {
+  readGaitCalibrationPrefs,
+  writeGaitCalibrationPrefs,
+} from '../gait/gaitCalibrationStore.js';
 import {
   getRealtimeSensorLabel,
   normalizeRealtimeSensorSample,
@@ -31,8 +38,6 @@ import {
 const DEMO_PREFILL_SAMPLES = 400;
 const DASHBOARD_BLE_SLOTS = ['LEFT_SHANK', 'RIGHT_SHANK'];
 const REMOTE_RETRY_DELAY_MS = 1500;
-const CALIBRATION_STORAGE_KEY = 'derndee:gait-calibration-prefs';
-const CALIBRATION_WARMSTART_SAMPLES = 120;
 
 function buildDemoSample(sample) {
   return {
@@ -622,20 +627,11 @@ export class GaitLabDashboardApp {
   }
 
   _readCalibrationPrefs() {
-    try {
-      const raw = window.localStorage.getItem(CALIBRATION_STORAGE_KEY);
-      return raw ? JSON.parse(raw) : {};
-    } catch {
-      return {};
-    }
+    return readGaitCalibrationPrefs();
   }
 
   _writeCalibrationPrefs(prefs) {
-    try {
-      window.localStorage.setItem(CALIBRATION_STORAGE_KEY, JSON.stringify(prefs));
-    } catch {
-      // Ignore storage failures in private browsing.
-    }
+    writeGaitCalibrationPrefs(prefs);
   }
 
   openCalibration() {
@@ -717,16 +713,15 @@ export class GaitLabDashboardApp {
     const sensorKeys = this.visibleSensorKeys.length
       ? this.visibleSensorKeys
       : Array.from(this.calibrationBuckets.keys());
-    const results = sensorKeys.map((sensorKey) => {
-      const samples = this.calibrationBuckets.get(sensorKey) || [];
-      const profile = computeCalibrationProfile(samples, {
-        shankLengthM: this.pendingShankLengthM,
-      });
-      return { sensorKey, samples, profile };
+    const outcome = finishGaitCalibrationCapture(this.calibrationBuckets, {
+      preferredSensorKeys: sensorKeys,
+      shankLengthM: this.pendingShankLengthM,
+      persist: true,
     });
+    const results = outcome.results || [];
 
     let successCount = 0;
-    const failureReasons = [];
+    const failureReasons = outcome.failureReasons || [];
 
     for (const state of this.sensorProcessors.values()) {
       const result = results.find((item) => item.sensorKey === state.sensorKey);
@@ -741,7 +736,7 @@ export class GaitLabDashboardApp {
 
       state.processor.reset();
       state.processor.applyCalibration(result.profile);
-      const warmStartSamples = result.samples.slice(-CALIBRATION_WARMSTART_SAMPLES);
+      const warmStartSamples = result.samples.slice(-GAIT_CALIBRATION_WARMSTART_SAMPLES);
       state.processor.warmStartFromSamples(warmStartSamples);
       state.sampleCount = warmStartSamples.length;
       state.latestParams = null;
@@ -752,22 +747,18 @@ export class GaitLabDashboardApp {
     this._resumeAnalysisTimer();
 
     if (successCount > 0) {
-      const firstSuccess = results.find((item) => item.profile.ok);
-      const summary = firstSuccess
-        ? `shank ${(firstSuccess.profile.shankLengthM).toFixed(2)} m, gyro σ ${firstSuccess.profile.quality.maxGyroStdDps.toFixed(1)}°/s`
-        : '';
       this.dashboard.showCalibrationResult({
         ok: true,
-        message: `Calibration complete for ${successCount} sensor(s). You can start walking.`,
-        summary,
+        message: outcome.message || `Calibration complete for ${successCount} sensor(s). You can start walking.`,
+        summary: outcome.summary || '',
       });
-      this.dashboard.setCalibrationBadge(true, summary);
+      this.dashboard.setCalibrationBadge(true, outcome.summary || '');
       return;
     }
 
     const message = failureReasons.length
       ? failureReasons.join(' ')
-      : 'Calibration failed. Stand still on a flat surface and try again.';
+      : (outcome.message || 'Calibration failed. Stand still on a flat surface and try again.');
     this.dashboard.showCalibrationResult({
       ok: false,
       message,

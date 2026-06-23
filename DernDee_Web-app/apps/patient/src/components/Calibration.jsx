@@ -4,6 +4,13 @@ import { ArrowLeft, AlertCircle } from 'lucide-react';
 import derndeeLogo from '@shared/assets/images/derndee-logo.png';
 import devicePositionImageSrc from '@shared/assets/images/devicePositionImage.png';
 import { createRealtimeConnection } from '@shared/gateway/realtimeTransport.js';
+import { isRealtimeShankSample, normalizeRealtimeSensorSample } from '@shared/gateway/realtimeSensorUtils.js';
+import { estimateShankLengthM } from '@shared/gait/gaitCalibration.js';
+import { createGaitCalibrationCaptureSession } from '@shared/gait/gaitCalibrationCapture.js';
+import {
+    readGaitCalibrationPrefs,
+    writeGaitCalibrationPrefs,
+} from '@shared/gait/gaitCalibrationStore.js';
 
 const Calibration = () => {
     const navigate = useNavigate();
@@ -16,6 +23,10 @@ const Calibration = () => {
     const [isCalibrating, setIsCalibrating] = useState(false);
     const [isCountdownActive, setIsCountdownActive] = useState(false);
     const [isCalibrationComplete, setIsCalibrationComplete] = useState(false);
+    const [calibrationSummary, setCalibrationSummary] = useState('');
+    const [heightCm, setHeightCm] = useState('');
+    const [shankLengthCm, setShankLengthCm] = useState('');
+    const [streamingShankCount, setStreamingShankCount] = useState(0);
     const [tPoseImage, setTPoseImage] = useState(devicePositionImageSrc);
 
     // Custom Modal State
@@ -30,6 +41,49 @@ const Calibration = () => {
     const wsRef = useRef(null);
     const manualDisconnectRef = useRef(false);
     const reconnectTimeoutRef = useRef(null);
+    const calibrationCaptureRef = useRef(null);
+    const streamingSensorKeysRef = useRef(new Set());
+
+    useEffect(() => {
+        const prefs = readGaitCalibrationPrefs();
+        if (Number.isFinite(prefs.heightCm)) {
+            setHeightCm(String(prefs.heightCm));
+        }
+        if (Number.isFinite(prefs.shankLengthCm)) {
+            setShankLengthCm(String(prefs.shankLengthCm));
+        }
+    }, []);
+
+    useEffect(() => {
+        calibrationCaptureRef.current = createGaitCalibrationCaptureSession({
+            onProgress: (percent, message) => {
+                setCalibrationProgress(Math.max(0, Math.min(3, (percent / 100) * 3)));
+            },
+            onComplete: (outcome) => {
+                if (outcome.ok) {
+                    setIsCalibrationComplete(true);
+                    setIsCalibrating(false);
+                    setCalibrationProgress(3);
+                    setCalibrationSummary(outcome.summary || '');
+                    return;
+                }
+
+                setIsCalibrating(false);
+                setCalibrationProgress(0);
+                setErrorModal({
+                    isOpen: true,
+                    title: 'Calibration Failed',
+                    message: outcome.message || 'Please stand upright and remain still for 3 seconds.',
+                    type: 'error',
+                    buttonText: 'Try Again',
+                });
+            },
+        });
+
+        return () => {
+            calibrationCaptureRef.current?.cancel?.();
+        };
+    }, []);
 
     // === WebSocket Connection ===
     useEffect(() => {
@@ -94,16 +148,17 @@ const Calibration = () => {
 
     // === Handle Backend Messages ===
     const handleMessage = (msg) => {
-        if (msg.type === 'CALIBRATION_START') {
-            // Backend confirms calibration started
-            console.log('Backend started calibration');
-            // We are already handling UI progress via timer, but this confirms it
-        } else if (msg.type === 'CALIBRATION_DONE') {
-            console.log('Backend finished calibration');
-            setIsCalibrationComplete(true);
-            setIsCalibrating(false);
-            setCalibrationProgress(3); // Snap to 3s
-        } else if (msg.type === 'CALIBRATION_FAILED') {
+        if (msg.type === 'DATA') {
+            const sample = normalizeRealtimeSensorSample(msg.payload || {});
+            if (sample && isRealtimeShankSample(sample)) {
+                streamingSensorKeysRef.current.add(sample.sensorKey);
+                setStreamingShankCount(streamingSensorKeysRef.current.size);
+                calibrationCaptureRef.current?.ingestSample(sample);
+            }
+            return;
+        }
+
+        if (msg.type === 'CALIBRATION_FAILED') {
             console.error('Calibration Failed');
             setIsCalibrating(false);
             setCalibrationProgress(0);
@@ -180,64 +235,43 @@ const Calibration = () => {
         setIsCountdownActive(false);
         setIsCalibrating(true);
         setCalibrationProgress(0);
+        setCalibrationSummary('');
+        setIsCalibrationComplete(false);
 
-        // Send Trigger to Backend
-        if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-            wsRef.current.send("CALIBRATE"); // Send raw string as expected by main.py
-            console.log('Sent CALIBRATE command');
-        } else {
-            console.error('WebSocket not ready to send CALIBRATE');
+        if (!streamingSensorKeysRef.current.size) {
             setIsCalibrating(false);
             setErrorModal({
                 isOpen: true,
-                title: 'Connection Lost',
-                message: 'Unable to send command. Please check your connection.',
-                type: 'error',
+                title: 'No Shank Sensor',
+                message: 'Connect a shank sensor and wait for live data before calibrating.',
+                type: 'warning',
                 buttonText: 'OK'
             });
+            return;
         }
+
+        const parsedHeightCm = Number.parseFloat(heightCm);
+        const parsedShankLengthCm = Number.parseFloat(shankLengthCm);
+        writeGaitCalibrationPrefs({
+            heightCm: Number.isFinite(parsedHeightCm) ? parsedHeightCm : null,
+            shankLengthCm: Number.isFinite(parsedShankLengthCm) ? parsedShankLengthCm : null,
+        });
+
+        const shankLengthM = estimateShankLengthM({
+            heightCm: Number.isFinite(parsedHeightCm) ? parsedHeightCm : null,
+            shankLengthCm: Number.isFinite(parsedShankLengthCm) ? parsedShankLengthCm : null,
+        });
+
+        calibrationCaptureRef.current?.start({
+            shankLengthM,
+            preferredSensorKeys: Array.from(streamingSensorKeysRef.current),
+        });
     };
 
-    // Calibration progress simulator (Visual feedback)
-    // Target: 3 seconds (matches Hardware)
-    useEffect(() => {
-        if (isCalibrating && calibrationProgress < 2.9) {
-            const interval = setInterval(() => {
-                setCalibrationProgress(prev => {
-                    // Cap at ~95% (2.9s) until backend confirms
-                    if (prev >= 2.9) return 2.9;
-                    return prev + 0.1;
-                });
-            }, 100);
-
-            return () => clearInterval(interval);
-        }
-    }, [isCalibrating, calibrationProgress]);
-
-    // === Safety Timeout (Movement Detection) ===
-    // If backend doesn't respond within 6 seconds (2x expected time), assume failure/movement
-    useEffect(() => {
-        let timeout;
-        if (isCalibrating) {
-            timeout = setTimeout(() => {
-                console.warn('Calibration timed out - likely due to movement');
-                setIsCalibrating(false);
-                setCalibrationProgress(0);
-                setCalibrationProgress(0);
-                setErrorModal({
-                    isOpen: true,
-                    title: 'Movement Detected',
-                    message: 'Please stand strictly still for 3 seconds during calibration.',
-                    type: 'warning',
-                    buttonText: 'I Understand'
-                });
-            }, 6000); // 6 seconds timeout
-        }
-        return () => clearTimeout(timeout);
-    }, [isCalibrating]);
 
     const handleDisconnect = () => {
         manualDisconnectRef.current = true;
+        calibrationCaptureRef.current?.cancel?.();
         if (reconnectTimeoutRef.current) {
             window.clearTimeout(reconnectTimeoutRef.current);
             reconnectTimeoutRef.current = null;
@@ -250,6 +284,7 @@ const Calibration = () => {
         setIsCountdownActive(false);
         setIsCalibrationComplete(false);
         setCalibrationProgress(0);
+        setCalibrationSummary('');
         setCountdown(5);
     };
 
@@ -362,6 +397,41 @@ const Calibration = () => {
                         )}
                     </div>
 
+                    <p className="text-sm text-gray-600 mb-3">
+                        Shank sensors streaming: {streamingShankCount}
+                    </p>
+
+                    <div className="grid grid-cols-2 gap-3 mb-4">
+                        <label className="text-sm text-gray-700">
+                            Height (cm)
+                            <input
+                                className="mt-1 w-full rounded-xl border border-gray-200 px-3 py-2"
+                                type="number"
+                                min="120"
+                                max="220"
+                                step="1"
+                                placeholder="170"
+                                value={heightCm}
+                                onChange={(event) => setHeightCm(event.target.value)}
+                                disabled={isCalibrating}
+                            />
+                        </label>
+                        <label className="text-sm text-gray-700">
+                            Shank (cm)
+                            <input
+                                className="mt-1 w-full rounded-xl border border-gray-200 px-3 py-2"
+                                type="number"
+                                min="30"
+                                max="60"
+                                step="0.5"
+                                placeholder="auto"
+                                value={shankLengthCm}
+                                onChange={(event) => setShankLengthCm(event.target.value)}
+                                disabled={isCalibrating}
+                            />
+                        </label>
+                    </div>
+
                     {/* Calibration Section */}
                     <div className="flex items-center gap-2 sm:gap-3 mb-3 sm:mb-4">
                         <h2 className="text-base sm:text-lg md:text-xl font-bold text-gray-800">
@@ -383,6 +453,11 @@ const Calibration = () => {
                                 {Math.floor(calibrationProgress)}s / 3s
                             </span>
                         </div>
+                        {calibrationSummary && (
+                            <p className="text-xs sm:text-sm text-green-700 font-medium mt-2">
+                                {calibrationSummary}
+                            </p>
+                        )}
                     </div>
                 </div>
 
@@ -427,7 +502,9 @@ const Calibration = () => {
                     {(!isConnected || !isCalibrationComplete) && (
                         <p className="text-red-500 text-xs sm:text-sm text-center mt-2">
                             {!isConnected
-                                ? 'Please connect to the backend server'
+                                ? 'Please connect a shank sensor'
+                                : streamingShankCount === 0
+                                ? 'Wait for shank sensor data, then calibrate'
                                 : !isCalibrationComplete ? 'Press START CALIBRATION when ready' : 'Ready to start'
                             }
                         </p>
@@ -468,6 +545,41 @@ const Calibration = () => {
                                             Disconnect
                                         </button>
                                     )}
+                                </div>
+
+                                <p className="text-sm text-gray-600 mb-3">
+                                    Shank sensors streaming: {streamingShankCount}
+                                </p>
+
+                                <div className="grid grid-cols-2 gap-3 mb-4">
+                                    <label className="text-sm text-gray-700">
+                                        Height (cm)
+                                        <input
+                                            className="mt-1 w-full rounded-xl border border-gray-200 px-3 py-2"
+                                            type="number"
+                                            min="120"
+                                            max="220"
+                                            step="1"
+                                            placeholder="170"
+                                            value={heightCm}
+                                            onChange={(event) => setHeightCm(event.target.value)}
+                                            disabled={isCalibrating}
+                                        />
+                                    </label>
+                                    <label className="text-sm text-gray-700">
+                                        Shank (cm)
+                                        <input
+                                            className="mt-1 w-full rounded-xl border border-gray-200 px-3 py-2"
+                                            type="number"
+                                            min="30"
+                                            max="60"
+                                            step="0.5"
+                                            placeholder="auto"
+                                            value={shankLengthCm}
+                                            onChange={(event) => setShankLengthCm(event.target.value)}
+                                            disabled={isCalibrating}
+                                        />
+                                    </label>
                                 </div>
 
                                 <div className="flex items-center gap-3 mb-4">
@@ -542,7 +654,9 @@ const Calibration = () => {
                             {(!isConnected || !isCalibrationComplete) && (
                                 <p className="text-red-500 text-sm text-center">
                                     {!isConnected
-                                        ? 'Please connect to the backend server'
+                                        ? 'Please connect a shank sensor'
+                                        : streamingShankCount === 0
+                                        ? 'Wait for shank sensor data, then calibrate'
                                         : !isCalibrationComplete ? 'Press START CALIBRATION when ready' : 'Ready to start'
                                     }
                                 </p>
@@ -601,6 +715,41 @@ const Calibration = () => {
                                             Disconnect
                                         </button>
                                     )}
+                                </div>
+
+                                <p className="text-sm md:text-base text-gray-600 mb-3">
+                                    Shank sensors streaming: {streamingShankCount}
+                                </p>
+
+                                <div className="grid grid-cols-2 gap-3 mb-4">
+                                    <label className="text-sm md:text-base text-gray-700">
+                                        Height (cm)
+                                        <input
+                                            className="mt-1 w-full rounded-xl border border-gray-200 px-3 py-2"
+                                            type="number"
+                                            min="120"
+                                            max="220"
+                                            step="1"
+                                            placeholder="170"
+                                            value={heightCm}
+                                            onChange={(event) => setHeightCm(event.target.value)}
+                                            disabled={isCalibrating}
+                                        />
+                                    </label>
+                                    <label className="text-sm md:text-base text-gray-700">
+                                        Shank (cm)
+                                        <input
+                                            className="mt-1 w-full rounded-xl border border-gray-200 px-3 py-2"
+                                            type="number"
+                                            min="30"
+                                            max="60"
+                                            step="0.5"
+                                            placeholder="auto"
+                                            value={shankLengthCm}
+                                            onChange={(event) => setShankLengthCm(event.target.value)}
+                                            disabled={isCalibrating}
+                                        />
+                                    </label>
                                 </div>
 
                                 <div className="flex items-center gap-3 mb-4">
@@ -679,7 +828,9 @@ const Calibration = () => {
                             {(!isConnected || !isCalibrationComplete) && (
                                 <p className="text-red-500 text-sm md:text-base lg:text-lg text-center mt-2">
                                     {!isConnected
-                                        ? 'Please connect to the backend server'
+                                        ? 'Please connect a shank sensor'
+                                        : streamingShankCount === 0
+                                        ? 'Wait for shank sensor data, then calibrate'
                                         : !isCalibrationComplete ? 'Press START CALIBRATION when ready' : 'Ready to start'
                                     }
                                 </p>

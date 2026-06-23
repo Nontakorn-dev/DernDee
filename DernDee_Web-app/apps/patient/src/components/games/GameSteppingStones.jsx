@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { createGaitProcessorClient } from '@shared/gait/gaitProcessorClient.js';
+import { createCalibratedGaitProcessorClient } from '@shared/gait/gaitProcessorClient.js';
 import {
     aggregateGaitParams,
     buildLiveSessionMetricsFromParams,
@@ -524,7 +524,7 @@ const GameSteppingStones = () => {
     }, [getAggregatedLiveParams, pushFeedback, updateWeightShiftPercent]);
 
     const createSensorRuntime = useCallback((sample) => {
-        const processor = createGaitProcessorClient();
+        const processor = createCalibratedGaitProcessorClient(sample.sensorKey);
         const stepDetector = new RealtimeStepDetector({ sensorMount: sample.sensorMount || 'shank' });
         const sessionAnalyzer = new GaitSessionAnalyzer();
         const sensorState = {

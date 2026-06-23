@@ -1,4 +1,5 @@
 import { GaitProcessor } from './gaitProcessor.js'
+import { applyStoredGaitCalibration } from './gaitCalibrationStore.js'
 
 class LocalGaitProcessorClient {
   constructor(options = {}) {
@@ -104,4 +105,12 @@ export function createGaitProcessorClient(options = {}) {
     console.warn('Falling back to main-thread gait processing:', error)
     return new LocalGaitProcessorClient(options)
   }
+}
+
+export function createCalibratedGaitProcessorClient(sensorKey, options = {}) {
+  const client = createGaitProcessorClient(options)
+  if (sensorKey && options.applyCalibration !== false) {
+    applyStoredGaitCalibration(client, sensorKey)
+  }
+  return client
 }
