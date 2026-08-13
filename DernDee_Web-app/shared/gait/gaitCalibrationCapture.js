@@ -7,23 +7,29 @@ import { saveGaitCalibrationCaptureResults } from './gaitCalibrationStore.js';
 
 export const GAIT_CALIBRATION_WARMSTART_SAMPLES = 120;
 
-export function resolveGaitCalibrationSensorKeys(buckets, preferredSensorKeys = []) {
-  const bucketKeys = Array.from(buckets.keys());
-  if (preferredSensorKeys.length) {
-    return preferredSensorKeys;
-  }
-
-  return bucketKeys;
+export function resolveGaitCalibrationSensorKeys(buckets) {
+  return Array.from(buckets.entries())
+    .filter(([, samples]) => Array.isArray(samples) && samples.length > 0)
+    .map(([sensorKey]) => sensorKey);
 }
 
 export function finishGaitCalibrationCapture(buckets, options = {}) {
   const {
-    preferredSensorKeys = [],
     shankLengthM,
     persist = true,
   } = options;
 
-  const sensorKeys = resolveGaitCalibrationSensorKeys(buckets, preferredSensorKeys);
+  const sensorKeys = resolveGaitCalibrationSensorKeys(buckets);
+  if (!sensorKeys.length) {
+    return {
+      ok: false,
+      successCount: 0,
+      results: [],
+      failureReasons: ['No shank sensor streamed during the 3-second capture.'],
+      summary: '',
+      message: 'No shank sensor streamed during the 3-second capture. Keep the sensor connected and stand still, then try again.',
+    };
+  }
   const results = sensorKeys.map((sensorKey) => {
     const samples = buckets.get(sensorKey) || [];
     const profile = computeCalibrationProfile(samples, { shankLengthM });
@@ -63,7 +69,6 @@ export function createGaitCalibrationCaptureSession(callbacks = {}) {
   let progressTimer = null;
   let captureTimer = null;
   let shankLengthM = null;
-  let preferredSensorKeys = [];
 
   const clearTimers = () => {
     if (progressTimer) {
@@ -87,9 +92,6 @@ export function createGaitCalibrationCaptureSession(callbacks = {}) {
     active = true;
     buckets = new Map();
     shankLengthM = options.shankLengthM;
-    preferredSensorKeys = Array.isArray(options.preferredSensorKeys)
-      ? options.preferredSensorKeys
-      : [];
 
     const startedAt = Date.now();
     callbacks.onProgress?.(0, 'Stand still and keep the sensor stable...');
@@ -109,7 +111,6 @@ export function createGaitCalibrationCaptureSession(callbacks = {}) {
       active = false;
 
       const outcome = finishGaitCalibrationCapture(buckets, {
-        preferredSensorKeys,
         shankLengthM,
         persist: options.persist !== false,
       });

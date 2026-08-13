@@ -1,5 +1,5 @@
 import { generateWalkingData, streamDemoData } from './data/demoDataGenerator.js';
-import { createGaitProcessorClient } from '../gait/gaitProcessorClient.js';
+import { createCalibratedGaitProcessorClient } from '../gait/gaitProcessorClient.js';
 import { Dashboard } from './ui/dashboard.js';
 import { ChartsManager } from './ui/charts.js';
 import {
@@ -11,6 +11,9 @@ import {
   finishGaitCalibrationCapture,
 } from '../gait/gaitCalibrationCapture.js';
 import {
+  formatGaitCalibrationSummary,
+  getGaitCalibrationProfile,
+  hasGaitCalibrationProfile,
   readGaitCalibrationPrefs,
   writeGaitCalibrationPrefs,
 } from '../gait/gaitCalibrationStore.js';
@@ -430,6 +433,7 @@ export class GaitLabDashboardApp {
       state.processor?.destroy?.();
     });
     this.sensorProcessors.clear();
+    this._syncCalibrationBadgeFromStoredProfiles();
   }
 
   _analyzeReadyProcessors() {
@@ -441,7 +445,7 @@ export class GaitLabDashboardApp {
   }
 
   _createProcessorState(displayKey, sample) {
-    const processor = createGaitProcessorClient();
+    const processor = createCalibratedGaitProcessorClient(sample.sensorKey);
     const state = {
       key: displayKey,
       label: getRealtimeSensorLabel(sample),
@@ -462,6 +466,7 @@ export class GaitLabDashboardApp {
     });
 
     this.sensorProcessors.set(displayKey, state);
+    this._syncCalibrationBadgeFromStoredProfiles();
     return state;
   }
 
@@ -489,6 +494,7 @@ export class GaitLabDashboardApp {
         this.sensorProcessors.delete(displayKey);
       }
     });
+    this._syncCalibrationBadgeFromStoredProfiles();
   }
 
   _ingestSensorSample(sample) {
@@ -634,6 +640,19 @@ export class GaitLabDashboardApp {
     writeGaitCalibrationPrefs(prefs);
   }
 
+  _syncCalibrationBadgeFromStoredProfiles() {
+    const calibratedStates = Array.from(this.sensorProcessors.values())
+      .filter((state) => hasGaitCalibrationProfile(state.sensorKey));
+
+    if (!calibratedStates.length) {
+      this.dashboard.setCalibrationBadge(false);
+      return;
+    }
+
+    const profile = getGaitCalibrationProfile(calibratedStates[0].sensorKey);
+    this.dashboard.setCalibrationBadge(true, formatGaitCalibrationSummary(profile));
+  }
+
   openCalibration() {
     if (this.mode === 'demo') {
       this.dashboard.openCalibrationPanel({
@@ -710,11 +729,7 @@ export class GaitLabDashboardApp {
     this._clearCalibrationTimers();
     this.calibrationActive = false;
 
-    const sensorKeys = this.visibleSensorKeys.length
-      ? this.visibleSensorKeys
-      : Array.from(this.calibrationBuckets.keys());
     const outcome = finishGaitCalibrationCapture(this.calibrationBuckets, {
-      preferredSensorKeys: sensorKeys,
       shankLengthM: this.pendingShankLengthM,
       persist: true,
     });

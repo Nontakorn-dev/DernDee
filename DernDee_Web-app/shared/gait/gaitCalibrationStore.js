@@ -54,6 +54,27 @@ export function hasGaitCalibrationProfile(sensorKey) {
   return Boolean(profile?.ok);
 }
 
+export function formatGaitCalibrationSummary(profile) {
+  if (!profile?.ok) {
+    return '';
+  }
+
+  const shankLengthM = Number.isFinite(profile.shankLengthM)
+    ? profile.shankLengthM.toFixed(2)
+    : null;
+  const maxGyroStdDps = Number.isFinite(profile.quality?.maxGyroStdDps)
+    ? profile.quality.maxGyroStdDps.toFixed(1)
+    : null;
+
+  if (shankLengthM && maxGyroStdDps) {
+    return `shank ${shankLengthM} m, gyro σ ${maxGyroStdDps}°/s`;
+  }
+  if (shankLengthM) {
+    return `shank ${shankLengthM} m`;
+  }
+  return '';
+}
+
 export function saveGaitCalibrationCaptureResults(results = []) {
   const successful = results.filter((item) => item?.profile?.ok);
   if (!successful.length) {

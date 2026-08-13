@@ -11,6 +11,7 @@ import {
     readGaitCalibrationPrefs,
     writeGaitCalibrationPrefs,
 } from '@shared/gait/gaitCalibrationStore.js';
+import { GAIT_SENSOR_STALE_AFTER_MS } from '@shared/gait/gaitRuntimeConfig.js';
 
 const Calibration = () => {
     const navigate = useNavigate();
@@ -42,7 +43,7 @@ const Calibration = () => {
     const manualDisconnectRef = useRef(false);
     const reconnectTimeoutRef = useRef(null);
     const calibrationCaptureRef = useRef(null);
-    const streamingSensorKeysRef = useRef(new Set());
+    const streamingSensorsRef = useRef(new Map());
 
     useEffect(() => {
         const prefs = readGaitCalibrationPrefs();
@@ -83,6 +84,24 @@ const Calibration = () => {
         return () => {
             calibrationCaptureRef.current?.cancel?.();
         };
+    }, []);
+
+    const pruneStreamingSensors = (now = Date.now()) => {
+        for (const [sensorKey, lastSeenAt] of streamingSensorsRef.current.entries()) {
+            if (now - lastSeenAt > GAIT_SENSOR_STALE_AFTER_MS) {
+                streamingSensorsRef.current.delete(sensorKey);
+            }
+        }
+        setStreamingShankCount(streamingSensorsRef.current.size);
+        return streamingSensorsRef.current.size;
+    };
+
+    useEffect(() => {
+        const timer = window.setInterval(() => {
+            pruneStreamingSensors();
+        }, 1000);
+
+        return () => window.clearInterval(timer);
     }, []);
 
     // === WebSocket Connection ===
@@ -151,8 +170,8 @@ const Calibration = () => {
         if (msg.type === 'DATA') {
             const sample = normalizeRealtimeSensorSample(msg.payload || {});
             if (sample && isRealtimeShankSample(sample)) {
-                streamingSensorKeysRef.current.add(sample.sensorKey);
-                setStreamingShankCount(streamingSensorKeysRef.current.size);
+                streamingSensorsRef.current.set(sample.sensorKey, Date.now());
+                pruneStreamingSensors();
                 calibrationCaptureRef.current?.ingestSample(sample);
             }
             return;
@@ -184,6 +203,7 @@ const Calibration = () => {
     // Handle abrupt disconnection during calibration
     useEffect(() => {
         if (!isConnected && (isCalibrating || isCountdownActive)) {
+            calibrationCaptureRef.current?.cancel?.();
             setIsCalibrating(false);
             setIsCountdownActive(false);
             setCountdown(5);
@@ -238,7 +258,7 @@ const Calibration = () => {
         setCalibrationSummary('');
         setIsCalibrationComplete(false);
 
-        if (!streamingSensorKeysRef.current.size) {
+        if (!pruneStreamingSensors()) {
             setIsCalibrating(false);
             setErrorModal({
                 isOpen: true,
@@ -264,7 +284,6 @@ const Calibration = () => {
 
         calibrationCaptureRef.current?.start({
             shankLengthM,
-            preferredSensorKeys: Array.from(streamingSensorKeysRef.current),
         });
     };
 
