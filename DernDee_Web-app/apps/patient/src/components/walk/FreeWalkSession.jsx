@@ -32,9 +32,10 @@ import { LegacyWalkCoach } from '@shared/coach/legacyCoach.js';
 import derndeeLogo from '@shared/assets/images/derndee-logo.png';
 import WalkConnectionPills from './WalkConnectionPills.jsx';
 import WalkSessionHud from './WalkSessionHud.jsx';
-import WalkVoiceOrb from './WalkVoiceOrb.jsx';
+import WalkAvatarStage from './WalkAvatarStage.jsx';
 import WalkGaitStrip from './WalkGaitStrip.jsx';
 import WalkMicButton from './WalkMicButton.jsx';
+import { AVATAR_CLIPS, resolveAvatarClip } from './avatarClips.js';
 
 const TARGET_TIME_SECONDS = 300;
 const COACH_CONSENT_KEY = 'derndee_free_walk_ai_consent_v1';
@@ -96,10 +97,13 @@ const FreeWalkSession = () => {
   const handleMessageRef = useRef(null);
   const greetingPlayedRef = useRef(false);
   const greetingInFlightRef = useRef(false);
-  const greetingAttemptRef = useRef(0);
   const audioUnlockedRef = useRef(false);
   const showConsentRef = useRef(showConsent);
+  const avatarBusyRef = useRef(false);
+  const avatarClipIdRef = useRef('idle');
+  const avatarFallbackRef = useRef(null);
   const [audioUnlocked, setAudioUnlocked] = useState(false);
+  const [avatarClipId, setAvatarClipId] = useState('idle');
 
   useEffect(() => {
     showConsentRef.current = showConsent;
@@ -147,24 +151,72 @@ const FreeWalkSession = () => {
     latestParamsRef.current = null;
   }, [destroySensorRuntime]);
 
-  const dispatchCoachLine = useCallback(async (dispatch) => {
-    if (!dispatch?.prompt) {
+  const handleAvatarEnded = useCallback((endedClipId) => {
+    if (endedClipId === 'greeting') {
+      greetingPlayedRef.current = true;
+    }
+
+    if (avatarFallbackRef.current) {
+      window.clearTimeout(avatarFallbackRef.current);
+      avatarFallbackRef.current = null;
+    }
+
+    avatarBusyRef.current = false;
+    avatarClipIdRef.current = 'idle';
+    setAvatarClipId('idle');
+    setCoachSubtitle('');
+    orchestratorRef.current?.markActivity();
+  }, []);
+
+  const playAvatarClip = useCallback((clip) => {
+    if (!clip?.id) {
       return false;
     }
 
-    const forceSpeak = [
-      'user_ask',
-      'greeting',
-      'step_improved',
-      'idle_resume',
-      'metric_alert',
-      'encouragement',
-    ].includes(dispatch.trigger);
+    if (avatarBusyRef.current && clip.id !== 'idle') {
+      return false;
+    }
+
+    if (avatarFallbackRef.current) {
+      window.clearTimeout(avatarFallbackRef.current);
+      avatarFallbackRef.current = null;
+    }
+
+    avatarBusyRef.current = clip.id !== 'idle';
+    avatarClipIdRef.current = clip.id;
+    setAvatarClipId(clip.id);
+    setCoachSubtitle(clip.line || '');
+    orchestratorRef.current?.markActivity();
+
+    if (clip.id !== 'idle') {
+      avatarFallbackRef.current = window.setTimeout(() => {
+        if (avatarClipIdRef.current === clip.id) {
+          handleAvatarEnded(clip.id);
+        }
+      }, 9000);
+    }
+
+    return true;
+  }, [handleAvatarEnded]);
+
+  const dispatchCoachLine = useCallback(async (dispatch) => {
+    if (!dispatch) {
+      return false;
+    }
+
+    const avatarClip = resolveAvatarClip(dispatch);
+    if (avatarClip) {
+      return playAvatarClip(avatarClip);
+    }
+
+    if (dispatch.trigger !== 'user_ask' || !dispatch.prompt) {
+      return false;
+    }
 
     if (coachModeRef.current === COACH_MODES.LIVE && coachClientRef.current) {
       return coachClientRef.current.sendGaitPrompt(dispatch.prompt, {
-        force: forceSpeak,
-        interrupt: dispatch.trigger === 'user_ask',
+        force: true,
+        interrupt: true,
       });
     }
 
@@ -172,69 +224,33 @@ const FreeWalkSession = () => {
       dispatch.hintText || dispatch.prompt,
     );
     return true;
-  }, []);
+  }, [playAvatarClip]);
 
-  const tryPlaySessionGreeting = useCallback(async () => {
+  const tryPlaySessionGreeting = useCallback(() => {
     if (
       greetingPlayedRef.current
       || greetingInFlightRef.current
       || showConsentRef.current
       || !audioUnlockedRef.current
-      || greetingAttemptRef.current >= 2
     ) {
       return false;
     }
 
-    const dispatch = orchestratorRef.current?.buildGreetingDispatch();
-    if (!dispatch) {
-      return false;
-    }
-
-    if (coachModeRef.current === COACH_MODES.LIVE) {
-      if (!coachClientRef.current) {
-        return false;
-      }
-
-      const ready = await coachClientRef.current.waitUntilReady();
-      if (!ready) {
-        return false;
-      }
-
-      const audioReady = await coachClientRef.current.ensureAudioReady();
-      if (!audioReady) {
-        return false;
-      }
-    }
-
     greetingInFlightRef.current = true;
-    greetingAttemptRef.current += 1;
-
-    try {
-      const spoke = await dispatchCoachLine(dispatch);
-      if (!spoke) {
-        return false;
-      }
-
-      greetingPlayedRef.current = true;
-
-      if (coachModeRef.current === COACH_MODES.LIVE && coachClientRef.current) {
-        await coachClientRef.current.waitForAudioResponse(6000);
-      }
-
-      return true;
-    } finally {
-      greetingInFlightRef.current = false;
-    }
-  }, [dispatchCoachLine]);
+    const played = playAvatarClip(AVATAR_CLIPS.greeting);
+    greetingInFlightRef.current = false;
+    return played;
+  }, [playAvatarClip]);
 
   const unlockCoachAudio = useCallback(async () => {
     audioUnlockedRef.current = true;
     setAudioUnlocked(true);
     setShowStartTap(false);
     showConsentRef.current = false;
-
-    await coachClientRef.current?.ensureAudioReady?.();
-  }, []);
+    orchestratorRef.current?.markActivity();
+    playAvatarClip(AVATAR_CLIPS.greeting);
+    void coachClientRef.current?.ensureAudioReady?.();
+  }, [playAvatarClip]);
 
   const applyAggregatedLiveParams = useCallback((aggregatedParams) => {
     if (!aggregatedParams) {
@@ -250,7 +266,7 @@ const FreeWalkSession = () => {
       speedMps: Number.isFinite(aggregatedParams.walkingSpeed) ? aggregatedParams.walkingSpeed : null,
     });
 
-    if (!isActiveRef.current) {
+    if (!isActiveRef.current || !greetingPlayedRef.current) {
       return;
     }
 
@@ -517,6 +533,10 @@ const FreeWalkSession = () => {
     }
 
     const idleTimer = setInterval(() => {
+      if (!greetingPlayedRef.current || avatarBusyRef.current) {
+        return;
+      }
+
       const dispatch = orchestratorRef.current?.evaluateIdle({
         sessionElapsedS: sessionElapsedRef.current,
         params: latestParamsRef.current,
@@ -687,7 +707,10 @@ const FreeWalkSession = () => {
           </button>
           <img src={derndeeLogo} alt="DernDee" className="h-9 object-contain sm:h-10" />
         </div>
-        <WalkConnectionPills coachState={coachState} coachMode={coachMode} />
+        <WalkConnectionPills
+          coachState={avatarClipId !== 'idle' ? COACH_CONNECTION_STATES.SPEAKING : coachState}
+          coachMode={coachMode}
+        />
       </header>
 
       <main className="relative z-10 flex min-h-0 flex-1 flex-col">
@@ -712,9 +735,12 @@ const FreeWalkSession = () => {
           </div>
 
           <div className="flex min-h-0 items-center justify-center">
-            <WalkVoiceOrb
-              isSpeaking={coachState === COACH_CONNECTION_STATES.SPEAKING}
+            <WalkAvatarStage
+              clipId={avatarClipId}
+              paused={!isActive}
               isListening={askCoachActive}
+              subtitle={coachSubtitle}
+              onEnded={handleAvatarEnded}
             />
           </div>
 

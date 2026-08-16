@@ -1,6 +1,6 @@
 import {
   COACH_COOLDOWN_BY_TRIGGER_MS,
-  COACH_ENCOURAGEMENT_CYCLES,
+  COACH_REST_EVERY_STEPS,
   COACH_IDLE_NO_STEP_MS,
   COACH_PERIODIC_INTERVAL_MS,
   COACH_REST_AFTER_PRAISE_MS,
@@ -23,6 +23,8 @@ export class GaitCoachOrchestrator {
     this.lastStepAtMs = Date.now();
     this.previousStepLengthM = null;
     this.consecutiveGoodCycles = 0;
+    this.stepsSinceRest = 0;
+    this.restClipToggle = 0;
     this.pendingCoaching = null;
     this.restUntilMs = 0;
     this.paused = false;
@@ -36,6 +38,8 @@ export class GaitCoachOrchestrator {
     this.lastStepAtMs = Date.now();
     this.previousStepLengthM = null;
     this.consecutiveGoodCycles = 0;
+    this.stepsSinceRest = 0;
+    this.restClipToggle = 0;
     this.pendingCoaching = null;
     this.restUntilMs = 0;
     this.paused = false;
@@ -43,6 +47,10 @@ export class GaitCoachOrchestrator {
 
   setPaused(paused) {
     this.paused = paused;
+  }
+
+  markActivity(now = Date.now()) {
+    this.lastStepAtMs = now;
   }
 
   canSpeak(trigger, now = Date.now()) {
@@ -64,6 +72,7 @@ export class GaitCoachOrchestrator {
       coachingIntent: options.coachingIntent ?? null,
       coachingExample: options.coachingExample ?? null,
       userQuestion: options.userQuestion ?? null,
+      restVariant: options.restVariant ?? null,
     });
 
     if (Number.isFinite(params?.stepLength)) {
@@ -153,6 +162,25 @@ export class GaitCoachOrchestrator {
       return null;
     }
 
+    this.stepsSinceRest += 1;
+
+    if (this.stepsSinceRest >= COACH_REST_EVERY_STEPS && this.canSpeak('rest_break', now)) {
+      this.stepsSinceRest = 0;
+      this.restUntilMs = now + COACH_REST_AFTER_PRAISE_MS;
+      this.markSpoken('rest_break', now);
+
+      const restVariant = this.restClipToggle === 0 ? 'a' : 'b';
+      this.restClipToggle = this.restClipToggle === 0 ? 1 : 0;
+      const restCue = restVariant === 'a' ? COACH_CUES.REST_BREAK_A : COACH_CUES.REST_BREAK_B;
+
+      return this.buildDispatch('rest_break', params, {
+        sessionElapsedS,
+        restVariant,
+        coachingIntent: restCue.intent,
+        coachingExample: restCue.example,
+      });
+    }
+
     if (this.pendingCoaching && this.hasImprovedSinceCoaching(params)) {
       if (!this.canSpeak('step_improved', now)) {
         return null;
@@ -187,21 +215,6 @@ export class GaitCoachOrchestrator {
     }
 
     if (
-      !alert
-      && this.consecutiveGoodCycles >= COACH_ENCOURAGEMENT_CYCLES
-      && this.canSpeak('encouragement', now)
-    ) {
-      this.consecutiveGoodCycles = 0;
-      this.markSpoken('encouragement', now);
-
-      return this.buildDispatch('encouragement', params, {
-        sessionElapsedS,
-        coachingIntent: COACH_CUES.ENCOURAGEMENT.intent,
-        coachingExample: COACH_CUES.ENCOURAGEMENT.example,
-      });
-    }
-
-    if (
       sessionElapsedS >= 60
       && now - this.lastPeriodicAtMs >= COACH_PERIODIC_INTERVAL_MS
       && this.canSpeak('periodic', now)
@@ -223,10 +236,6 @@ export class GaitCoachOrchestrator {
     const now = Date.now();
     const sessionElapsedS = options.sessionElapsedS ?? 0;
     const params = options.params ?? null;
-
-    if (this.lastProcessedStepCount === 0) {
-      return null;
-    }
 
     if (now - this.lastStepAtMs < COACH_IDLE_NO_STEP_MS) {
       return null;

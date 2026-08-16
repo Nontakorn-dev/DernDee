@@ -65,6 +65,7 @@ export function buildGaitCoachSnapshot(params, options = {}) {
     user_question: options.userQuestion ?? null,
     coaching_intent: options.coachingIntent ?? null,
     coaching_example: options.coachingExample ?? null,
+    rest_variant: options.restVariant ?? null,
   };
 }
 
