@@ -6,81 +6,34 @@ import {
 } from './avatarClips.js';
 
 const MAX_KEY_WIDTH = 800;
-const HARD_WHITE = 248;
-const CHROMA_LIMIT = 8;
-const BG_MATCH = 10;
+const HARD_WHITE = 246;
+const CHROMA_LIMIT = 12;
+const SOFT_WHITE = 228;
 
-function sampleCornerBackground(data, width, height) {
-  const samples = [
-    [4, 4],
-    [width - 5, 4],
-    [4, height - 5],
-    [width - 5, height - 5],
-  ];
-  let red = 0;
-  let green = 0;
-  let blue = 0;
-  let count = 0;
+function channelMin(red, green, blue) {
+  return red < green ? (red < blue ? red : blue) : (green < blue ? green : blue);
+}
 
-  samples.forEach(([cx, cy]) => {
-    for (let dy = -2; dy <= 2; dy += 1) {
-      for (let dx = -2; dx <= 2; dx += 1) {
-        const offset = (((cy + dy) * width) + (cx + dx)) * 4;
-        red += data[offset];
-        green += data[offset + 1];
-        blue += data[offset + 2];
-        count += 1;
-      }
-    }
-  });
-
-  return [red / count, green / count, blue / count];
+function channelMax(red, green, blue) {
+  return red > green ? (red > blue ? red : blue) : (green > blue ? green : blue);
 }
 
 function keyStudioWhite(imageData) {
   const { data, width, height } = imageData;
   const pixelCount = width * height;
-  const seen = new Uint8Array(pixelCount);
-  const wall = new Uint8Array(pixelCount);
+  const background = new Uint8Array(pixelCount);
   const queueX = new Int32Array(pixelCount);
   const queueY = new Int32Array(pixelCount);
-  const background = sampleCornerBackground(data, width, height);
   let head = 0;
   let tail = 0;
 
-  const isStudioWhite = (offset) => {
+  const isHardWhite = (offset) => {
     const red = data[offset];
     const green = data[offset + 1];
     const blue = data[offset + 2];
-    const min = red < green ? (red < blue ? red : blue) : (green < blue ? green : blue);
-    const max = red > green ? (red > blue ? red : blue) : (green > blue ? green : blue);
-    const distance = Math.abs(red - background[0])
-      + Math.abs(green - background[1])
-      + Math.abs(blue - background[2]);
-
-    return min >= HARD_WHITE && (max - min) <= CHROMA_LIMIT && distance <= BG_MATCH;
+    return channelMin(red, green, blue) >= HARD_WHITE
+      && (channelMax(red, green, blue) - channelMin(red, green, blue)) <= CHROMA_LIMIT;
   };
-
-  for (let pixelIndex = 0; pixelIndex < pixelCount; pixelIndex += 1) {
-    if (!isStudioWhite(pixelIndex * 4)) {
-      wall[pixelIndex] = 1;
-    }
-  }
-
-  const dilatedWall = new Uint8Array(wall);
-  for (let y = 1; y < height - 1; y += 1) {
-    for (let x = 1; x < width - 1; x += 1) {
-      const pixelIndex = (y * width) + x;
-      if (!wall[pixelIndex]) {
-        continue;
-      }
-
-      dilatedWall[pixelIndex - 1] = 1;
-      dilatedWall[pixelIndex + 1] = 1;
-      dilatedWall[pixelIndex - width] = 1;
-      dilatedWall[pixelIndex + width] = 1;
-    }
-  }
 
   const enqueue = (x, y) => {
     if (x < 0 || y < 0 || x >= width || y >= height) {
@@ -88,15 +41,11 @@ function keyStudioWhite(imageData) {
     }
 
     const pixelIndex = (y * width) + x;
-    if (seen[pixelIndex] || dilatedWall[pixelIndex]) {
+    if (background[pixelIndex] || !isHardWhite(pixelIndex * 4)) {
       return;
     }
 
-    if (!isStudioWhite(pixelIndex * 4)) {
-      return;
-    }
-
-    seen[pixelIndex] = 1;
+    background[pixelIndex] = 1;
     queueX[tail] = x;
     queueY[tail] = y;
     tail += 1;
@@ -116,11 +65,120 @@ function keyStudioWhite(imageData) {
     const x = queueX[head];
     const y = queueY[head];
     head += 1;
-    data[(((y * width) + x) * 4) + 3] = 0;
     enqueue(x + 1, y);
     enqueue(x - 1, y);
     enqueue(x, y + 1);
     enqueue(x, y - 1);
+  }
+
+  const labels = new Int32Array(pixelCount);
+  const labelSizes = [0];
+  let nextLabel = 1;
+  head = 0;
+  tail = 0;
+
+  const enqueueForeground = (x, y, label) => {
+    if (x < 0 || y < 0 || x >= width || y >= height) {
+      return;
+    }
+
+    const pixelIndex = (y * width) + x;
+    if (background[pixelIndex] || labels[pixelIndex] !== 0) {
+      return;
+    }
+
+    labels[pixelIndex] = label;
+    labelSizes[label] += 1;
+    queueX[tail] = x;
+    queueY[tail] = y;
+    tail += 1;
+  };
+
+  for (let y = 0; y < height; y += 1) {
+    for (let x = 0; x < width; x += 1) {
+      const pixelIndex = (y * width) + x;
+      if (background[pixelIndex] || labels[pixelIndex] !== 0) {
+        continue;
+      }
+
+      const label = nextLabel;
+      nextLabel += 1;
+      labelSizes[label] = 0;
+      head = 0;
+      tail = 0;
+      enqueueForeground(x, y, label);
+      while (head < tail) {
+        const cx = queueX[head];
+        const cy = queueY[head];
+        head += 1;
+        enqueueForeground(cx + 1, cy, label);
+        enqueueForeground(cx - 1, cy, label);
+        enqueueForeground(cx, cy + 1, label);
+        enqueueForeground(cx, cy - 1, label);
+      }
+    }
+  }
+
+  let keepLabel = 0;
+  let keepSize = 0;
+  for (let label = 1; label < labelSizes.length; label += 1) {
+    if (labelSizes[label] > keepSize) {
+      keepSize = labelSizes[label];
+      keepLabel = label;
+    }
+  }
+
+  const alpha = new Uint8Array(pixelCount);
+  for (let pixelIndex = 0; pixelIndex < pixelCount; pixelIndex += 1) {
+    alpha[pixelIndex] = labels[pixelIndex] === keepLabel ? 255 : 0;
+  }
+
+  const softened = new Uint8Array(alpha);
+  for (let y = 1; y < height - 1; y += 1) {
+    for (let x = 1; x < width - 1; x += 1) {
+      const pixelIndex = (y * width) + x;
+      if (alpha[pixelIndex] === 0) {
+        continue;
+      }
+
+      const offset = pixelIndex * 4;
+      const red = data[offset];
+      const green = data[offset + 1];
+      const blue = data[offset + 2];
+      const min = channelMin(red, green, blue);
+      const touchesBackground = alpha[pixelIndex - 1] === 0
+        || alpha[pixelIndex + 1] === 0
+        || alpha[pixelIndex - width] === 0
+        || alpha[pixelIndex + width] === 0;
+
+      if (touchesBackground && min >= SOFT_WHITE) {
+        const fade = Math.min(1, (min - SOFT_WHITE) / Math.max(1, HARD_WHITE - SOFT_WHITE));
+        softened[pixelIndex] = Math.round((1 - fade) * 220);
+      }
+    }
+  }
+
+  const blurred = new Uint8Array(pixelCount);
+  for (let y = 1; y < height - 1; y += 1) {
+    for (let x = 1; x < width - 1; x += 1) {
+      const pixelIndex = (y * width) + x;
+      blurred[pixelIndex] = Math.round((
+        softened[pixelIndex]
+        + softened[pixelIndex - 1]
+        + softened[pixelIndex + 1]
+        + softened[pixelIndex - width]
+        + softened[pixelIndex + width]
+      ) / 5);
+    }
+  }
+
+  for (let y = 0; y < height; y += 1) {
+    blurred[y * width] = softened[y * width];
+    blurred[(y * width) + width - 1] = softened[(y * width) + width - 1];
+  }
+
+  for (let pixelIndex = 0; pixelIndex < pixelCount; pixelIndex += 1) {
+    data[(pixelIndex * 4) + 3] = labels[pixelIndex] === keepLabel ? blurred[pixelIndex] : 0;
   }
 }
 
