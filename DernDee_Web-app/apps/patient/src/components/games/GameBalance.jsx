@@ -191,7 +191,6 @@ function createSensorRuntime(sample) {
         calibratedPitch: 0,
         bubbleX: 0,
         bubbleY: 0,
-        lastDisplayUpdate: 0,
     };
 }
 
@@ -241,11 +240,6 @@ const GameBalance = () => {
     const [soundEnabled, setSoundEnabled] = useState(true);
     const audioContextRef = useRef(null);
 
-    // === Calibration Offsets (use refs so callback always gets latest) ===
-    const offsetRollRef = useRef(0);
-    const offsetPitchRef = useRef(0);
-    const [offsetRoll, setOffsetRoll] = useState(0); // For display only
-    const [offsetPitch, setOffsetPitch] = useState(0); // For display only
     const [isCalibrating, setIsCalibrating] = useState(false);
     const isCalibratingRef = useRef(false); // Ref for callback
     const sensitivityRef = useRef(1.0);
@@ -540,7 +534,6 @@ const GameBalance = () => {
         sensorState.calibratedPitch = 0;
         sensorState.bubbleX = 0;
         sensorState.bubbleY = 0;
-        sensorState.lastDisplayUpdate = 0;
     }, []);
 
     const getVisibleSensorStates = useCallback(() => {
@@ -826,13 +819,8 @@ const GameBalance = () => {
 
         sensorState.calibratedRoll = smoothedLeanLeft;
         sensorState.calibratedPitch = smoothedLeanFwd;
-
-        // Throttled Display Update (Every 700ms)
-        if (now - sensorState.lastDisplayUpdate > 700) {
-            sensorState.displayRoll = smoothedLeanLeft;
-            sensorState.displayPitch = smoothedLeanFwd;
-            sensorState.lastDisplayUpdate = now;
-        }
+        sensorState.displayRoll = smoothedLeanLeft;
+        sensorState.displayPitch = smoothedLeanFwd;
 
         // === Map to ball position ===
         const maxAngle = 45;
@@ -1402,11 +1390,11 @@ const GameBalance = () => {
                             <div className="grid grid-cols-2 gap-4">
                                 <div>
                                     <div className="text-xs text-gray-400">Roll</div>
-                                    <div className="text-lg font-bold text-gray-700">{offsetRoll.toFixed(1)}°</div>
+                                    <div className="text-lg font-bold text-gray-700">{combinedDisplayRoll.toFixed(1)}°</div>
                                 </div>
                                 <div>
                                     <div className="text-xs text-gray-400">Pitch</div>
-                                    <div className="text-lg font-bold text-gray-700">{offsetPitch.toFixed(1)}°</div>
+                                    <div className="text-lg font-bold text-gray-700">{combinedDisplayPitch.toFixed(1)}°</div>
                                 </div>
                             </div>
                         </div>
