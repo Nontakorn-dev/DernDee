@@ -1,3 +1,10 @@
+function withMp4Source(clip) {
+  return {
+    ...clip,
+    srcMp4: clip.src.replace(/\.webm$/i, '.mp4'),
+  };
+}
+
 export const AVATAR_CLIPS = {
   greeting: {
     id: 'greeting',
@@ -78,6 +85,33 @@ export const AVATAR_CLIPS = {
     line: '',
   },
 };
+
+Object.keys(AVATAR_CLIPS).forEach((key) => {
+  AVATAR_CLIPS[key] = withMp4Source(AVATAR_CLIPS[key]);
+});
+
+export function avatarNeedsCanvasKey() {
+  if (typeof navigator === 'undefined') {
+    return false;
+  }
+
+  const userAgent = navigator.userAgent || '';
+  const isIos = /iPad|iPhone|iPod/.test(userAgent)
+    || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+  const isBluefy = /Bluefy/i.test(userAgent);
+  const isWebKitWithoutChromium = /WebKit/i.test(userAgent)
+    && !/Chrome|Chromium|CriOS|Edg|OPR|Android/i.test(userAgent);
+
+  return isIos || isBluefy || isWebKitWithoutChromium;
+}
+
+export function getAvatarVideoSrc(clip) {
+  if (avatarNeedsCanvasKey()) {
+    return clip.srcMp4 || clip.src;
+  }
+
+  return clip.src;
+}
 
 const ALERT_TO_CLIP = {
   low_clearance: 'clearance',
