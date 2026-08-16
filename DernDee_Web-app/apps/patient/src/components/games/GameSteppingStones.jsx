@@ -23,6 +23,7 @@ import {
 } from '@shared/gateway/realtimeSensorUtils.js';
 import { usePersistedGatewaySession } from '@shared/hooks/usePersistedGatewaySession.js';
 import { getGameAudioContext, unlockGameAudio } from '@shared/audio/unlockGameAudio.js';
+import { playGameHtmlSfx, shouldUseHtmlGameSfx } from '@shared/audio/playGameHtmlSfx.js';
 import {
     ArrowLeft,
     Footprints,
@@ -232,7 +233,14 @@ const GameSteppingStones = () => {
     }, []);
 
     const playLandingSound = useCallback(() => {
-        if (!soundEnabled || !audioContextRef.current) {
+        if (!soundEnabled) {
+            return;
+        }
+        if (shouldUseHtmlGameSfx()) {
+            playGameHtmlSfx('landing');
+            return;
+        }
+        if (!audioContextRef.current) {
             return;
         }
 

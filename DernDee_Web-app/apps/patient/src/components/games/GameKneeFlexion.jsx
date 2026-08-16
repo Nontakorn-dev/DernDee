@@ -10,6 +10,7 @@ import {
 import { usePersistedGatewaySession } from '@shared/hooks/usePersistedGatewaySession.js';
 import { resolveActiveLegPairs } from '@shared/gait/gaitSensorSelection.js';
 import { getGameAudioContext, unlockGameAudio } from '@shared/audio/unlockGameAudio.js';
+import { playGameHtmlSfx, shouldUseHtmlGameSfx } from '@shared/audio/playGameHtmlSfx.js';
 import {
     ArrowLeft,
     ArrowRight,
@@ -238,6 +239,10 @@ const GameKneeFlexion = () => {
 
     const playSuccessSound = useCallback(() => {
         if (!soundEnabled) return;
+        if (shouldUseHtmlGameSfx()) {
+            playGameHtmlSfx('success');
+            return;
+        }
         try {
             if (!audioContextRef.current) {
                 audioContextRef.current = new (window.AudioContext || window.webkitAudioContext)();
@@ -269,6 +274,10 @@ const GameKneeFlexion = () => {
 
     const playMissionCompleteSound = useCallback(() => {
         if (!soundEnabled) return;
+        if (shouldUseHtmlGameSfx()) {
+            playGameHtmlSfx('complete');
+            return;
+        }
         try {
             if (!audioContextRef.current) {
                 audioContextRef.current = new (window.AudioContext || window.webkitAudioContext)();

@@ -1,3 +1,5 @@
+import { unlockGameHtmlSfx } from './playGameHtmlSfx.js';
+
 function getAudioContextClass() {
   if (typeof window === 'undefined') {
     return null;
@@ -20,6 +22,8 @@ export function getGameAudioContext(existing) {
 }
 
 export function unlockGameAudio(audioContext) {
+  unlockGameHtmlSfx();
+
   const context = getGameAudioContext(audioContext);
   if (!context) {
     return null;

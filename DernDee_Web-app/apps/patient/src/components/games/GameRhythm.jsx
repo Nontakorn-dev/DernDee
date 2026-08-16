@@ -12,6 +12,7 @@ import {
 import { usePersistedGatewaySession } from '@shared/hooks/usePersistedGatewaySession.js';
 import { resolveVisibleShankSensorKeys, sortGaitSensorStates } from '@shared/gait/gaitSensorSelection.js';
 import { getGameAudioContext, unlockGameAudio } from '@shared/audio/unlockGameAudio.js';
+import { playGameHtmlSfx, shouldUseHtmlGameSfx } from '@shared/audio/playGameHtmlSfx.js';
 import { ArrowLeft, Settings, Music, Play, Pause, Square, X, Volume2, VolumeX, Activity, ArrowRight } from 'lucide-react';
 import derndeeLogo from '@shared/assets/images/derndee-logo.png';
 
@@ -302,7 +303,12 @@ const GameRhythm = () => {
 
     // === Play Tick Sound ===
     const playTickSound = useCallback(() => {
-        if (!soundEnabled || !audioContextRef.current) return;
+        if (!soundEnabled) return;
+        if (shouldUseHtmlGameSfx()) {
+            playGameHtmlSfx('tick');
+            return;
+        }
+        if (!audioContextRef.current) return;
 
         const ctx = audioContextRef.current;
         const oscillator = ctx.createOscillator();
@@ -323,7 +329,19 @@ const GameRhythm = () => {
 
     // === Play Success Sound ===
     const playSuccessSound = useCallback((targetBeatTimeMs = null) => {
-        if (!soundEnabled || !audioContextRef.current) return;
+        if (!soundEnabled) return;
+        if (shouldUseHtmlGameSfx()) {
+            const delayMs = targetBeatTimeMs !== null
+                ? Math.max(0, targetBeatTimeMs - performance.now())
+                : 0;
+            if (delayMs > 8) {
+                window.setTimeout(() => playGameHtmlSfx('success'), delayMs);
+            } else {
+                playGameHtmlSfx('success');
+            }
+            return;
+        }
+        if (!audioContextRef.current) return;
 
         const ctx = audioContextRef.current;
         const startTime = targetBeatTimeMs !== null
