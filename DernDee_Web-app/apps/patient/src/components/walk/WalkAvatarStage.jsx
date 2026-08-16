@@ -6,9 +6,10 @@ import {
 } from './avatarClips.js';
 
 const MAX_KEY_WIDTH = 800;
-const HARD_WHITE = 246;
-const CHROMA_LIMIT = 12;
-const SOFT_WHITE = 228;
+const HARD_WHITE = 249;
+const CHROMA_LIMIT = 10;
+const SOFT_WHITE = 250;
+const SUBJECT_GROW_PX = 2;
 
 function channelMin(red, green, blue) {
   return red < green ? (red < blue ? red : blue) : (green < blue ? green : blue);
@@ -128,57 +129,46 @@ function keyStudioWhite(imageData) {
     }
   }
 
-  const alpha = new Uint8Array(pixelCount);
+  let alpha = new Uint8Array(pixelCount);
   for (let pixelIndex = 0; pixelIndex < pixelCount; pixelIndex += 1) {
     alpha[pixelIndex] = labels[pixelIndex] === keepLabel ? 255 : 0;
   }
 
-  const softened = new Uint8Array(alpha);
-  for (let y = 1; y < height - 1; y += 1) {
-    for (let x = 1; x < width - 1; x += 1) {
-      const pixelIndex = (y * width) + x;
-      if (alpha[pixelIndex] === 0) {
-        continue;
-      }
+  for (let grow = 0; grow < SUBJECT_GROW_PX; grow += 1) {
+    const grown = new Uint8Array(alpha);
+    for (let y = 1; y < height - 1; y += 1) {
+      for (let x = 1; x < width - 1; x += 1) {
+        const pixelIndex = (y * width) + x;
+        if (alpha[pixelIndex] === 0) {
+          continue;
+        }
 
-      const offset = pixelIndex * 4;
-      const red = data[offset];
-      const green = data[offset + 1];
-      const blue = data[offset + 2];
-      const min = channelMin(red, green, blue);
-      const touchesBackground = alpha[pixelIndex - 1] === 0
-        || alpha[pixelIndex + 1] === 0
-        || alpha[pixelIndex - width] === 0
-        || alpha[pixelIndex + width] === 0;
-
-      if (touchesBackground && min >= SOFT_WHITE) {
-        const fade = Math.min(1, (min - SOFT_WHITE) / Math.max(1, HARD_WHITE - SOFT_WHITE));
-        softened[pixelIndex] = Math.round((1 - fade) * 220);
+        grown[pixelIndex - 1] = 255;
+        grown[pixelIndex + 1] = 255;
+        grown[pixelIndex - width] = 255;
+        grown[pixelIndex + width] = 255;
       }
     }
-  }
-
-  const blurred = new Uint8Array(pixelCount);
-  for (let y = 1; y < height - 1; y += 1) {
-    for (let x = 1; x < width - 1; x += 1) {
-      const pixelIndex = (y * width) + x;
-      blurred[pixelIndex] = Math.round((
-        softened[pixelIndex]
-        + softened[pixelIndex - 1]
-        + softened[pixelIndex + 1]
-        + softened[pixelIndex - width]
-        + softened[pixelIndex + width]
-      ) / 5);
-    }
-  }
-
-  for (let y = 0; y < height; y += 1) {
-    blurred[y * width] = softened[y * width];
-    blurred[(y * width) + width - 1] = softened[(y * width) + width - 1];
+    alpha = grown;
   }
 
   for (let pixelIndex = 0; pixelIndex < pixelCount; pixelIndex += 1) {
-    data[(pixelIndex * 4) + 3] = labels[pixelIndex] === keepLabel ? blurred[pixelIndex] : 0;
+    if (alpha[pixelIndex] === 0) {
+      data[(pixelIndex * 4) + 3] = 0;
+      continue;
+    }
+
+    const offset = pixelIndex * 4;
+    const min = channelMin(data[offset], data[offset + 1], data[offset + 2]);
+    const x = pixelIndex % width;
+    const y = Math.floor(pixelIndex / width);
+    const atEdge = x === 0 || y === 0 || x === width - 1 || y === height - 1
+      || alpha[pixelIndex - 1] === 0
+      || alpha[pixelIndex + 1] === 0
+      || alpha[pixelIndex - width] === 0
+      || alpha[pixelIndex + width] === 0;
+
+    data[offset + 3] = atEdge && min >= SOFT_WHITE ? 220 : 255;
   }
 }
 
@@ -263,10 +253,29 @@ const WalkAvatarStage = ({
     }
 
     let frameId = 0;
+    const scratch = document.createElement('canvas');
+    const scratchContext = scratch.getContext('2d', { willReadFrequently: true, alpha: true });
+
+    const isDecoderBlackFrame = (imageData) => {
+      const { data, width, height } = imageData;
+      const samples = [
+        0,
+        (width - 1) * 4,
+        ((height - 1) * width) * 4,
+        (((height - 1) * width) + width - 1) * 4,
+        (Math.floor(height / 2) * width + Math.floor(width / 2)) * 4,
+      ];
+      const luma = samples.reduce((sum, offset) => (
+        sum + data[offset] + data[offset + 1] + data[offset + 2]
+      ), 0) / (samples.length * 3);
+      return luma < 32;
+    };
 
     const drawFrame = () => {
-      if (!video.videoWidth || !video.videoHeight) {
-        frameId = window.requestAnimationFrame(drawFrame);
+      if (video.readyState < 2 || video.seeking || !video.videoWidth || !video.videoHeight) {
+        if (!video.paused && !video.ended) {
+          frameId = window.requestAnimationFrame(drawFrame);
+        }
         return;
       }
 
@@ -274,14 +283,25 @@ const WalkAvatarStage = ({
       const width = Math.max(1, Math.round(video.videoWidth * scale));
       const height = Math.max(1, Math.round(video.videoHeight * scale));
 
+      if (scratch.width !== width || scratch.height !== height) {
+        scratch.width = width;
+        scratch.height = height;
+      }
+
+      scratchContext.drawImage(video, 0, 0, width, height);
+      const imageData = scratchContext.getImageData(0, 0, width, height);
+      if (isDecoderBlackFrame(imageData)) {
+        if (!video.paused && !video.ended) {
+          frameId = window.requestAnimationFrame(drawFrame);
+        }
+        return;
+      }
+
       if (canvas.width !== width || canvas.height !== height) {
         canvas.width = width;
         canvas.height = height;
       }
 
-      context.clearRect(0, 0, width, height);
-      context.drawImage(video, 0, 0, width, height);
-      const imageData = context.getImageData(0, 0, width, height);
       keyStudioWhite(imageData);
       context.putImageData(imageData, 0, 0);
 
@@ -296,6 +316,7 @@ const WalkAvatarStage = ({
     };
 
     video.addEventListener('play', startDrawing);
+    video.addEventListener('playing', startDrawing);
     video.addEventListener('loadeddata', startDrawing);
     video.addEventListener('seeked', startDrawing);
     startDrawing();
@@ -303,6 +324,7 @@ const WalkAvatarStage = ({
     return () => {
       window.cancelAnimationFrame(frameId);
       video.removeEventListener('play', startDrawing);
+      video.removeEventListener('playing', startDrawing);
       video.removeEventListener('loadeddata', startDrawing);
       video.removeEventListener('seeked', startDrawing);
     };
@@ -331,6 +353,7 @@ const WalkAvatarStage = ({
         <canvas
           ref={canvasRef}
           className="relative z-10 h-full w-full bg-transparent object-contain"
+          style={{ backgroundColor: 'transparent' }}
         />
       ) : null}
 
