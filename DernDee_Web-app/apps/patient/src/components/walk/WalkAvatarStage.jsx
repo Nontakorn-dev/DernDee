@@ -5,9 +5,37 @@ import {
   getAvatarVideoSrc,
 } from './avatarClips.js';
 
-const MAX_KEY_WIDTH = 640;
-const HARD_WHITE = 244;
-const CHROMA_LIMIT = 14;
+const MAX_KEY_WIDTH = 800;
+const HARD_WHITE = 248;
+const CHROMA_LIMIT = 8;
+const BG_MATCH = 10;
+
+function sampleCornerBackground(data, width, height) {
+  const samples = [
+    [4, 4],
+    [width - 5, 4],
+    [4, height - 5],
+    [width - 5, height - 5],
+  ];
+  let red = 0;
+  let green = 0;
+  let blue = 0;
+  let count = 0;
+
+  samples.forEach(([cx, cy]) => {
+    for (let dy = -2; dy <= 2; dy += 1) {
+      for (let dx = -2; dx <= 2; dx += 1) {
+        const offset = (((cy + dy) * width) + (cx + dx)) * 4;
+        red += data[offset];
+        green += data[offset + 1];
+        blue += data[offset + 2];
+        count += 1;
+      }
+    }
+  });
+
+  return [red / count, green / count, blue / count];
+}
 
 function keyStudioWhite(imageData) {
   const { data, width, height } = imageData;
@@ -15,8 +43,19 @@ function keyStudioWhite(imageData) {
   const seen = new Uint8Array(pixelCount);
   const queueX = new Int32Array(pixelCount);
   const queueY = new Int32Array(pixelCount);
+  const background = sampleCornerBackground(data, width, height);
+  const centerX = width * 0.5;
+  const centerY = height * 0.5;
+  const radiusX = width * 0.27;
+  const radiusY = height * 0.4;
   let head = 0;
   let tail = 0;
+
+  const inProtectedTorso = (x, y) => {
+    const nx = (x - centerX) / radiusX;
+    const ny = (y - centerY) / radiusY;
+    return ((nx * nx) + (ny * ny)) <= 1;
+  };
 
   const isStudioWhite = (offset) => {
     const red = data[offset];
@@ -24,11 +63,19 @@ function keyStudioWhite(imageData) {
     const blue = data[offset + 2];
     const min = red < green ? (red < blue ? red : blue) : (green < blue ? green : blue);
     const max = red > green ? (red > blue ? red : blue) : (green > blue ? green : blue);
-    return min >= HARD_WHITE && (max - min) <= CHROMA_LIMIT;
+    const distance = Math.abs(red - background[0])
+      + Math.abs(green - background[1])
+      + Math.abs(blue - background[2]);
+
+    return min >= HARD_WHITE && (max - min) <= CHROMA_LIMIT && distance <= BG_MATCH;
   };
 
   const enqueue = (x, y) => {
     if (x < 0 || y < 0 || x >= width || y >= height) {
+      return;
+    }
+
+    if (inProtectedTorso(x, y)) {
       return;
     }
 
