@@ -819,7 +819,7 @@ const GameBalance = () => {
 
         sensorState.calibratedRoll = smoothedLeanLeft;
         sensorState.calibratedPitch = smoothedLeanFwd;
-        sensorState.displayRoll = smoothedLeanLeft;
+        sensorState.displayRoll = smoothedLeanLeft * 5;
         sensorState.displayPitch = smoothedLeanFwd;
 
         // === Map to ball position ===
