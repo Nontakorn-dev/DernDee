@@ -415,7 +415,7 @@ const History = () => {
                                     <div
                                         key={session.id}
                                         className={`rounded-3xl shadow-xl p-4 sm:p-6 border-2 transition-all duration-300 cursor-pointer ${toneStyle.card}`}
-                                        onClick={() => navigate('/analysis-result', { state: { session } })}
+                                        onClick={() => navigate(`/walk-summary?sessionId=${session.id}`)}
                                     >
                                         <div className="flex flex-col gap-4">
                                             <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">

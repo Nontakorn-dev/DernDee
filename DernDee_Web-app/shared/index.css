@@ -21,6 +21,87 @@ body {
   -moz-osx-font-smoothing: grayscale;
 }
 
+html.dark {
+  color-scheme: dark;
+}
+
+html.dark body {
+  background-color: #0b1220;
+  color: #e5e7eb;
+}
+
+html.dark .bg-white,
+html.dark .bg-white\/70,
+html.dark .bg-white\/80,
+html.dark .bg-white\/90 {
+  background-color: #111827 !important;
+}
+
+html.dark .bg-gray-50,
+html.dark .bg-gray-100,
+html.dark .bg-blue-50,
+html.dark .bg-indigo-50,
+html.dark .bg-violet-50,
+html.dark .bg-emerald-50,
+html.dark .bg-red-50,
+html.dark .bg-green-50 {
+  background-color: #0f172a !important;
+}
+
+html.dark .from-blue-50,
+html.dark .via-blue-100,
+html.dark .to-blue-200,
+html.dark .via-blue-50,
+html.dark .to-indigo-50,
+html.dark .to-blue-50,
+html.dark .from-white,
+html.dark .from-violet-50 {
+  --tw-gradient-from: #0b1220 var(--tw-gradient-from-position);
+  --tw-gradient-to: #1e293b var(--tw-gradient-to-position);
+  --tw-gradient-stops: var(--tw-gradient-from), #111827, var(--tw-gradient-to);
+}
+
+html.dark .text-gray-900,
+html.dark .text-gray-800,
+html.dark .text-gray-700 {
+  color: #f1f5f9 !important;
+}
+
+html.dark .text-gray-600,
+html.dark .text-gray-500 {
+  color: #cbd5e1 !important;
+}
+
+html.dark .border-gray-200,
+html.dark .border-blue-100,
+html.dark .border-blue-200,
+html.dark .border-violet-200,
+html.dark .border-indigo-100 {
+  border-color: #334155 !important;
+}
+
+html.dark header.bg-white,
+html.dark .shadow-xl,
+html.dark .shadow-2xl {
+  box-shadow: 0 10px 30px rgb(0 0 0 / 0.35) !important;
+}
+
+html.dark input,
+html.dark select,
+html.dark textarea {
+  background-color: #0f172a;
+  color: #f8fafc;
+  border-color: #334155;
+}
+
+html.dark .loading-container {
+  background: linear-gradient(135deg, #0b1220 0%, #1e293b 100%);
+}
+
+html.dark .loading-spinner p {
+  color: #cbd5e1;
+}
+
 /* Global Loading Container */
 .loading-container {
   min-height: 100vh;

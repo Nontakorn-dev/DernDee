@@ -7,8 +7,6 @@ import {
     FileText,
     X,
     Calendar,
-    Video,
-    Phone,
     Copy,
     Check,
     MessageCircle,
@@ -16,6 +14,7 @@ import {
 } from 'lucide-react';
 import { useUserAuth } from '@shared/context/UserAuthContext.jsx';
 import { fetchPatientHistorySessions } from '@shared/services/sessionService.js';
+import { normalizeUserPreferences } from '@shared/services/userPreferences.js';
 import {
     buildAnalysisPayload,
     fetchAssignedDoctorProfiles,
@@ -33,7 +32,8 @@ import derndeeLogo from '@shared/assets/images/derndee-logo.png';
 
 const Telemedicine = () => {
     const navigate = useNavigate();
-    const { user } = useUserAuth();
+    const { user, profile } = useUserAuth();
+    const canShareAnalysis = normalizeUserPreferences(profile?.preferences).dataSharing;
     const messagesEndRef = useRef(null);
     const [message, setMessage] = useState('');
     const [showAnalysisResults, setShowAnalysisResults] = useState(false);
@@ -211,6 +211,11 @@ const Telemedicine = () => {
     };
 
     const handleSendAnalysisResult = async (session) => {
+        if (!canShareAnalysis) {
+            setError('Turn on “Share data with my doctor” in Settings before attaching a session.');
+            return;
+        }
+
         if (!thread || !user?.uid || sending) {
             return;
         }
@@ -370,25 +375,6 @@ const Telemedicine = () => {
                         </div>
 
                         <div className="flex-1 bg-white rounded-3xl shadow-2xl p-4 sm:p-6 overflow-hidden flex flex-col min-h-0">
-                            <div className="flex items-center justify-center gap-3 mb-4 pb-4 border-b border-gray-200">
-                                <button
-                                    onClick={() => alert('Starting video call...')}
-                                    className="px-4 sm:px-6 py-2.5 sm:py-3 bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 text-white rounded-xl transition-all duration-300 shadow-lg hover:shadow-xl flex items-center gap-2"
-                                    title="Video Call"
-                                >
-                                    <Video className="w-5 h-5 sm:w-6 sm:h-6" />
-                                    <span className="text-sm sm:text-base font-bold">Video Call</span>
-                                </button>
-                                <button
-                                    onClick={() => alert('Starting voice call...')}
-                                    className="px-4 sm:px-6 py-2.5 sm:py-3 bg-gradient-to-r from-green-500 to-green-600 hover:from-green-600 hover:to-green-700 text-white rounded-xl transition-all duration-300 shadow-lg hover:shadow-xl flex items-center gap-2"
-                                    title="Voice Call"
-                                >
-                                    <Phone className="w-5 h-5 sm:w-6 sm:h-6" />
-                                    <span className="text-sm sm:text-base font-bold">Voice Call</span>
-                                </button>
-                            </div>
-
                             <div className="flex-1 overflow-y-auto space-y-4 mb-4">
                                 {messages.length === 0 ? (
                                     <div className="h-full min-h-[12rem] flex flex-col items-center justify-center text-center px-4">
@@ -480,9 +466,15 @@ const Telemedicine = () => {
 
                                 <div className="flex items-end gap-2">
                                     <button
-                                        onClick={() => setShowAnalysisResults(!showAnalysisResults)}
+                                        onClick={() => {
+                                            if (!canShareAnalysis) {
+                                                setError('Turn on “Share data with my doctor” in Settings before attaching a session.');
+                                                return;
+                                            }
+                                            setShowAnalysisResults(!showAnalysisResults);
+                                        }}
                                         className="p-3 bg-gradient-to-r from-purple-500 to-purple-600 hover:from-purple-600 hover:to-purple-700 text-white rounded-xl transition-all duration-300 shadow-lg hover:shadow-xl flex-shrink-0"
-                                        title="Send Analysis Result"
+                                        title={canShareAnalysis ? 'Send Analysis Result' : 'Enable data sharing in Settings'}
                                     >
                                         <Paperclip className="w-5 h-5 sm:w-6 sm:h-6" />
                                     </button>

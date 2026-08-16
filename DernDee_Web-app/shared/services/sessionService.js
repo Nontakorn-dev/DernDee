@@ -792,6 +792,26 @@ export async function fetchPatientHistorySessions(patientId) {
   return (data || []).map(mapSessionRow)
 }
 
+export async function fetchPatientSessionById(patientId, sessionId) {
+  if (!patientId || !sessionId) {
+    return null
+  }
+
+  const supabase = getSupabaseClient()
+  const { data, error } = await executeSessionQuery((columns) => supabase
+    .from('sessions')
+    .select(columns)
+    .eq('patient_id', patientId)
+    .eq('id', sessionId)
+    .maybeSingle())
+
+  if (error) {
+    throw error
+  }
+
+  return data ? mapSessionRow(data) : null
+}
+
 export async function fetchLatestPatientSession(patientId) {
   const supabase = getSupabaseClient()
   const { data, error } = await executeSessionQuery((columns) => supabase

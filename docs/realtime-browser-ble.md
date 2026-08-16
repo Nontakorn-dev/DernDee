@@ -41,9 +41,8 @@ decoder ปัจจุบันอ่าน packet ขนาด 22 bytes แบ
 
 ## 3. Firmware compatibility
 
-- firmware ที่ตรงกับ decoder ปัจจุบันคือ `Hardware/esp32_IMU_Ver2.ino`
-- ในไฟล์นี้มีคำอธิบาย Packet V1, sampling 100 Hz, และ CRC8 ตรงกับ logic ใน `realtimeTransport.js`
-- `Hardware/esp32_imu_node.ino` ใช้ header, field order, และ checksum คนละแบบ จึงไม่ควรถือว่า compatible กับ frontend runtime ปัจจุบัน
+- firmware ที่ตรงกับ decoder ปัจจุบันคือ `Hardware/esp32_IMU_Ver2.ino` และ `Hardware/esp32_ICM20948_Ver2.ino`
+- ในไฟล์เหล่านี้มีคำอธิบาย Packet V1, sampling 100 Hz, และ CRC8 ตรงกับ logic ใน `realtimeTransport.js`
 
 ## 4. Sensor slots และการจำ assignments
 
@@ -91,7 +90,7 @@ transport เตรียม body positions ไว้ 5 slot
 1. user pair sensors ใน `DeviceConnection.jsx`
 2. Browser BLE notifications ถูก decode ใน `realtimeTransport.js`
 3. transport broadcast `DATA` payloads ให้ route ที่ subscribe อยู่
-4. `WalkSession`, games, และ patient gait dashboard ใช้ stream เดียวกัน
+4. `FreeWalkSession`, games, และ patient gait dashboard ใช้ stream เดียวกัน
 5. route ที่ต้องวิเคราะห์ gait ส่ง sample เข้า worker-backed processor ผ่าน `gaitProcessorClient.js`
 
 ## 7. Doctor live broadcast path

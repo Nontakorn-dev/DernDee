@@ -243,7 +243,7 @@ const Home = () => {
 
                         {/* Analysis Result */}
                         <div
-                            onClick={() => navigate('/analysis-result')}
+                            onClick={() => navigate('/walk-summary')}
                             className="bg-white rounded-2xl sm:rounded-3xl shadow-2xl p-3 sm:p-4 md:p-4 lg:p-4 flex flex-col items-center justify-center flex-1 min-h-[100px] sm:min-h-[120px] md:min-h-[140px] lg:min-h-[120px] xl:min-h-[140px] hover:shadow-3xl transition-shadow cursor-pointer"
                         >
                             <div className="w-10 h-10 sm:w-12 sm:h-12 md:w-14 md:h-14 lg:w-14 lg:h-14 xl:w-16 xl:h-16 bg-purple-100 rounded-full flex items-center justify-center mb-2 sm:mb-2 md:mb-3 shadow-lg">

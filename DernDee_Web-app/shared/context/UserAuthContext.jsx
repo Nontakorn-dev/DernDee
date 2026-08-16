@@ -9,6 +9,7 @@ import {
     upsertPatientPresence,
 } from '@shared/services/profileService.js'
 import { useOfflineSessionSync } from '@shared/hooks/useOfflineSessionSync.js'
+import { applyUserPreferences } from '@shared/services/userPreferences.js'
 
 const userAuthContext = createContext();
 const bypassEmailConfirmationInDev = import.meta.env.DEV && import.meta.env.VITE_SUPABASE_SKIP_EMAIL_CONFIRMATION === 'true';
@@ -24,6 +25,7 @@ export function UserAuthContextProvider({ children }) {
 
     const syncAuthenticatedUser = async (authUser) => {
         if (!authUser) {
+            applyUserPreferences(null);
             setUser(null);
             setProfile(null);
             setLoading(false);
@@ -32,6 +34,7 @@ export function UserAuthContextProvider({ children }) {
 
         const profileRow = await upsertAuthProfile(authUser);
         const normalizedUser = normalizeAuthenticatedUser(authUser, profileRow);
+        applyUserPreferences(profileRow?.preferences);
         setProfile(profileRow);
         setUser(normalizedUser);
         setLoading(false);
@@ -44,6 +47,7 @@ export function UserAuthContextProvider({ children }) {
         }
 
         const profileRow = await fetchProfileById(user.uid);
+        applyUserPreferences(profileRow?.preferences);
         setProfile(profileRow);
         setUser((currentUser) => normalizeAuthenticatedUser({
             id: currentUser?.uid,
@@ -168,6 +172,7 @@ export function UserAuthContextProvider({ children }) {
 
         setUser(null);
         setProfile(null);
+        applyUserPreferences(null);
     }
 
     useEffect(() => {

@@ -74,7 +74,7 @@ dev server ปัจจุบันรันที่ `http://localhost:5174`
 - `/walk-session`
 - `/walk-summary`
 - `/history`
-- `/analysis-result`
+- `/analysis-result` (redirects to `/walk-summary`)
 - `/gait-dashboard`
 - `/game/clearance`
 - `/game/balance`
@@ -114,8 +114,7 @@ dev server ปัจจุบันรันที่ `http://localhost:5174`
 
 ## Firmware note
 
-- decoder ปัจจุบันใน frontend ตรงกับ `../Hardware/esp32_IMU_Ver2.ino`
-- `../Hardware/esp32_imu_node.ino` ไม่ตรงกับ packet format ที่ frontend decode อยู่ตอนนี้
+- decoder ปัจจุบันใน frontend ตรงกับ `../Hardware/esp32_IMU_Ver2.ino` และ `../Hardware/esp32_ICM20948_Ver2.ino`
 
 ## Deployment notes
 

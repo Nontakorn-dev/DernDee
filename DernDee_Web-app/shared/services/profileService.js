@@ -1,4 +1,5 @@
 import { getProfileImageBucket, getSupabaseClient } from '@shared/supabase/client.js'
+import { normalizeUserPreferences } from './userPreferences.js'
 
 function isMissingRelationError(error, relationName) {
   if (!error) {
@@ -132,8 +133,47 @@ export async function upsertAuthProfile(authUser, overrides = {}) {
   }
 }
 
+export async function updateUserPreferences(userId, preferences) {
+  const supabase = getSupabaseClient()
+  const existingProfile = await fetchProfileById(userId)
+  const payload = {
+    preferences: normalizeUserPreferences({
+      ...existingProfile?.preferences,
+      ...preferences,
+    }),
+    updated_at: new Date().toISOString(),
+  }
+
+  const { data, error } = await supabase
+    .from('profiles')
+    .update(payload)
+    .eq('id', userId)
+    .select(PROFILE_COLUMNS)
+    .single()
+
+  if (error) {
+    if (isMissingRelationError(error, 'profiles')) {
+      throw new Error('Supabase profiles table is missing. Apply the migration before editing settings.')
+    }
+
+    throw error
+  }
+
+  return data
+}
+
+export async function deleteOwnAccount() {
+  const supabase = getSupabaseClient()
+  const { error } = await supabase.rpc('delete_own_account')
+
+  if (error) {
+    throw new Error(error.message || 'Failed to delete account')
+  }
+}
+
 export async function updateUserProfile(userId, formData) {
   const supabase = getSupabaseClient()
+  const existingProfile = await fetchProfileById(userId)
 
   const payload = {
     full_name: formData.displayName || '',
@@ -147,7 +187,10 @@ export async function updateUserProfile(userId, formData) {
     medical_conditions: formData.medicalConditions || null,
     medications: formData.medications || null,
     emergency_contact: formData.emergencyContact || {},
-    preferences: formData.preferences || {},
+    preferences: normalizeUserPreferences({
+      ...existingProfile?.preferences,
+      ...(formData.preferences || {}),
+    }),
     updated_at: new Date().toISOString(),
   }
 

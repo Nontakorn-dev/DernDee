@@ -111,15 +111,15 @@ entry file คือ `apps/patient/src/main.jsx`
 | `/register` | `Register.jsx` | patient sign up |
 | `/home` | `Home.jsx` | patient dashboard |
 | `/profile` | `Profile.jsx` | profile editing และ patient ID |
-| `/settings` | `Settings.jsx` | settings UI |
+| `/settings` | `Settings.jsx` | profile-backed theme, language, step goal, privacy, export, and account deletion |
 | `/therapy` | `TherapySelect.jsx` | เลือก therapy mode |
 | `/device-connection` | `DeviceConnection.jsx` | pair sensors ผ่าน Browser BLE |
 | `/calibration` | `Calibration.jsx` | calibration flow |
-| `/walk-session` | `WalkSession.jsx` | free walk session |
-| `/walk-summary` | `WalkSummary.jsx` | post-session summary |
-| `/analysis-result` | `AnalysisResult.jsx` | latest session summary |
+| `/walk-session` | `FreeWalkSession.jsx` | free walk session |
+| `/walk-summary` | `WalkSummary.jsx` | session summary after a walk or from history |
+| `/analysis-result` | redirect | compatibility redirect ไป `/walk-summary` |
 | `/history` | `History.jsx` | history ของ patient |
-| `/telemedicine` | `Telemedicine.jsx` | telemedicine prototype |
+| `/telemedicine` | `Telemedicine.jsx` | chat กับหมอที่ลิงก์ผ่าน Patient ID |
 | `/gait-dashboard` | `GaitDashboard.jsx` | local gait dashboard |
 | `/clinic/gait-dashboard` | redirect | compatibility redirect ไป `/gait-dashboard` |
 | `/game/clearance` | `GameClearance.jsx` | High Stepper |
@@ -131,7 +131,6 @@ entry file คือ `apps/patient/src/main.jsx`
 
 - route ส่วนใหญ่ถูกห่อด้วย `ProtectedRoute`
 - `PatientLiveGaitMirror` ถูก mount ระดับบนสุดของ patient app ทุกครั้งที่ user เป็น patient
-- `Position.jsx` มีอยู่ในโฟลเดอร์ component แต่ยังไม่ได้ถูก mount เป็น route ใน router ปัจจุบัน
 
 ## 5. Clinic app
 
@@ -144,7 +143,7 @@ clinic app ใช้ `basename = '/clinic'` และมี role guard ที่
 | Route | Screen | Purpose |
 | --- | --- | --- |
 | `/clinic` | `DoctorDashboard.jsx` | dashboard หลักของ doctor |
-| `/clinic/chat` | `DoctorChat.jsx` | chat UI prototype |
+| `/clinic/chat` | `DoctorChat.jsx` | chat กับผู้ป่วยที่ลิงก์ผ่าน Patient ID |
 | `/clinic/patients/:patientId` | `DoctorPatientDetail.jsx` | patient detail และรายการ sessions |
 | `/clinic/patients/:patientId/analysis/:sessionId` | `DoctorAnalysisReview.jsx` | review ราย session |
 | `/clinic/live-gait/:patientId` | `DoctorLiveGaitDashboard.jsx` | live dashboard ผ่าน Supabase Realtime |

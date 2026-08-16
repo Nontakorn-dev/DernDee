@@ -70,8 +70,7 @@ DernDee_Robustness/
 │   └── current-gait-detection-and-integration.md
 ├── Hardware/
 │   ├── esp32_ICM20948_Ver2.ino
-│   ├── esp32_IMU_Ver2.ino
-│   └── esp32_imu_node.ino
+│   └── esp32_IMU_Ver2.ino
 └── supabase/
     └── migrations/
 ```
@@ -130,7 +129,7 @@ clinic app เปิดจาก path `/clinic` และมี route สำค�
 
 ### 3. Therapy sessions และ games
 
-- `free_walk` ใช้ `WalkSession.jsx` และ shared gait processor
+- `free_walk` ใช้ `FreeWalkSession.jsx` และ shared gait processor
 - games หลักใช้ `usePersistedGatewaySession()` เพื่อจัดการ session lifecycle
 - completed session ถูก normalize เป็น frontend session record
 - ถ้า offline ระบบจะ queue ลง IndexedDB ก่อน แล้ว sync ตอนกลับมา online
@@ -297,10 +296,9 @@ frontend decoder ปัจจุบันรองรับ Packet V1 ขนา�
 
 สรุป compatibility ตอนนี้
 
-- `Hardware/esp32_IMU_Ver2.ino` ตรงกับ decoder ปัจจุบันใน frontend
+- `Hardware/esp32_IMU_Ver2.ino` และ `Hardware/esp32_ICM20948_Ver2.ino` ตรงกับ decoder ปัจจุบันใน frontend
 - magic ที่ใช้คือ `0xAA55`
 - packet มี sequence, timestamp, raw accel, raw gyro, และ CRC8
-- `Hardware/esp32_imu_node.ino` ใช้ layout และ checksum คนละแบบ จึงควรถือเป็น reference หรือ firmware prototype คนละ generation
 
 ## Browser และ runtime requirements
 

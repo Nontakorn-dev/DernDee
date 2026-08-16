@@ -47,8 +47,7 @@ DernDee เป็น prototype ระบบฟื้นฟูการเดิ�
 ### Firmware
 
 - โฟลเดอร์ `Hardware/` เก็บ firmware หลายตัว
-- packet ที่ decoder ปัจจุบันรองรับตรง ๆ มาจาก `Hardware/esp32_IMU_Ver2.ino`
-- `Hardware/esp32_imu_node.ino` ไม่ตรงกับ packet layout ที่ frontend decode อยู่ในตอนนี้
+- packet ที่ decoder ปัจจุบันรองรับตรง ๆ มาจาก `Hardware/esp32_IMU_Ver2.ino` และ `Hardware/esp32_ICM20948_Ver2.ino`
 
 ## 3. โครงสร้าง repo ที่ใช้งานจริง
 

@@ -38,7 +38,7 @@ function Profile() {
         },
         preferences: {
             notifications: true,
-            dataSharing: false,
+            dataSharing: true,
             language: 'en'
         }
     });
@@ -81,7 +81,7 @@ function Profile() {
                     },
                     preferences: data.preferences || {
                         notifications: true,
-                        dataSharing: false,
+                        dataSharing: true,
                         language: 'en'
                     }
                 };
@@ -106,7 +106,7 @@ function Profile() {
                     },
                     preferences: {
                         notifications: true,
-                        dataSharing: false,
+                        dataSharing: true,
                         language: 'en'
                     }
                 };
@@ -187,7 +187,10 @@ function Profile() {
             }
 
             // Calculate BMI if weight and height are provided
-            const updatedProfile = await updateUserProfile(user.uid, formData);
+            const updatedProfile = await updateUserProfile(user.uid, {
+                ...formData,
+                preferences: undefined,
+            });
 
             setUserProfile(prev => ({
                 ...prev,
@@ -622,49 +625,16 @@ function Profile() {
                     </div>
                 </div>
 
-                {/* Preferences */}
                 <div className="bg-white border-2 border-blue-100 rounded-2xl sm:rounded-3xl shadow-2xl p-4 sm:p-5 md:p-6 lg:p-7 xl:p-8 mb-3 sm:mb-4 md:mb-5">
-                    <h3 className="text-lg sm:text-xl md:text-2xl lg:text-3xl font-bold text-gray-800 mb-4 sm:mb-5 flex items-center gap-2">
-                        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                            <circle cx="12" cy="12" r="3"></circle>
-                            <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1 1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
-                        </svg>
-                        Preferences
-                    </h3>
-                    <div className="space-y-4">
-                        <div className="flex items-center gap-4 p-4 bg-gray-50 rounded-xl">
-                            <label className="relative inline-flex items-center cursor-pointer">
-                                <input
-                                    type="checkbox"
-                                    checked={formData.preferences?.notifications || false}
-                                    onChange={(e) => handleInputChange('preferences.notifications', e.target.checked)}
-                                    disabled={!isEditing}
-                                    className="sr-only peer"
-                                />
-                                <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
-                            </label>
-                            <div className="flex-1">
-                                <div className="text-sm sm:text-base font-semibold text-gray-800">Push Notifications</div>
-                                <div className="text-xs sm:text-sm text-gray-600">Receive alerts about your therapy sessions</div>
-                            </div>
-                        </div>
-                        <div className="flex items-center gap-4 p-4 bg-gray-50 rounded-xl">
-                            <label className="relative inline-flex items-center cursor-pointer">
-                                <input
-                                    type="checkbox"
-                                    checked={formData.preferences?.dataSharing || false}
-                                    onChange={(e) => handleInputChange('preferences.dataSharing', e.target.checked)}
-                                    disabled={!isEditing}
-                                    className="sr-only peer"
-                                />
-                                <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
-                            </label>
-                            <div className="flex-1">
-                                <div className="text-sm sm:text-base font-semibold text-gray-800">Data Sharing</div>
-                                <div className="text-xs sm:text-sm text-gray-600">Share data with your healthcare providers</div>
-                            </div>
-                        </div>
-                    </div>
+                    <h3 className="text-lg sm:text-xl md:text-2xl font-bold text-gray-800 mb-3">Preferences</h3>
+                    <p className="text-sm text-gray-600 mb-4">Theme, language, step goal, notifications, and data sharing are managed in Settings.</p>
+                    <button
+                        type="button"
+                        onClick={() => navigate('/settings')}
+                        className="rounded-xl bg-blue-600 px-5 py-3 text-sm font-bold text-white shadow-md transition-colors hover:bg-blue-700"
+                    >
+                        Open Settings
+                    </button>
                 </div>
 
                 {/* Account Actions */}

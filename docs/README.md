@@ -41,8 +41,8 @@
 - doctor live dashboard อยู่ที่ `/clinic/live-gait/:patientId` และใช้ Supabase Realtime Broadcast แทนการ polling database
 - realtime sensor path หลักใช้ Browser BLE ใน `shared/gateway/realtimeTransport.js`
 - patient app mount `PatientLiveGaitMirror` แบบ global เพื่อสะท้อน live stream ไป doctor เมื่อมี viewer
-- firmware ที่ตรงกับ decoder ปัจจุบันคือ `Hardware/esp32_IMU_Ver2.ino`
-- migrations ที่ใช้งานตอนนี้มีตั้งแต่ `20260430000100` ถึง `20260504000200`
+- firmware ที่ตรงกับ decoder ปัจจุบันคือ `Hardware/esp32_IMU_Ver2.ino` และ `Hardware/esp32_ICM20948_Ver2.ino`
+- migrations ที่ใช้งานตอนนี้มีตั้งแต่ `20260430000100` ถึง `20260816000400`
 
 ## หมายเหตุการบำรุงรักษา
 
