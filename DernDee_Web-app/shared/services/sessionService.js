@@ -900,6 +900,7 @@ export async function fetchDoctorDashboardData(doctorId) {
         id: profile.id,
         name: profile.full_name || profile.email || 'Unnamed Patient',
         patientId: profile.id.slice(0, 8),
+        avatarUrl: profile.avatar_url || null,
         lastSession: latestSession ? formatDashboardDate(latestSession.start_time) : 'No session yet',
         progress: computeProgress(patientSessions),
         status,

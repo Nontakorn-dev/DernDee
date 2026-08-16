@@ -364,16 +364,29 @@ const DoctorDashboard = () => {
                                                 {patient.progress}%
                                             </span>
                                         </div>
-                                        <button
-                                            type="button"
-                                            onClick={(event) => {
-                                                event.stopPropagation();
-                                                navigate(`/live-gait/${patient.id}`);
-                                            }}
-                                            className="inline-flex items-center justify-center rounded-xl bg-indigo-500 px-4 py-2 text-sm font-bold text-white shadow-md transition-all duration-300 hover:bg-indigo-600 hover:shadow-lg"
-                                        >
-                                            Open Live Graph
-                                        </button>
+                                        <div className="flex flex-wrap gap-2">
+                                            <button
+                                                type="button"
+                                                onClick={(event) => {
+                                                    event.stopPropagation();
+                                                    navigate(`/live-gait/${patient.id}`);
+                                                }}
+                                                className="inline-flex items-center justify-center rounded-xl bg-indigo-500 px-4 py-2 text-sm font-bold text-white shadow-md transition-all duration-300 hover:bg-indigo-600 hover:shadow-lg"
+                                            >
+                                                Open Live Graph
+                                            </button>
+                                            <button
+                                                type="button"
+                                                onClick={(event) => {
+                                                    event.stopPropagation();
+                                                    navigate(`/chat?patientId=${patient.id}`);
+                                                }}
+                                                className="inline-flex items-center justify-center gap-2 rounded-xl bg-blue-500 px-4 py-2 text-sm font-bold text-white shadow-md transition-all duration-300 hover:bg-blue-600 hover:shadow-lg"
+                                            >
+                                                <MessageCircle className="h-4 w-4" />
+                                                Message
+                                            </button>
+                                        </div>
                                     </div>
                                 </div>
                             ))}

@@ -8,7 +8,8 @@ import {
     Clock,
     FileText,
     CheckCircle2,
-    AlertCircle
+    AlertCircle,
+    MessageCircle
 } from 'lucide-react';
 import derndeeLogo from '@shared/assets/images/derndee-logo.png';
 
@@ -121,6 +122,14 @@ const DoctorPatientDetail = () => {
                         <h1 className="text-lg sm:text-2xl md:text-3xl lg:text-4xl font-extrabold text-gray-900 break-words">
                             Patient Details
                         </h1>
+                        <button
+                            type="button"
+                            onClick={() => navigate(`/chat?patientId=${patient.id}`)}
+                            className="ml-auto inline-flex items-center gap-2 rounded-xl bg-blue-500 px-4 py-2 text-sm font-bold text-white shadow-md transition-all duration-300 hover:bg-blue-600 hover:shadow-lg"
+                        >
+                            <MessageCircle className="h-4 w-4" />
+                            Message
+                        </button>
                     </div>
                 </div>
 
