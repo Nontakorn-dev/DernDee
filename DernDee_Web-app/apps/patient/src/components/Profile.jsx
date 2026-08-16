@@ -3,8 +3,9 @@ import { useNavigate } from 'react-router-dom';
 import { ArrowLeft, Copy, Check } from 'lucide-react';
 import { useUserAuth } from '@shared/context/UserAuthContext.jsx';
 import { updateUserProfile, uploadProfileImage } from '@shared/services/profileService.js';
+import ProfileAvatarCrop from './ProfileAvatarCrop.jsx';
 import './Profile.css';
-import derndeeLogo from '@shared/assets/images/derndee-logo.png'; // Uncomment this line and add your logo
+import derndeeLogo from '@shared/assets/images/derndee-logo.png';
 
 function Profile() {
     const { user, logOut, profile, refreshProfile } = useUserAuth();
@@ -43,6 +44,7 @@ function Profile() {
     });
 
     const fileInputRef = useRef();
+    const [cropFile, setCropFile] = useState(null);
 
     useEffect(() => {
         if (user) {
@@ -118,33 +120,37 @@ function Profile() {
         }
     };
 
-    const handleImageUpload = async (event) => {
+    const handleImageUpload = (event) => {
         const file = event.target.files[0];
+        event.target.value = '';
         if (!file) return;
 
+        setError('');
+
+        if (!file.type.startsWith('image/')) {
+            setError('Please select an image file');
+            return;
+        }
+
+        if (file.size > 8 * 1024 * 1024) {
+            setError('Image size must be less than 8MB');
+            return;
+        }
+
+        setCropFile(file);
+    };
+
+    const handleCropConfirm = async (croppedFile) => {
         setUploadingImage(true);
         setError('');
 
         try {
-            // Validate file type
-            if (!file.type.startsWith('image/')) {
-                throw new Error('Please select an image file');
-            }
-
-            // Validate file size (max 5MB)
-            if (file.size > 5 * 1024 * 1024) {
-                throw new Error('Image size must be less than 5MB');
-            }
-
-            const downloadURL = await uploadProfileImage(user.uid, file);
+            const downloadURL = await uploadProfileImage(user.uid, croppedFile);
             await refreshProfile();
-
-            setUserProfile(prev => ({ ...prev, photoURL: downloadURL, avatar_url: downloadURL }));
+            setUserProfile((prev) => ({ ...prev, photoURL: downloadURL, avatar_url: downloadURL }));
+            setCropFile(null);
             setSuccess('Profile image updated successfully!');
-
-            // Clear success message after 3 seconds
             setTimeout(() => setSuccess(''), 3000);
-
         } catch (error) {
             setError(`Failed to upload image: ${error.message}`);
         } finally {
@@ -338,7 +344,7 @@ function Profile() {
                                 )}
                                 {isEditing && (
                                     <button
-                                        className="absolute inset-0 flex items-center justify-center bg-black bg-opacity-50 rounded-full opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer"
+                                        className="absolute inset-0 flex items-center justify-center bg-black/40 rounded-full cursor-pointer"
                                         onClick={() => fileInputRef.current.click()}
                                         disabled={uploadingImage}
                                     >
@@ -686,6 +692,14 @@ function Profile() {
                     </div>
                 </div>
             </main>
+
+            {cropFile && (
+                <ProfileAvatarCrop
+                    file={cropFile}
+                    onCancel={() => setCropFile(null)}
+                    onConfirm={handleCropConfirm}
+                />
+            )}
         </div>
     );
 }

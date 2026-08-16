@@ -172,8 +172,7 @@ export async function updateUserProfile(userId, formData) {
 export async function uploadProfileImage(userId, file) {
   const supabase = getSupabaseClient()
   const bucket = getProfileImageBucket()
-  const fileExtension = file.name.split('.').pop() || 'jpg'
-  const filePath = `${userId}/avatar.${fileExtension}`
+  const filePath = `${userId}/avatar.jpg`
 
   const { error: uploadError } = await supabase.storage
     .from(bucket)
@@ -188,7 +187,7 @@ export async function uploadProfileImage(userId, file) {
   }
 
   const { data: publicUrlData } = supabase.storage.from(bucket).getPublicUrl(filePath)
-  const avatarUrl = publicUrlData.publicUrl
+  const avatarUrl = `${publicUrlData.publicUrl}?t=${Date.now()}`
 
   const { error: profileError } = await supabase
     .from('profiles')
