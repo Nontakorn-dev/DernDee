@@ -1,7 +1,8 @@
-function withMp4Source(clip) {
+function withDeviceSources(clip) {
   return {
     ...clip,
     srcMp4: clip.src.replace(/\.webm$/i, '.mp4'),
+    srcIos: clip.src.replace(/\.webm$/i, '.ios.mp4'),
   };
 }
 
@@ -87,7 +88,7 @@ export const AVATAR_CLIPS = {
 };
 
 Object.keys(AVATAR_CLIPS).forEach((key) => {
-  AVATAR_CLIPS[key] = withMp4Source(AVATAR_CLIPS[key]);
+  AVATAR_CLIPS[key] = withDeviceSources(AVATAR_CLIPS[key]);
 });
 
 export function avatarNeedsCanvasKey() {
@@ -107,7 +108,7 @@ export function avatarNeedsCanvasKey() {
 
 export function getAvatarVideoSrc(clip) {
   if (avatarNeedsCanvasKey()) {
-    return clip.srcMp4 || clip.src;
+    return clip.srcIos || clip.srcMp4 || clip.src;
   }
 
   return clip.src;

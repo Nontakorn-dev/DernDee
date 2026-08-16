@@ -5,171 +5,30 @@ import {
   getAvatarVideoSrc,
 } from './avatarClips.js';
 
-const MAX_KEY_WIDTH = 800;
-const HARD_WHITE = 249;
-const CHROMA_LIMIT = 10;
-const SOFT_WHITE = 250;
-const SUBJECT_GROW_PX = 2;
+const MAX_PACKED_WIDTH = 1600;
 
-function channelMin(red, green, blue) {
-  return red < green ? (red < blue ? red : blue) : (green < blue ? green : blue);
-}
-
-function channelMax(red, green, blue) {
-  return red > green ? (red > blue ? red : blue) : (green > blue ? green : blue);
-}
-
-function keyStudioWhite(imageData) {
-  const { data, width, height } = imageData;
-  const pixelCount = width * height;
-  const background = new Uint8Array(pixelCount);
-  const queueX = new Int32Array(pixelCount);
-  const queueY = new Int32Array(pixelCount);
-  let head = 0;
-  let tail = 0;
-
-  const isHardWhite = (offset) => {
-    const red = data[offset];
-    const green = data[offset + 1];
-    const blue = data[offset + 2];
-    return channelMin(red, green, blue) >= HARD_WHITE
-      && (channelMax(red, green, blue) - channelMin(red, green, blue)) <= CHROMA_LIMIT;
-  };
-
-  const enqueue = (x, y) => {
-    if (x < 0 || y < 0 || x >= width || y >= height) {
-      return;
-    }
-
-    const pixelIndex = (y * width) + x;
-    if (background[pixelIndex] || !isHardWhite(pixelIndex * 4)) {
-      return;
-    }
-
-    background[pixelIndex] = 1;
-    queueX[tail] = x;
-    queueY[tail] = y;
-    tail += 1;
-  };
-
-  for (let x = 0; x < width; x += 1) {
-    enqueue(x, 0);
-    enqueue(x, height - 1);
-  }
+function applyPackedAlpha(packedImageData) {
+  const packedWidth = packedImageData.width;
+  const height = packedImageData.height;
+  const colorWidth = Math.floor(packedWidth / 2);
+  const source = packedImageData.data;
+  const output = new ImageData(colorWidth, height);
+  const dest = output.data;
 
   for (let y = 0; y < height; y += 1) {
-    enqueue(0, y);
-    enqueue(width - 1, y);
-  }
-
-  while (head < tail) {
-    const x = queueX[head];
-    const y = queueY[head];
-    head += 1;
-    enqueue(x + 1, y);
-    enqueue(x - 1, y);
-    enqueue(x, y + 1);
-    enqueue(x, y - 1);
-  }
-
-  const labels = new Int32Array(pixelCount);
-  const labelSizes = [0];
-  let nextLabel = 1;
-  head = 0;
-  tail = 0;
-
-  const enqueueForeground = (x, y, label) => {
-    if (x < 0 || y < 0 || x >= width || y >= height) {
-      return;
-    }
-
-    const pixelIndex = (y * width) + x;
-    if (background[pixelIndex] || labels[pixelIndex] !== 0) {
-      return;
-    }
-
-    labels[pixelIndex] = label;
-    labelSizes[label] += 1;
-    queueX[tail] = x;
-    queueY[tail] = y;
-    tail += 1;
-  };
-
-  for (let y = 0; y < height; y += 1) {
-    for (let x = 0; x < width; x += 1) {
-      const pixelIndex = (y * width) + x;
-      if (background[pixelIndex] || labels[pixelIndex] !== 0) {
-        continue;
-      }
-
-      const label = nextLabel;
-      nextLabel += 1;
-      labelSizes[label] = 0;
-      head = 0;
-      tail = 0;
-      enqueueForeground(x, y, label);
-      while (head < tail) {
-        const cx = queueX[head];
-        const cy = queueY[head];
-        head += 1;
-        enqueueForeground(cx + 1, cy, label);
-        enqueueForeground(cx - 1, cy, label);
-        enqueueForeground(cx, cy + 1, label);
-        enqueueForeground(cx, cy - 1, label);
-      }
+    const row = y * packedWidth;
+    for (let x = 0; x < colorWidth; x += 1) {
+      const colorOffset = (row + x) * 4;
+      const maskOffset = (row + x + colorWidth) * 4;
+      const destOffset = ((y * colorWidth) + x) * 4;
+      dest[destOffset] = source[colorOffset];
+      dest[destOffset + 1] = source[colorOffset + 1];
+      dest[destOffset + 2] = source[colorOffset + 2];
+      dest[destOffset + 3] = source[maskOffset];
     }
   }
 
-  let keepLabel = 0;
-  let keepSize = 0;
-  for (let label = 1; label < labelSizes.length; label += 1) {
-    if (labelSizes[label] > keepSize) {
-      keepSize = labelSizes[label];
-      keepLabel = label;
-    }
-  }
-
-  let alpha = new Uint8Array(pixelCount);
-  for (let pixelIndex = 0; pixelIndex < pixelCount; pixelIndex += 1) {
-    alpha[pixelIndex] = labels[pixelIndex] === keepLabel ? 255 : 0;
-  }
-
-  for (let grow = 0; grow < SUBJECT_GROW_PX; grow += 1) {
-    const grown = new Uint8Array(alpha);
-    for (let y = 1; y < height - 1; y += 1) {
-      for (let x = 1; x < width - 1; x += 1) {
-        const pixelIndex = (y * width) + x;
-        if (alpha[pixelIndex] === 0) {
-          continue;
-        }
-
-        grown[pixelIndex - 1] = 255;
-        grown[pixelIndex + 1] = 255;
-        grown[pixelIndex - width] = 255;
-        grown[pixelIndex + width] = 255;
-      }
-    }
-    alpha = grown;
-  }
-
-  for (let pixelIndex = 0; pixelIndex < pixelCount; pixelIndex += 1) {
-    if (alpha[pixelIndex] === 0) {
-      data[(pixelIndex * 4) + 3] = 0;
-      continue;
-    }
-
-    const offset = pixelIndex * 4;
-    const min = channelMin(data[offset], data[offset + 1], data[offset + 2]);
-    const x = pixelIndex % width;
-    const y = Math.floor(pixelIndex / width);
-    const atEdge = x === 0 || y === 0 || x === width - 1 || y === height - 1
-      || alpha[pixelIndex - 1] === 0
-      || alpha[pixelIndex + 1] === 0
-      || alpha[pixelIndex - width] === 0
-      || alpha[pixelIndex + width] === 0;
-
-    data[offset + 3] = atEdge && min >= SOFT_WHITE ? 220 : 255;
-  }
+  return output;
 }
 
 const WalkAvatarStage = ({
@@ -258,17 +117,16 @@ const WalkAvatarStage = ({
 
     const isDecoderBlackFrame = (imageData) => {
       const { data, width, height } = imageData;
+      const colorWidth = Math.floor(width / 2);
       const samples = [
-        0,
-        (width - 1) * 4,
-        ((height - 1) * width) * 4,
-        (((height - 1) * width) + width - 1) * 4,
-        (Math.floor(height / 2) * width + Math.floor(width / 2)) * 4,
+        (Math.floor(height * 0.45) * width + Math.floor(colorWidth * 0.5)) * 4,
+        (Math.floor(height * 0.55) * width + Math.floor(colorWidth * 0.48)) * 4,
+        (Math.floor(height * 0.35) * width + Math.floor(colorWidth * 0.52)) * 4,
       ];
       const luma = samples.reduce((sum, offset) => (
         sum + data[offset] + data[offset + 1] + data[offset + 2]
       ), 0) / (samples.length * 3);
-      return luma < 32;
+      return luma < 16;
     };
 
     const drawFrame = () => {
@@ -279,9 +137,10 @@ const WalkAvatarStage = ({
         return;
       }
 
-      const scale = Math.min(1, MAX_KEY_WIDTH / video.videoWidth);
-      const width = Math.max(1, Math.round(video.videoWidth * scale));
+      const scale = Math.min(1, MAX_PACKED_WIDTH / video.videoWidth);
+      const width = Math.max(2, Math.round(video.videoWidth * scale));
       const height = Math.max(1, Math.round(video.videoHeight * scale));
+      const colorWidth = Math.floor(width / 2);
 
       if (scratch.width !== width || scratch.height !== height) {
         scratch.width = width;
@@ -289,21 +148,21 @@ const WalkAvatarStage = ({
       }
 
       scratchContext.drawImage(video, 0, 0, width, height);
-      const imageData = scratchContext.getImageData(0, 0, width, height);
-      if (isDecoderBlackFrame(imageData)) {
+      const packed = scratchContext.getImageData(0, 0, width, height);
+      if (isDecoderBlackFrame(packed)) {
         if (!video.paused && !video.ended) {
           frameId = window.requestAnimationFrame(drawFrame);
         }
         return;
       }
 
-      if (canvas.width !== width || canvas.height !== height) {
-        canvas.width = width;
+      const framed = applyPackedAlpha(packed);
+      if (canvas.width !== colorWidth || canvas.height !== height) {
+        canvas.width = colorWidth;
         canvas.height = height;
       }
 
-      keyStudioWhite(imageData);
-      context.putImageData(imageData, 0, 0);
+      context.putImageData(framed, 0, 0);
 
       if (!video.paused && !video.ended) {
         frameId = window.requestAnimationFrame(drawFrame);
