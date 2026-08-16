@@ -9,6 +9,7 @@ import {
 } from '@shared/gateway/realtimeSensorUtils.js';
 import { usePersistedGatewaySession } from '@shared/hooks/usePersistedGatewaySession.js';
 import { resolveVisibleShankSensorKeys, sortGaitSensorStates } from '@shared/gait/gaitSensorSelection.js';
+import { getGameAudioContext, unlockGameAudio } from '@shared/audio/unlockGameAudio.js';
 import { ArrowLeft, ArrowRight, Settings, Pause, Play, Square, X, Volume2, VolumeX, Vibrate } from 'lucide-react';
 import derndeeLogo from '@shared/assets/images/derndee-logo.png';
 
@@ -292,6 +293,21 @@ const GameClearance = () => {
             // silently ignore
         }
     }, [soundEnabled]);
+
+    useEffect(() => {
+        const unlock = () => {
+            audioContextRef.current = unlockGameAudio(getGameAudioContext(audioContextRef.current));
+        };
+
+        window.addEventListener('pointerdown', unlock, true);
+        window.addEventListener('touchend', unlock, true);
+        document.addEventListener('visibilitychange', unlock);
+        return () => {
+            window.removeEventListener('pointerdown', unlock, true);
+            window.removeEventListener('touchend', unlock, true);
+            document.removeEventListener('visibilitychange', unlock);
+        };
+    }, []);
 
     // === WebSocket Connection ===
     useEffect(() => {
@@ -584,12 +600,7 @@ const GameClearance = () => {
 
     // === Game Controls ===
     const startSession = () => {
-        // Initialize / resume AudioContext on user gesture (required on iOS/iPad)
-        if (!audioContextRef.current) {
-            audioContextRef.current = new (window.AudioContext || window.webkitAudioContext)();
-        } else if (audioContextRef.current.state === 'suspended') {
-            audioContextRef.current.resume();
-        }
+        audioContextRef.current = unlockGameAudio(getGameAudioContext(audioContextRef.current));
         setGameState(GAME_STATES.PLAYING);
         setCurrentHeight(0);
         setDisplayHeight(0);
@@ -612,6 +623,7 @@ const GameClearance = () => {
     };
 
     const resumeSession = () => {
+        audioContextRef.current = unlockGameAudio(getGameAudioContext(audioContextRef.current));
         setGameState(GAME_STATES.PLAYING);
     };
 

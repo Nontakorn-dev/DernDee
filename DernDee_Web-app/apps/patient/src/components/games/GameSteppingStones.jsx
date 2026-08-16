@@ -22,6 +22,7 @@ import {
     normalizeRealtimeSensorSample,
 } from '@shared/gateway/realtimeSensorUtils.js';
 import { usePersistedGatewaySession } from '@shared/hooks/usePersistedGatewaySession.js';
+import { getGameAudioContext, unlockGameAudio } from '@shared/audio/unlockGameAudio.js';
 import {
     ArrowLeft,
     Footprints,
@@ -269,9 +270,20 @@ const GameSteppingStones = () => {
     }, []);
 
     useEffect(() => {
-        audioContextRef.current = new (window.AudioContext || window.webkitAudioContext)();
+        audioContextRef.current = getGameAudioContext(audioContextRef.current);
+
+        const unlock = () => {
+            audioContextRef.current = unlockGameAudio(audioContextRef.current);
+        };
+
+        window.addEventListener('pointerdown', unlock, true);
+        window.addEventListener('touchend', unlock, true);
+        document.addEventListener('visibilitychange', unlock);
 
         return () => {
+            window.removeEventListener('pointerdown', unlock, true);
+            window.removeEventListener('touchend', unlock, true);
+            document.removeEventListener('visibilitychange', unlock);
             if (audioContextRef.current) {
                 audioContextRef.current.close();
             }
@@ -788,9 +800,7 @@ const GameSteppingStones = () => {
     }, [gameState]);
 
     const startSession = () => {
-        if (audioContextRef.current?.state === 'suspended') {
-            audioContextRef.current.resume();
-        }
+        audioContextRef.current = unlockGameAudio(getGameAudioContext(audioContextRef.current));
 
         if (feedbackResetTimerRef.current) {
             clearTimeout(feedbackResetTimerRef.current);
@@ -810,6 +820,7 @@ const GameSteppingStones = () => {
     };
 
     const resumeSession = () => {
+        audioContextRef.current = unlockGameAudio(getGameAudioContext(audioContextRef.current));
         gameStateRef.current = GAME_STATES.PLAYING;
         setGameState(GAME_STATES.PLAYING);
         pushFeedback('Step to the green stone', 'sky');

@@ -9,6 +9,7 @@ import {
 } from '@shared/gateway/realtimeSensorUtils.js';
 import { usePersistedGatewaySession } from '@shared/hooks/usePersistedGatewaySession.js';
 import { resolveActiveLegPairs } from '@shared/gait/gaitSensorSelection.js';
+import { getGameAudioContext, unlockGameAudio } from '@shared/audio/unlockGameAudio.js';
 import {
     ArrowLeft,
     ArrowRight,
@@ -300,6 +301,21 @@ const GameKneeFlexion = () => {
         }
     }, [soundEnabled]);
 
+    useEffect(() => {
+        const unlock = () => {
+            audioContextRef.current = unlockGameAudio(getGameAudioContext(audioContextRef.current));
+        };
+
+        window.addEventListener('pointerdown', unlock, true);
+        window.addEventListener('touchend', unlock, true);
+        document.addEventListener('visibilitychange', unlock);
+        return () => {
+            window.removeEventListener('pointerdown', unlock, true);
+            window.removeEventListener('touchend', unlock, true);
+            document.removeEventListener('visibilitychange', unlock);
+        };
+    }, []);
+
     const buildSessionSummary = useCallback(() => ({
         total_steps: reps,
         avg_clearance_m: null,
@@ -562,11 +578,7 @@ const GameKneeFlexion = () => {
     const startSession = () => {
         if (!hasLegPair) return;
 
-        if (!audioContextRef.current) {
-            audioContextRef.current = new (window.AudioContext || window.webkitAudioContext)();
-        } else if (audioContextRef.current.state === 'suspended') {
-            audioContextRef.current.resume();
-        }
+        audioContextRef.current = unlockGameAudio(getGameAudioContext(audioContextRef.current));
 
         const activePair = syncActiveLegPair();
         if (activePair) {
@@ -589,7 +601,10 @@ const GameKneeFlexion = () => {
     };
 
     const pauseSession = () => setGameState(GAME_STATES.PAUSED);
-    const resumeSession = () => setGameState(GAME_STATES.PLAYING);
+    const resumeSession = () => {
+        audioContextRef.current = unlockGameAudio(getGameAudioContext(audioContextRef.current));
+        setGameState(GAME_STATES.PLAYING);
+    };
 
     const stopSession = () => {
         commitAveragePeak();

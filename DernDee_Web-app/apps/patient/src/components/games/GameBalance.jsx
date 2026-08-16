@@ -9,6 +9,7 @@ import {
 } from '@shared/gateway/realtimeSensorUtils.js';
 import { usePersistedGatewaySession } from '@shared/hooks/usePersistedGatewaySession.js';
 import { resolveVisibleShankSensorKeys, sortGaitSensorStates } from '@shared/gait/gaitSensorSelection.js';
+import { getGameAudioContext, unlockGameAudio } from '@shared/audio/unlockGameAudio.js';
 import { ArrowLeft, ArrowRight, Settings, Target, Play, Pause, Square, Star, X, ChevronLeft, ChevronRight, ChevronUp, ChevronDown, Volume2, VolumeX } from 'lucide-react';
 import derndeeLogo from '@shared/assets/images/derndee-logo.png';
 
@@ -485,6 +486,21 @@ const GameBalance = () => {
             });
         } catch (e) { /* silently ignore */ }
     }, [soundEnabled]);
+
+    useEffect(() => {
+        const unlock = () => {
+            audioContextRef.current = unlockGameAudio(getGameAudioContext(audioContextRef.current));
+        };
+
+        window.addEventListener('pointerdown', unlock, true);
+        window.addEventListener('touchend', unlock, true);
+        document.addEventListener('visibilitychange', unlock);
+        return () => {
+            window.removeEventListener('pointerdown', unlock, true);
+            window.removeEventListener('touchend', unlock, true);
+            document.removeEventListener('visibilitychange', unlock);
+        };
+    }, []);
 
     // === Calibration State ===
     const lastQuaternionRef = useRef(null); // Tracks latest quaternion from the primary visible sensor
@@ -1156,12 +1172,7 @@ const GameBalance = () => {
 
     // === Game Controls ===
     const startSession = () => {
-        // Init/resume AudioContext on user gesture (required on iOS/iPad)
-        if (!audioContextRef.current) {
-            audioContextRef.current = new (window.AudioContext || window.webkitAudioContext)();
-        } else if (audioContextRef.current.state === 'suspended') {
-            audioContextRef.current.resume();
-        }
+        audioContextRef.current = unlockGameAudio(getGameAudioContext(audioContextRef.current));
         autoCenterArmedRef.current = false;
         autoCenterStableSinceRef.current = null;
         autoCenterDriftSinceRef.current = null;
@@ -1184,6 +1195,7 @@ const GameBalance = () => {
     };
 
     const resumeSession = () => {
+        audioContextRef.current = unlockGameAudio(getGameAudioContext(audioContextRef.current));
         autoCenterArmedRef.current = false;
         autoCenterStableSinceRef.current = null;
         autoCenterDriftSinceRef.current = null;
