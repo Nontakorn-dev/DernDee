@@ -41,21 +41,12 @@ function keyStudioWhite(imageData) {
   const { data, width, height } = imageData;
   const pixelCount = width * height;
   const seen = new Uint8Array(pixelCount);
+  const wall = new Uint8Array(pixelCount);
   const queueX = new Int32Array(pixelCount);
   const queueY = new Int32Array(pixelCount);
   const background = sampleCornerBackground(data, width, height);
-  const centerX = width * 0.5;
-  const centerY = height * 0.5;
-  const radiusX = width * 0.27;
-  const radiusY = height * 0.4;
   let head = 0;
   let tail = 0;
-
-  const inProtectedTorso = (x, y) => {
-    const nx = (x - centerX) / radiusX;
-    const ny = (y - centerY) / radiusY;
-    return ((nx * nx) + (ny * ny)) <= 1;
-  };
 
   const isStudioWhite = (offset) => {
     const red = data[offset];
@@ -70,17 +61,34 @@ function keyStudioWhite(imageData) {
     return min >= HARD_WHITE && (max - min) <= CHROMA_LIMIT && distance <= BG_MATCH;
   };
 
+  for (let pixelIndex = 0; pixelIndex < pixelCount; pixelIndex += 1) {
+    if (!isStudioWhite(pixelIndex * 4)) {
+      wall[pixelIndex] = 1;
+    }
+  }
+
+  const dilatedWall = new Uint8Array(wall);
+  for (let y = 1; y < height - 1; y += 1) {
+    for (let x = 1; x < width - 1; x += 1) {
+      const pixelIndex = (y * width) + x;
+      if (!wall[pixelIndex]) {
+        continue;
+      }
+
+      dilatedWall[pixelIndex - 1] = 1;
+      dilatedWall[pixelIndex + 1] = 1;
+      dilatedWall[pixelIndex - width] = 1;
+      dilatedWall[pixelIndex + width] = 1;
+    }
+  }
+
   const enqueue = (x, y) => {
     if (x < 0 || y < 0 || x >= width || y >= height) {
       return;
     }
 
-    if (inProtectedTorso(x, y)) {
-      return;
-    }
-
     const pixelIndex = (y * width) + x;
-    if (seen[pixelIndex]) {
+    if (seen[pixelIndex] || dilatedWall[pixelIndex]) {
       return;
     }
 
