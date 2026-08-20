@@ -4,6 +4,7 @@ import {
   COACH_IDLE_NO_STEP_MS,
   COACH_PERIODIC_INTERVAL_MS,
   COACH_REST_AFTER_PRAISE_MS,
+  COACH_REST_AFTER_ASK_MS,
   COACH_STEP_IMPROVE_DELTA_M,
   COACH_THRESHOLDS,
 } from './coachConfig.js';
@@ -51,6 +52,10 @@ export class GaitCoachOrchestrator {
 
   markActivity(now = Date.now()) {
     this.lastStepAtMs = now;
+  }
+
+  markAskRest(now = Date.now()) {
+    this.restUntilMs = Math.max(this.restUntilMs, now + COACH_REST_AFTER_ASK_MS);
   }
 
   canSpeak(trigger, now = Date.now()) {
@@ -279,7 +284,8 @@ export class GaitCoachOrchestrator {
     return {
       trigger: 'user_ask',
       snapshot,
-      prompt: buildGaitCoachPrompt(snapshot),
+      prompt: buildGaitCoachPrompt(snapshot)
+        || `ผู้ป่วยถามว่า: "${question}" ตอบสั้นๆ เป็นภาษาไทยอย่างอบอุ่น ไม่เกิน 2 ประโยค ห้ามเงียบ`,
       hintText: '',
     };
   }

@@ -39,6 +39,10 @@ import { AVATAR_CLIPS, resolveAvatarClip } from './avatarClips.js';
 
 const TARGET_TIME_SECONDS = 300;
 const COACH_CONSENT_KEY = 'derndee_free_walk_ai_consent_v1';
+const MOUTH_OPEN_RMS = 0.028;
+const MOUTH_CLOSE_RMS = 0.014;
+const MOUTH_HOLD_MS = 120;
+const ASK_HANGOVER_MS = 420;
 
 function formatTime(seconds) {
   const mins = Math.floor(seconds / 60);
@@ -104,6 +108,15 @@ const FreeWalkSession = () => {
   const avatarFallbackRef = useRef(null);
   const [audioUnlocked, setAudioUnlocked] = useState(false);
   const [avatarClipId, setAvatarClipId] = useState('idle');
+  const [lipSyncActive, setLipSyncActive] = useState(false);
+  const [mouthOpen, setMouthOpen] = useState(false);
+  const lipSyncActiveRef = useRef(false);
+  const mouthOpenRef = useRef(false);
+  const mouthHoldUntilRef = useRef(0);
+  const askHangoverRef = useRef(null);
+  const questionSentRef = useRef(false);
+  const askCoachActiveRef = useRef(false);
+  const askReplyWatchRef = useRef(null);
 
   useEffect(() => {
     showConsentRef.current = showConsent;
@@ -168,8 +181,65 @@ const FreeWalkSession = () => {
     orchestratorRef.current?.markActivity();
   }, []);
 
+  const beginAskLipSync = useCallback(() => {
+    if (askHangoverRef.current) {
+      window.clearTimeout(askHangoverRef.current);
+      askHangoverRef.current = null;
+    }
+
+    lipSyncActiveRef.current = true;
+    setLipSyncActive(true);
+    mouthOpenRef.current = false;
+    setMouthOpen(false);
+  }, []);
+
+  const endAskLipSync = useCallback((delayMs = ASK_HANGOVER_MS) => {
+    if (askHangoverRef.current) {
+      window.clearTimeout(askHangoverRef.current);
+    }
+
+    askHangoverRef.current = window.setTimeout(() => {
+      askHangoverRef.current = null;
+      lipSyncActiveRef.current = false;
+      setLipSyncActive(false);
+      mouthOpenRef.current = false;
+      setMouthOpen(false);
+      orchestratorRef.current?.markAskRest();
+      if (avatarClipIdRef.current === 'idle') {
+        setAvatarClipId('idle');
+      }
+    }, delayMs);
+  }, []);
+
+  const updateMouthFromRms = useCallback((rms) => {
+    if (!lipSyncActiveRef.current) {
+      return;
+    }
+
+    const now = Date.now();
+    if (now < mouthHoldUntilRef.current) {
+      return;
+    }
+
+    const shouldOpen = mouthOpenRef.current
+      ? rms >= MOUTH_CLOSE_RMS
+      : rms >= MOUTH_OPEN_RMS;
+
+    if (shouldOpen === mouthOpenRef.current) {
+      return;
+    }
+
+    mouthOpenRef.current = shouldOpen;
+    mouthHoldUntilRef.current = now + MOUTH_HOLD_MS;
+    setMouthOpen(shouldOpen);
+  }, []);
+
   const playAvatarClip = useCallback((clip) => {
     if (!clip?.id) {
+      return false;
+    }
+
+    if (lipSyncActiveRef.current) {
       return false;
     }
 
@@ -214,17 +284,25 @@ const FreeWalkSession = () => {
     }
 
     if (coachModeRef.current === COACH_MODES.LIVE && coachClientRef.current) {
-      return coachClientRef.current.sendGaitPrompt(dispatch.prompt, {
+      questionSentRef.current = true;
+      beginAskLipSync();
+      const sent = await coachClientRef.current.sendGaitPrompt(dispatch.prompt, {
         force: true,
         interrupt: true,
       });
+      if (!sent) {
+        questionSentRef.current = false;
+        endAskLipSync(180);
+        return false;
+      }
+      return true;
     }
 
     legacyCoachRef.current?.speakWithWebSpeech(
       dispatch.hintText || dispatch.prompt,
     );
     return true;
-  }, [playAvatarClip]);
+  }, [beginAskLipSync, endAskLipSync, playAvatarClip]);
 
   const tryPlaySessionGreeting = useCallback(() => {
     if (
@@ -266,7 +344,7 @@ const FreeWalkSession = () => {
       speedMps: Number.isFinite(aggregatedParams.walkingSpeed) ? aggregatedParams.walkingSpeed : null,
     });
 
-    if (!isActiveRef.current || !greetingPlayedRef.current) {
+    if (!isActiveRef.current || !greetingPlayedRef.current || lipSyncActiveRef.current) {
       return;
     }
 
@@ -297,9 +375,30 @@ const FreeWalkSession = () => {
 
     try {
       const client = new GeminiLiveClient({
-        onStateChange: setCoachState,
+        onStateChange: (nextState) => {
+          setCoachState(nextState);
+          if (nextState === COACH_CONNECTION_STATES.SPEAKING) {
+            if (askReplyWatchRef.current) {
+              window.clearTimeout(askReplyWatchRef.current);
+              askReplyWatchRef.current = null;
+            }
+            if (!lipSyncActiveRef.current) {
+              beginAskLipSync();
+            }
+            mouthOpenRef.current = true;
+            setMouthOpen(true);
+            return;
+          }
+
+          if (nextState === COACH_CONNECTION_STATES.READY && lipSyncActiveRef.current) {
+            mouthOpenRef.current = false;
+            setMouthOpen(false);
+            endAskLipSync();
+          }
+        },
         onSubtitleChange: setCoachSubtitle,
       });
+      client.setMouthLevelListener(updateMouthFromRms);
       coachClientRef.current = client;
       await client.connect();
     } catch (error) {
@@ -320,7 +419,7 @@ const FreeWalkSession = () => {
       });
       setCoachState(COACH_CONNECTION_STATES.READY);
     }
-  }, [coachMode]);
+  }, [beginAskLipSync, coachMode, endAskLipSync, updateMouthFromRms]);
 
   const createSensorRuntime = useCallback((sample) => {
     const processor = createCalibratedGaitProcessorClient(sample.sensorKey);
@@ -404,6 +503,12 @@ const FreeWalkSession = () => {
   useEffect(() => {
     void initializeCoach();
     return () => {
+      if (askHangoverRef.current) {
+        window.clearTimeout(askHangoverRef.current);
+      }
+      if (askReplyWatchRef.current) {
+        window.clearTimeout(askReplyWatchRef.current);
+      }
       coachClientRef.current?.disconnect();
       coachClientRef.current = null;
       if (typeof window !== 'undefined') {
@@ -533,7 +638,12 @@ const FreeWalkSession = () => {
     }
 
     const idleTimer = setInterval(() => {
-      if (!greetingPlayedRef.current || avatarBusyRef.current) {
+      if (
+        !greetingPlayedRef.current
+        || avatarBusyRef.current
+        || lipSyncActiveRef.current
+        || askCoachActiveRef.current
+      ) {
         return;
       }
 
@@ -557,13 +667,42 @@ const FreeWalkSession = () => {
     await unlockCoachAudio();
   };
 
+  const clearAskReplyWatch = () => {
+    if (askReplyWatchRef.current) {
+      window.clearTimeout(askReplyWatchRef.current);
+      askReplyWatchRef.current = null;
+    }
+  };
+
+  const finishAskListen = () => {
+    askCoachActiveRef.current = false;
+    setAskCoachActive(false);
+    if (speechRecognitionRef.current) {
+      try {
+        speechRecognitionRef.current.stop();
+      } catch {
+        // already stopped
+      }
+      speechRecognitionRef.current = null;
+    }
+  };
+
   const handleAskCoachStart = () => {
-    if (coachMode !== COACH_MODES.LIVE || !coachClientRef.current) {
-      setAskCoachActive(true);
+    if (askCoachActiveRef.current) {
       return;
     }
 
+    questionSentRef.current = false;
+    askCoachActiveRef.current = true;
+    clearAskReplyWatch();
+    beginAskLipSync();
     setAskCoachActive(true);
+    setCoachSubtitle('พูดได้เลยครับ');
+
+    if (coachMode !== COACH_MODES.LIVE || !coachClientRef.current) {
+      return;
+    }
+
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (!SpeechRecognition) {
       void coachClientRef.current.startPushToTalk();
@@ -572,38 +711,91 @@ const FreeWalkSession = () => {
 
     const recognition = new SpeechRecognition();
     recognition.lang = 'th-TH';
-    recognition.interimResults = false;
+    recognition.interimResults = true;
     recognition.maxAlternatives = 1;
     recognition.onresult = (event) => {
-      const transcript = event.results?.[0]?.[0]?.transcript?.trim();
-      if (!transcript || !latestParamsRef.current) {
+      const lastResult = event.results?.[event.results.length - 1];
+      const transcript = lastResult?.[0]?.transcript?.trim();
+      if (!transcript) {
+        return;
+      }
+
+      if (!lastResult.isFinal) {
+        setCoachSubtitle(transcript);
+        return;
+      }
+
+      if (questionSentRef.current) {
         return;
       }
 
       const dispatch = orchestratorRef.current.buildUserQuestionDispatch(
         latestParamsRef.current,
         transcript,
-        timeElapsed,
+        sessionElapsedRef.current,
       );
       void dispatchCoachLine(dispatch);
     };
-    recognition.onerror = () => {
-      setAskCoachActive(false);
+    recognition.onerror = (event) => {
+      if (event.error === 'aborted' || event.error === 'no-speech') {
+        return;
+      }
+
+      finishAskListen();
+      if (!questionSentRef.current) {
+        endAskLipSync(180);
+      }
     };
     recognition.onend = () => {
-      setAskCoachActive(false);
+      finishAskListen();
+      if (!questionSentRef.current) {
+        endAskLipSync(180);
+      }
     };
     speechRecognitionRef.current = recognition;
-    recognition.start();
+    try {
+      recognition.start();
+    } catch {
+      speechRecognitionRef.current = null;
+      void coachClientRef.current.startPushToTalk();
+    }
   };
 
   const handleAskCoachEnd = () => {
-    if (speechRecognitionRef.current) {
-      speechRecognitionRef.current.stop();
-      speechRecognitionRef.current = null;
-    }
-    void coachClientRef.current?.stopPushToTalk();
+    const micWasActive = Boolean(coachClientRef.current?.micActive);
+    const hadRecognition = Boolean(speechRecognitionRef.current);
+    askCoachActiveRef.current = false;
     setAskCoachActive(false);
+
+    if (speechRecognitionRef.current) {
+      try {
+        speechRecognitionRef.current.stop();
+      } catch {
+        // already stopped
+      }
+    }
+
+    void coachClientRef.current?.stopPushToTalk();
+
+    if (micWasActive && !questionSentRef.current) {
+      questionSentRef.current = true;
+      clearAskReplyWatch();
+      askReplyWatchRef.current = window.setTimeout(() => {
+        askReplyWatchRef.current = null;
+        if (
+          lipSyncActiveRef.current
+          && coachClientRef.current?.getState() !== COACH_CONNECTION_STATES.SPEAKING
+        ) {
+          questionSentRef.current = false;
+          endAskLipSync(180);
+        }
+      }, 4500);
+      return;
+    }
+
+    if (!hadRecognition && !questionSentRef.current) {
+      endAskLipSync(180);
+    }
   };
 
   const handleEndWalk = async () => {
@@ -708,7 +900,7 @@ const FreeWalkSession = () => {
           <img src={derndeeLogo} alt="DernDee" className="h-9 object-contain sm:h-10" />
         </div>
         <WalkConnectionPills
-          coachState={avatarClipId !== 'idle' ? COACH_CONNECTION_STATES.SPEAKING : coachState}
+          coachState={lipSyncActive || avatarClipId !== 'idle' ? COACH_CONNECTION_STATES.SPEAKING : coachState}
           coachMode={coachMode}
         />
       </header>
@@ -739,6 +931,8 @@ const FreeWalkSession = () => {
               clipId={avatarClipId}
               paused={!isActive}
               isListening={askCoachActive}
+              lipSyncActive={lipSyncActive}
+              mouthOpen={mouthOpen}
               subtitle={coachSubtitle}
               onEnded={handleAvatarEnded}
             />

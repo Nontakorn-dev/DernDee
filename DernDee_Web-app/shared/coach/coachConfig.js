@@ -19,6 +19,7 @@ export const COACH_ENCOURAGEMENT_CYCLES = 3;
 export const COACH_REST_EVERY_STEPS = 3;
 export const COACH_IDLE_NO_STEP_MS = 12_000;
 export const COACH_REST_AFTER_PRAISE_MS = 7_000;
+export const COACH_REST_AFTER_ASK_MS = 7_000;
 export const COACH_STEP_IMPROVE_DELTA_M = 0.03;
 
 export const COACH_COOLDOWN_BY_TRIGGER_MS = {

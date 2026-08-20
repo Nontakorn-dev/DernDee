@@ -1,21 +1,42 @@
-import React from 'react';
+import React, { useRef } from 'react';
 import { Mic } from 'lucide-react';
 
+const HOLD_MS = 450;
+
 const WalkMicButton = ({ active, disabled, onPressStart, onPressEnd }) => {
+  const downAtRef = useRef(0);
+  const holdingRef = useRef(false);
+
   return (
     <button
       type="button"
       disabled={disabled}
       onPointerDown={(event) => {
         event.preventDefault();
+        event.currentTarget.setPointerCapture?.(event.pointerId);
+        downAtRef.current = Date.now();
+
+        if (active) {
+          holdingRef.current = false;
+          onPressEnd?.();
+          return;
+        }
+
+        holdingRef.current = true;
         onPressStart?.();
       }}
       onPointerUp={(event) => {
         event.preventDefault();
+        const heldMs = Date.now() - downAtRef.current;
+        if (heldMs >= HOLD_MS && holdingRef.current) {
+          holdingRef.current = false;
+          onPressEnd?.();
+        }
+      }}
+      onPointerCancel={() => {
+        holdingRef.current = false;
         onPressEnd?.();
       }}
-      onPointerCancel={onPressEnd}
-      onPointerLeave={onPressEnd}
       className={`flex min-h-[4.5rem] flex-col items-center justify-center gap-1.5 rounded-2xl border font-bold transition-all touch-none select-none sm:min-h-[5rem] sm:rounded-3xl ${
         active
           ? 'border-violet-300 bg-violet-500 text-white shadow-lg shadow-violet-500/30 ring-2 ring-violet-200'

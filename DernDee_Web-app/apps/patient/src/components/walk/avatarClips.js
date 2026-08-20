@@ -1,8 +1,8 @@
 function withDeviceSources(clip) {
   return {
     ...clip,
-    srcMp4: clip.src.replace(/\.webm$/i, '.mp4'),
-    srcIos: clip.src.replace(/\.webm$/i, '.ios.mp4'),
+    srcMp4: clip.src.replace(/\.webm/i, '.mp4'),
+    srcIos: clip.src.replace(/\.webm/i, '.ios.mp4'),
   };
 }
 
@@ -82,6 +82,18 @@ export const AVATAR_CLIPS = {
   idle: {
     id: 'idle',
     src: '/Avatar/video/11.webm',
+    loop: true,
+    line: '',
+  },
+  mouthIdle: {
+    id: 'mouthIdle',
+    src: '/Avatar/video/14_MOUTH_IDLE_CLOSED.webm?v=smooth1',
+    loop: true,
+    line: '',
+  },
+  mouthTalk: {
+    id: 'mouthTalk',
+    src: '/Avatar/video/15_MOUTH_TALK_LOOP.webm?v=smooth1',
     loop: true,
     line: '',
   },

@@ -25,6 +25,10 @@ export class GeminiLiveClient {
     this.mediaStream = null;
     this.mediaRecorder = null;
     this.micActive = false;
+    this.micAudioContext = null;
+    this.micProcessor = null;
+    this.micSource = null;
+    this.micGain = null;
   }
 
   getState() {
@@ -40,6 +44,10 @@ export class GeminiLiveClient {
     if (muted) {
       this.audioPlayer.stop();
     }
+  }
+
+  setMouthLevelListener(listener) {
+    this.audioPlayer.setLevelListener(listener);
   }
 
   setState(nextState) {
@@ -242,44 +250,143 @@ export class GeminiLiveClient {
     return true;
   }
 
+  downsampleTo16k(samples, inputRate) {
+    if (inputRate === 16000) {
+      return samples;
+    }
+
+    const ratio = inputRate / 16000;
+    const outputLength = Math.max(1, Math.floor(samples.length / ratio));
+    const output = new Float32Array(outputLength);
+    for (let index = 0; index < outputLength; index += 1) {
+      const sourceIndex = index * ratio;
+      const left = Math.floor(sourceIndex);
+      const right = Math.min(left + 1, samples.length - 1);
+      const mix = sourceIndex - left;
+      output[index] = (samples[left] * (1 - mix)) + (samples[right] * mix);
+    }
+    return output;
+  }
+
+  floatTo16BitPcmBase64(samples) {
+    const pcm = new Int16Array(samples.length);
+    for (let index = 0; index < samples.length; index += 1) {
+      const sample = Math.max(-1, Math.min(1, samples[index]));
+      pcm[index] = sample < 0 ? sample * 0x8000 : sample * 0x7fff;
+    }
+
+    const bytes = new Uint8Array(pcm.buffer);
+    let binary = '';
+    const chunkSize = 0x8000;
+    for (let offset = 0; offset < bytes.length; offset += chunkSize) {
+      binary += String.fromCharCode(...bytes.subarray(offset, offset + chunkSize));
+    }
+    return btoa(binary);
+  }
+
+  sendPcmChunk(floatSamples, inputRate) {
+    if (!this.session || !floatSamples?.length) {
+      return;
+    }
+
+    const resampled = this.downsampleTo16k(floatSamples, inputRate);
+    const base64 = this.floatTo16BitPcmBase64(resampled);
+    this.session.sendRealtimeInput({
+      audio: {
+        data: base64,
+        mimeType: 'audio/pcm;rate=16000',
+      },
+    });
+  }
+
   async startPushToTalk() {
     if (!this.session || this.micActive) {
       return;
     }
 
-    this.mediaStream = await navigator.mediaDevices.getUserMedia({
-      audio: {
-        channelCount: 1,
-        sampleRate: 16000,
-      },
-    });
-
     this.micActive = true;
-    const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
-      ? 'audio/webm;codecs=opus'
-      : 'audio/webm';
 
-    this.mediaRecorder = new MediaRecorder(this.mediaStream, { mimeType });
-    this.mediaRecorder.ondataavailable = async (event) => {
-      if (!event.data?.size || !this.session) {
-        return;
-      }
-
-      const buffer = await event.data.arrayBuffer();
-      const base64 = btoa(String.fromCharCode(...new Uint8Array(buffer)));
-      this.session.sendRealtimeInput({
+    try {
+      this.mediaStream = await navigator.mediaDevices.getUserMedia({
         audio: {
-          data: base64,
-          mimeType,
+          channelCount: 1,
+          echoCancellation: true,
+          noiseSuppression: true,
         },
       });
-    };
+    } catch {
+      this.micActive = false;
+      return;
+    }
 
-    this.mediaRecorder.start(250);
+    try {
+      this.micAudioContext = new AudioContext();
+      if (this.micAudioContext.state === 'suspended') {
+        await this.micAudioContext.resume();
+      }
+
+      this.micSource = this.micAudioContext.createMediaStreamSource(this.mediaStream);
+      this.micProcessor = this.micAudioContext.createScriptProcessor(4096, 1, 1);
+      this.micGain = this.micAudioContext.createGain();
+      this.micGain.gain.value = 0;
+
+      this.micProcessor.onaudioprocess = (event) => {
+        if (!this.micActive || !this.session) {
+          return;
+        }
+
+        const samples = event.inputBuffer.getChannelData(0);
+        this.sendPcmChunk(samples, this.micAudioContext.sampleRate);
+      };
+
+      this.micSource.connect(this.micProcessor);
+      this.micProcessor.connect(this.micGain);
+      this.micGain.connect(this.micAudioContext.destination);
+    } catch {
+      this.micActive = false;
+      if (this.mediaStream) {
+        this.mediaStream.getTracks().forEach((track) => track.stop());
+        this.mediaStream = null;
+      }
+    }
   }
 
   async stopPushToTalk() {
+    const wasActive = this.micActive;
     this.micActive = false;
+
+    if (this.micProcessor) {
+      this.micProcessor.onaudioprocess = null;
+      try {
+        this.micProcessor.disconnect();
+      } catch {
+        // already disconnected
+      }
+      this.micProcessor = null;
+    }
+
+    if (this.micSource) {
+      try {
+        this.micSource.disconnect();
+      } catch {
+        // already disconnected
+      }
+      this.micSource = null;
+    }
+
+    if (this.micGain) {
+      try {
+        this.micGain.disconnect();
+      } catch {
+        // already disconnected
+      }
+      this.micGain = null;
+    }
+
+    if (this.micAudioContext) {
+      void this.micAudioContext.close();
+      this.micAudioContext = null;
+    }
 
     if (this.mediaRecorder && this.mediaRecorder.state !== 'inactive') {
       this.mediaRecorder.stop();
@@ -291,7 +398,7 @@ export class GeminiLiveClient {
       this.mediaStream = null;
     }
 
-    if (this.session) {
+    if (wasActive && this.session) {
       this.session.sendRealtimeInput({ audioStreamEnd: true });
     }
   }

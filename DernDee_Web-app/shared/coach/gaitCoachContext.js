@@ -41,25 +41,22 @@ export function buildGreetingCoachPrompt() {
 }
 
 export function buildGaitCoachSnapshot(params, options = {}) {
-  if (!params) {
-    return null;
-  }
-
   const previousStepLengthM = options.previousStepLengthM ?? null;
+  const gait = params || {};
 
   return {
     event: options.event ?? 'gait_update',
-    step_count: params.stepCount ?? 0,
-    step_length_cm: toCm(params.stepLength),
-    stride_length_cm: toCm(params.strideLength),
-    cadence_spm: Number.isFinite(params.cadence) ? Math.round(params.cadence) : null,
-    walking_speed_mps: Number.isFinite(params.walkingSpeed)
-      ? Number(params.walkingSpeed.toFixed(2))
+    step_count: gait.stepCount ?? 0,
+    step_length_cm: toCm(gait.stepLength),
+    stride_length_cm: toCm(gait.strideLength),
+    cadence_spm: Number.isFinite(gait.cadence) ? Math.round(gait.cadence) : null,
+    walking_speed_mps: Number.isFinite(gait.walkingSpeed)
+      ? Number(gait.walkingSpeed.toFixed(2))
       : null,
-    clearance_cm: toCm(params.clearance),
-    stance_pct: Number.isFinite(params.stancePct) ? Math.round(params.stancePct) : null,
-    swing_pct: Number.isFinite(params.swingPct) ? Math.round(params.swingPct) : null,
-    trend: detectTrend(previousStepLengthM, params.stepLength),
+    clearance_cm: toCm(gait.clearance),
+    stance_pct: Number.isFinite(gait.stancePct) ? Math.round(gait.stancePct) : null,
+    swing_pct: Number.isFinite(gait.swingPct) ? Math.round(gait.swingPct) : null,
+    trend: detectTrend(previousStepLengthM, gait.stepLength),
     session_elapsed_s: options.sessionElapsedS ?? 0,
     alert: options.alert ?? null,
     user_question: options.userQuestion ?? null,
@@ -86,9 +83,11 @@ export function buildGaitCoachPrompt(snapshot) {
   }
 
   if (snapshot.user_question) {
-    return buildNaturalCoachPrompt({
-      intent: `ตอบคำถามของผู้ป่วยเกี่ยวกับการเดินและการฝึกอย่างปลอดภัย: "${snapshot.user_question}"`,
-    });
+    return `ผู้ป่วยถามว่า: "${snapshot.user_question}"
+ตอบเป็นภาษาไทย น้ำเสียงอบอุ่น เป็นกันเอง เหมือนเพื่อนโค้ชฝึกเดิน
+ตอบตรงคำถามให้ได้เลย สั้นพอฟังชัด ไม่เกิน 2 ประโยค
+ห้ามพูดตัวเลขยาว ห้ามใช้คำว่า "คนเก่ง" ห้ามวินิจฉัยโรค
+ถ้ายังไม่มีข้อมูลก้าวจากเซ็นเซอร์ ให้ตอบจากความรู้ทั่วไปเรื่องการเดินอย่างปลอดภัย ห้ามเงียบ`;
   }
 
   if (snapshot.event === 'greeting') {

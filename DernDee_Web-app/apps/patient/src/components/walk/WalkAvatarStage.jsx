@@ -31,72 +31,9 @@ function applyPackedAlpha(packedImageData) {
   return output;
 }
 
-const WalkAvatarStage = ({
-  clipId = 'idle',
-  paused = false,
-  isListening = false,
-  subtitle = '',
-  onEnded,
-}) => {
-  const videoRef = useRef(null);
-  const canvasRef = useRef(null);
-  const clip = AVATAR_CLIPS[clipId] ?? AVATAR_CLIPS.idle;
-  const speaking = clipId !== 'idle';
-  const useCanvasKey = avatarNeedsCanvasKey();
-  const videoSrc = getAvatarVideoSrc(clip);
-
-  useLayoutEffect(() => {
-    const video = videoRef.current;
-    if (!video) {
-      return undefined;
-    }
-
-    const handleEnded = () => {
-      if (!clip.loop) {
-        onEnded?.(clipId);
-      }
-    };
-
-    video.loop = Boolean(clip.loop);
-    video.muted = Boolean(clip.loop);
-    video.playsInline = true;
-    video.setAttribute('playsinline', 'true');
-    video.setAttribute('webkit-playsinline', 'true');
-    video.src = videoSrc;
-    video.load();
-
-    const playPromise = video.play();
-    if (playPromise?.catch) {
-      playPromise.catch(() => {});
-    }
-
-    video.addEventListener('ended', handleEnded);
-    video.addEventListener('error', handleEnded);
-    return () => {
-      video.removeEventListener('ended', handleEnded);
-      video.removeEventListener('error', handleEnded);
-    };
-  }, [clip.loop, clipId, onEnded, videoSrc]);
-
+function usePackedAlphaDraw(videoRef, canvasRef, enabled, videoSrc) {
   useEffect(() => {
-    const video = videoRef.current;
-    if (!video) {
-      return;
-    }
-
-    if (paused) {
-      video.pause();
-      return;
-    }
-
-    const playPromise = video.play();
-    if (playPromise?.catch) {
-      playPromise.catch(() => {});
-    }
-  }, [paused]);
-
-  useEffect(() => {
-    if (!useCanvasKey) {
+    if (!enabled) {
       return undefined;
     }
 
@@ -187,7 +124,146 @@ const WalkAvatarStage = ({
       video.removeEventListener('loadeddata', startDrawing);
       video.removeEventListener('seeked', startDrawing);
     };
-  }, [useCanvasKey, videoSrc]);
+  }, [canvasRef, enabled, videoRef, videoSrc]);
+}
+
+function LoopingAvatarVideo({
+  videoRef,
+  canvasRef,
+  src,
+  visible,
+  paused = false,
+  useCanvasKey,
+}) {
+  useLayoutEffect(() => {
+    const video = videoRef.current;
+    if (!video) {
+      return;
+    }
+
+    video.loop = true;
+    video.muted = true;
+    video.playsInline = true;
+    video.setAttribute('playsinline', 'true');
+    video.setAttribute('webkit-playsinline', 'true');
+    if (video.getAttribute('src') !== src) {
+      video.src = src;
+      video.load();
+    }
+
+    if (paused) {
+      video.pause();
+      return;
+    }
+
+    const playPromise = video.play();
+    if (playPromise?.catch) {
+      playPromise.catch(() => {});
+    }
+  }, [paused, src, videoRef]);
+
+  usePackedAlphaDraw(videoRef, canvasRef, useCanvasKey, src);
+
+  const hiddenClass = useCanvasKey
+    ? 'pointer-events-none absolute h-px w-px opacity-0'
+    : 'absolute inset-0 z-10 h-full w-full bg-transparent object-contain transition-opacity duration-75';
+
+  return (
+    <>
+      <video
+        ref={videoRef}
+        className={useCanvasKey ? hiddenClass : `${hiddenClass} ${visible ? 'opacity-100' : 'opacity-0'}`}
+        playsInline
+        preload="auto"
+        muted
+        loop
+      />
+      {useCanvasKey ? (
+        <canvas
+          ref={canvasRef}
+          className={`absolute inset-0 z-10 h-full w-full bg-transparent object-contain transition-opacity duration-75 ${visible ? 'opacity-100' : 'opacity-0'}`}
+          style={{ backgroundColor: 'transparent' }}
+        />
+      ) : null}
+    </>
+  );
+}
+
+const WalkAvatarStage = ({
+  clipId = 'idle',
+  paused = false,
+  isListening = false,
+  lipSyncActive = false,
+  mouthOpen = false,
+  subtitle = '',
+  onEnded,
+}) => {
+  const videoRef = useRef(null);
+  const canvasRef = useRef(null);
+  const mouthIdleVideoRef = useRef(null);
+  const mouthIdleCanvasRef = useRef(null);
+  const mouthTalkVideoRef = useRef(null);
+  const mouthTalkCanvasRef = useRef(null);
+  const clip = AVATAR_CLIPS[clipId] ?? AVATAR_CLIPS.idle;
+  const speaking = clipId !== 'idle' || lipSyncActive;
+  const useCanvasKey = avatarNeedsCanvasKey();
+  const videoSrc = getAvatarVideoSrc(clip);
+  const mouthIdleSrc = getAvatarVideoSrc(AVATAR_CLIPS.mouthIdle);
+  const mouthTalkSrc = getAvatarVideoSrc(AVATAR_CLIPS.mouthTalk);
+
+  useLayoutEffect(() => {
+    const video = videoRef.current;
+    if (!video) {
+      return undefined;
+    }
+
+    const handleEnded = () => {
+      if (!clip.loop) {
+        onEnded?.(clipId);
+      }
+    };
+
+    video.loop = Boolean(clip.loop);
+    video.muted = Boolean(clip.loop);
+    video.playsInline = true;
+    video.setAttribute('playsinline', 'true');
+    video.setAttribute('webkit-playsinline', 'true');
+    video.src = videoSrc;
+    video.load();
+
+    if (!lipSyncActive) {
+      const playPromise = video.play();
+      if (playPromise?.catch) {
+        playPromise.catch(() => {});
+      }
+    }
+
+    video.addEventListener('ended', handleEnded);
+    video.addEventListener('error', handleEnded);
+    return () => {
+      video.removeEventListener('ended', handleEnded);
+      video.removeEventListener('error', handleEnded);
+    };
+  }, [clip.loop, clipId, lipSyncActive, onEnded, videoSrc]);
+
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video) {
+      return;
+    }
+
+    if (paused || lipSyncActive) {
+      video.pause();
+      return;
+    }
+
+    const playPromise = video.play();
+    if (playPromise?.catch) {
+      playPromise.catch(() => {});
+    }
+  }, [lipSyncActive, paused]);
+
+  usePackedAlphaDraw(videoRef, canvasRef, useCanvasKey && !lipSyncActive, videoSrc);
 
   return (
     <div className="relative flex h-full w-full min-h-[180px] max-h-[min(52vh,440px)] flex-col items-center justify-center">
@@ -202,19 +278,38 @@ const WalkAvatarStage = ({
         ref={videoRef}
         className={useCanvasKey
           ? 'pointer-events-none absolute h-px w-px opacity-0'
-          : 'relative z-10 h-full w-full bg-transparent object-contain'}
+          : `relative z-10 h-full w-full bg-transparent object-contain ${lipSyncActive ? 'hidden' : ''}`}
         playsInline
         preload="auto"
-        muted={clip.loop}
+        muted={clip.loop || lipSyncActive}
       />
 
-      {useCanvasKey ? (
+      {useCanvasKey && !lipSyncActive ? (
         <canvas
           ref={canvasRef}
           className="relative z-10 h-full w-full bg-transparent object-contain"
           style={{ backgroundColor: 'transparent' }}
         />
       ) : null}
+
+      <div className={`absolute inset-0 z-10 ${lipSyncActive ? '' : 'pointer-events-none'}`}>
+        <LoopingAvatarVideo
+          videoRef={mouthIdleVideoRef}
+          canvasRef={mouthIdleCanvasRef}
+          src={mouthIdleSrc}
+          visible={lipSyncActive && !mouthOpen}
+          paused={paused || !lipSyncActive}
+          useCanvasKey={useCanvasKey}
+        />
+        <LoopingAvatarVideo
+          videoRef={mouthTalkVideoRef}
+          canvasRef={mouthTalkCanvasRef}
+          src={mouthTalkSrc}
+          visible={lipSyncActive && mouthOpen}
+          paused={paused || !lipSyncActive}
+          useCanvasKey={useCanvasKey}
+        />
+      </div>
 
       {subtitle ? (
         <p className="pointer-events-none absolute bottom-2 z-20 max-w-[22rem] rounded-full bg-white/85 px-4 py-1.5 text-center text-sm font-semibold text-slate-700 shadow-sm backdrop-blur-sm sm:bottom-3 sm:text-base">

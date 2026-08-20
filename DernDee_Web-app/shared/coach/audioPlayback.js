@@ -8,6 +8,8 @@ export class PcmAudioPlayer {
     this.nextPlayTime = 0;
     this.activeSources = new Set();
     this.onSpeakingChange = null;
+    this.onLevelChange = null;
+    this.smoothedRms = 0;
     this.speakingIdleTimer = null;
   }
 
@@ -23,6 +25,24 @@ export class PcmAudioPlayer {
 
   setSpeakingListener(listener) {
     this.onSpeakingChange = listener;
+  }
+
+  setLevelListener(listener) {
+    this.onLevelChange = listener;
+  }
+
+  computeRms(samples) {
+    if (!samples.length) {
+      return 0;
+    }
+
+    let sum = 0;
+    for (let index = 0; index < samples.length; index += 1) {
+      const sample = samples[index];
+      sum += sample * sample;
+    }
+
+    return Math.sqrt(sum / samples.length);
   }
 
   isPlaying() {
@@ -56,6 +76,10 @@ export class PcmAudioPlayer {
     if (!samples.length) {
       return;
     }
+
+    const rms = this.computeRms(samples);
+    this.smoothedRms = this.smoothedRms * 0.62 + rms * 0.38;
+    this.onLevelChange?.(this.smoothedRms);
 
     const buffer = this.audioContext.createBuffer(1, samples.length, this.sampleRate);
     buffer.copyToChannel(samples, 0);
@@ -101,7 +125,9 @@ export class PcmAudioPlayer {
 
       this.playing = false;
       this.nextPlayTime = 0;
+      this.smoothedRms = 0;
       this.onSpeakingChange?.(false);
+      this.onLevelChange?.(0);
     }, 80);
   }
 
@@ -127,7 +153,9 @@ export class PcmAudioPlayer {
     this.activeSources.clear();
     this.nextPlayTime = 0;
     this.playing = false;
+    this.smoothedRms = 0;
     this.onSpeakingChange?.(false);
+    this.onLevelChange?.(0);
   }
 
   destroy() {
