@@ -93,7 +93,25 @@ export const AVATAR_CLIPS = {
   },
   mouthTalk: {
     id: 'mouthTalk',
-    src: '/Avatar/video/15_MOUTH_TALK_1S.webm?v=1',
+    src: '/Avatar/video/17_MOUTH_TALK_B.webm?v=1',
+    loop: true,
+    line: '',
+  },
+  mouthTalkA: {
+    id: 'mouthTalkA',
+    src: '/Avatar/video/16_MOUTH_TALK_A.webm?v=1',
+    loop: true,
+    line: '',
+  },
+  mouthTalkB: {
+    id: 'mouthTalkB',
+    src: '/Avatar/video/17_MOUTH_TALK_B.webm?v=1',
+    loop: true,
+    line: '',
+  },
+  mouthTalkC: {
+    id: 'mouthTalkC',
+    src: '/Avatar/video/18_MOUTH_TALK_C.webm?v=1',
     loop: true,
     line: '',
   },
@@ -102,6 +120,10 @@ export const AVATAR_CLIPS = {
 Object.keys(AVATAR_CLIPS).forEach((key) => {
   AVATAR_CLIPS[key] = withDeviceSources(AVATAR_CLIPS[key]);
 });
+
+export const MOUTH_TALK_CLIPS = [
+  AVATAR_CLIPS.mouthTalk,
+];
 
 export function avatarNeedsCanvasKey() {
   if (typeof navigator === 'undefined') {

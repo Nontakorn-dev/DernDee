@@ -40,6 +40,9 @@ import { AVATAR_CLIPS, resolveAvatarClip } from './avatarClips.js';
 const TARGET_TIME_SECONDS = 300;
 const COACH_CONSENT_KEY = 'derndee_free_walk_ai_consent_v1';
 const ASK_HANGOVER_MS = 420;
+const MOUTH_OPEN_ENERGY = 0.18;
+const MOUTH_ONSET_MS = 60;
+const MOUTH_CLOSE_MS = 560;
 
 function formatTime(seconds) {
   const mins = Math.floor(seconds / 60);
@@ -108,10 +111,15 @@ const FreeWalkSession = () => {
   const [lipSyncActive, setLipSyncActive] = useState(false);
   const [mouthTalking, setMouthTalking] = useState(false);
   const lipSyncActiveRef = useRef(false);
+  const mouthPaceRef = useRef(0);
+  const mouthTalkingRef = useRef(false);
+  const lastVoiceAtRef = useRef(0);
+  const energyOpenSinceRef = useRef(0);
   const askHangoverRef = useRef(null);
   const questionSentRef = useRef(false);
   const askCoachActiveRef = useRef(false);
   const askReplyWatchRef = useRef(null);
+  const lastAskPromptRef = useRef('');
 
   useEffect(() => {
     showConsentRef.current = showConsent;
@@ -182,9 +190,24 @@ const FreeWalkSession = () => {
       askHangoverRef.current = null;
     }
 
+    if (avatarClipIdRef.current === 'greeting') {
+      greetingPlayedRef.current = true;
+      avatarBusyRef.current = false;
+      avatarClipIdRef.current = 'idle';
+      setAvatarClipId('idle');
+    }
+
+    if (!questionSentRef.current) {
+      coachClientRef.current?.disarmOutput?.();
+    }
+
     lipSyncActiveRef.current = true;
     setLipSyncActive(true);
     setMouthTalking(false);
+    mouthTalkingRef.current = false;
+    mouthPaceRef.current = 0;
+    lastVoiceAtRef.current = 0;
+    energyOpenSinceRef.current = 0;
   }, []);
 
   const endAskLipSync = useCallback((delayMs = ASK_HANGOVER_MS) => {
@@ -197,6 +220,7 @@ const FreeWalkSession = () => {
       lipSyncActiveRef.current = false;
       setLipSyncActive(false);
       setMouthTalking(false);
+      mouthTalkingRef.current = false;
       orchestratorRef.current?.markAskRest();
       if (avatarClipIdRef.current === 'idle') {
         setAvatarClipId('idle');
@@ -210,6 +234,10 @@ const FreeWalkSession = () => {
     }
 
     if (lipSyncActiveRef.current) {
+      return false;
+    }
+
+    if (clip.id === 'greeting' && greetingPlayedRef.current) {
       return false;
     }
 
@@ -255,6 +283,7 @@ const FreeWalkSession = () => {
 
     if (coachModeRef.current === COACH_MODES.LIVE && coachClientRef.current) {
       questionSentRef.current = true;
+      lastAskPromptRef.current = dispatch.prompt;
       beginAskLipSync();
       const sent = await coachClientRef.current.sendGaitPrompt(dispatch.prompt, {
         force: true,
@@ -262,9 +291,24 @@ const FreeWalkSession = () => {
       });
       if (!sent) {
         questionSentRef.current = false;
+        coachClientRef.current?.disarmOutput?.();
+        setCoachSubtitle('ส่งคำถามไม่สำเร็จ ลองอีกครั้งนะครับ');
         endAskLipSync(180);
         return false;
       }
+
+      clearAskReplyWatch();
+      askReplyWatchRef.current = window.setTimeout(() => {
+        askReplyWatchRef.current = null;
+        if (
+          lipSyncActiveRef.current
+          && coachClientRef.current?.getState() !== COACH_CONNECTION_STATES.SPEAKING
+        ) {
+          setCoachSubtitle('ยังไม่ได้ยินคำตอบ ลองถามอีกครั้งนะครับ');
+          questionSentRef.current = false;
+          endAskLipSync(180);
+        }
+      }, 8000);
       return true;
     }
 
@@ -352,19 +396,82 @@ const FreeWalkSession = () => {
               window.clearTimeout(askReplyWatchRef.current);
               askReplyWatchRef.current = null;
             }
-            if (!lipSyncActiveRef.current) {
-              beginAskLipSync();
+            if (askCoachActiveRef.current || questionSentRef.current) {
+              if (!lipSyncActiveRef.current) {
+                beginAskLipSync();
+              }
+              lastVoiceAtRef.current = Date.now();
+              energyOpenSinceRef.current = Date.now();
+              if (!mouthTalkingRef.current) {
+                mouthTalkingRef.current = true;
+                setMouthTalking(true);
+              }
             }
-            setMouthTalking(true);
             return;
           }
 
           if (nextState === COACH_CONNECTION_STATES.READY && lipSyncActiveRef.current) {
             setMouthTalking(false);
+            mouthTalkingRef.current = false;
+            mouthPaceRef.current = 0;
             endAskLipSync();
           }
         },
         onSubtitleChange: setCoachSubtitle,
+        onGreetingRejected: () => {
+          if (!coachClientRef.current) {
+            return;
+          }
+
+          if (askReplyWatchRef.current) {
+            window.clearTimeout(askReplyWatchRef.current);
+          }
+          askReplyWatchRef.current = window.setTimeout(() => {
+            askReplyWatchRef.current = null;
+            if (
+              lipSyncActiveRef.current
+              && coachClientRef.current?.getState() !== COACH_CONNECTION_STATES.SPEAKING
+            ) {
+              setCoachSubtitle('ยังไม่ได้ยินคำตอบ ลองถามอีกครั้งนะครับ');
+              questionSentRef.current = false;
+              endAskLipSync(180);
+            }
+          }, 8000);
+
+          const prompt = lastAskPromptRef.current
+            || 'ผู้ป่วยเพิ่งถามมาทางไมค์ ตอบคำถามนั้นทันที ห้ามทักทาย ห้ามสวัสดี ห้ามแนะนำตัว';
+          setCoachSubtitle('กำลังตอบคำถามนะครับ');
+          void coachClientRef.current.sendGaitPrompt(
+            `${prompt}\n\nห้ามทักทาย ห้ามสวัสดี ห้ามแนะนำตัว ตอบคำถามทันที`,
+            { force: true, interrupt: true, retry: true },
+          );
+        },
+      });
+      client.setMouthLevelListener((energy) => {
+        const value = Number.isFinite(energy) ? Math.max(0, Math.min(1, energy)) : 0;
+        mouthPaceRef.current = value;
+        if (!lipSyncActiveRef.current) {
+          return;
+        }
+
+        const now = Date.now();
+        if (value >= MOUTH_OPEN_ENERGY) {
+          lastVoiceAtRef.current = now;
+          if (!energyOpenSinceRef.current) {
+            energyOpenSinceRef.current = now;
+          }
+          if (!mouthTalkingRef.current && now - energyOpenSinceRef.current >= MOUTH_ONSET_MS) {
+            mouthTalkingRef.current = true;
+            setMouthTalking(true);
+          }
+          return;
+        }
+
+        energyOpenSinceRef.current = 0;
+        if (mouthTalkingRef.current && now - lastVoiceAtRef.current >= MOUTH_CLOSE_MS) {
+          mouthTalkingRef.current = false;
+          setMouthTalking(false);
+        }
       });
       coachClientRef.current = client;
       await client.connect();
@@ -654,6 +761,21 @@ const FreeWalkSession = () => {
     }
   };
 
+  const sendAskQuestion = (transcript) => {
+    const question = transcript?.trim();
+    if (!question || questionSentRef.current) {
+      return false;
+    }
+
+    const dispatch = orchestratorRef.current.buildUserQuestionDispatch(
+      latestParamsRef.current,
+      question,
+      sessionElapsedRef.current,
+    );
+    void dispatchCoachLine(dispatch);
+    return true;
+  };
+
   const handleAskCoachStart = () => {
     if (askCoachActiveRef.current) {
       return;
@@ -667,6 +789,10 @@ const FreeWalkSession = () => {
     setCoachSubtitle('พูดได้เลยครับ');
 
     if (coachMode !== COACH_MODES.LIVE || !coachClientRef.current) {
+      setCoachSubtitle('โค้ชยังไม่พร้อม ลองใหม่อีกครั้งนะครับ');
+      endAskLipSync(800);
+      askCoachActiveRef.current = false;
+      setAskCoachActive(false);
       return;
     }
 
@@ -677,8 +803,10 @@ const FreeWalkSession = () => {
     }
 
     const recognition = new SpeechRecognition();
+    let lastTranscript = '';
     recognition.lang = 'th-TH';
     recognition.interimResults = true;
+    recognition.continuous = false;
     recognition.maxAlternatives = 1;
     recognition.onresult = (event) => {
       const lastResult = event.results?.[event.results.length - 1];
@@ -687,37 +815,43 @@ const FreeWalkSession = () => {
         return;
       }
 
-      if (!lastResult.isFinal) {
-        setCoachSubtitle(transcript);
-        return;
-      }
+      lastTranscript = transcript;
+      setCoachSubtitle(transcript);
 
-      if (questionSentRef.current) {
-        return;
+      if (lastResult.isFinal) {
+        sendAskQuestion(transcript);
       }
-
-      const dispatch = orchestratorRef.current.buildUserQuestionDispatch(
-        latestParamsRef.current,
-        transcript,
-        sessionElapsedRef.current,
-      );
-      void dispatchCoachLine(dispatch);
     };
     recognition.onerror = (event) => {
       if (event.error === 'aborted' || event.error === 'no-speech') {
         return;
       }
 
+      if (event.error === 'not-allowed' || event.error === 'service-not-allowed') {
+        speechRecognitionRef.current = null;
+        void coachClientRef.current.startPushToTalk();
+        return;
+      }
+
       finishAskListen();
       if (!questionSentRef.current) {
+        setCoachSubtitle('ลองพูดอีกครั้งนะครับ');
         endAskLipSync(180);
       }
     };
     recognition.onend = () => {
       finishAskListen();
-      if (!questionSentRef.current) {
-        endAskLipSync(180);
+      if (questionSentRef.current) {
+        return;
       }
+
+      if (lastTranscript) {
+        sendAskQuestion(lastTranscript);
+        return;
+      }
+
+      setCoachSubtitle('ลองพูดอีกครั้งนะครับ');
+      endAskLipSync(180);
     };
     speechRecognitionRef.current = recognition;
     try {
@@ -900,6 +1034,7 @@ const FreeWalkSession = () => {
               isListening={askCoachActive}
               lipSyncActive={lipSyncActive}
               mouthTalking={mouthTalking}
+              mouthPaceRef={mouthPaceRef}
               subtitle={coachSubtitle}
               onEnded={handleAvatarEnded}
             />

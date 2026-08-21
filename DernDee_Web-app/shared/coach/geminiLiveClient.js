@@ -3,6 +3,7 @@ import { PcmAudioPlayer } from './audioPlayback.js';
 import { LIVE_MODEL } from './coachConfig.js';
 import { buildCoachLiveSessionConfig } from './coachSystemInstruction.js';
 import { fetchLiveCoachToken } from './geminiCoachApi.js';
+import { isCoachGreetingSpeech } from './gaitCoachContext.js';
 
 export const COACH_CONNECTION_STATES = {
   IDLE: 'idle',
@@ -22,6 +23,10 @@ export class GeminiLiveClient {
     this.muted = false;
     this.onStateChange = options.onStateChange ?? null;
     this.onSubtitleChange = options.onSubtitleChange ?? null;
+    this.onGreetingRejected = options.onGreetingRejected ?? null;
+    this.outputArmed = false;
+    this.greetingRetryUsed = false;
+    this.awaitingNonGreeting = true;
     this.mediaStream = null;
     this.mediaRecorder = null;
     this.micActive = false;
@@ -50,6 +55,15 @@ export class GeminiLiveClient {
     this.audioPlayer.setLevelListener(listener);
   }
 
+  armOutput() {
+    this.outputArmed = true;
+  }
+
+  disarmOutput() {
+    this.outputArmed = false;
+    this.audioPlayer.stop();
+  }
+
   setState(nextState) {
     this.state = nextState;
     this.onStateChange?.(nextState);
@@ -73,7 +87,10 @@ export class GeminiLiveClient {
 
       await this.audioPlayer.init();
       this.audioPlayer.setSpeakingListener((speaking) => {
-        if (this.muted) {
+        if (this.muted || !this.outputArmed) {
+          if (!speaking && this.state === COACH_CONNECTION_STATES.SPEAKING) {
+            this.setState(COACH_CONNECTION_STATES.READY);
+          }
           return;
         }
         this.setState(speaking ? COACH_CONNECTION_STATES.SPEAKING : COACH_CONNECTION_STATES.READY);
@@ -124,10 +141,35 @@ export class GeminiLiveClient {
 
     if (typeof transcription === 'string' && transcription.trim()) {
       this.latestSubtitle = transcription.trim();
-      this.onSubtitleChange?.(this.latestSubtitle);
+      if (this.outputArmed && !this.muted) {
+        this.onSubtitleChange?.(this.latestSubtitle);
+      }
+
+      if (
+        this.outputArmed
+        && !this.muted
+        && this.awaitingNonGreeting
+        && isCoachGreetingSpeech(this.latestSubtitle)
+      ) {
+        this.audioPlayer.stop();
+        if (!this.greetingRetryUsed) {
+          this.greetingRetryUsed = true;
+          this.onGreetingRejected?.(this.latestSubtitle);
+        }
+        return;
+      }
+
+      if (
+        this.outputArmed
+        && this.awaitingNonGreeting
+        && this.latestSubtitle.replace(/\s+/g, '').length >= 8
+        && !isCoachGreetingSpeech(this.latestSubtitle)
+      ) {
+        this.awaitingNonGreeting = false;
+      }
     }
 
-    if (this.muted) {
+    if (this.muted || !this.outputArmed) {
       return;
     }
 
@@ -246,6 +288,30 @@ export class GeminiLiveClient {
       return false;
     }
 
+    const ready = await this.waitUntilReady();
+    if (!ready || !this.session) {
+      return false;
+    }
+
+    if (!options.retry) {
+      this.greetingRetryUsed = false;
+    }
+
+    this.armOutput();
+
+    if (typeof this.session.sendClientContent === 'function') {
+      this.session.sendClientContent({
+        turns: [
+          {
+            role: 'user',
+            parts: [{ text: promptText }],
+          },
+        ],
+        turnComplete: true,
+      });
+      return true;
+    }
+
     this.session.sendRealtimeInput({ text: promptText });
     return true;
   }
@@ -307,6 +373,12 @@ export class GeminiLiveClient {
     this.micActive = true;
 
     try {
+      this.session.sendRealtimeInput({ activityStart: {} });
+    } catch {
+      // session may not support activity signals
+    }
+
+    try {
       this.mediaStream = await navigator.mediaDevices.getUserMedia({
         audio: {
           channelCount: 1,
@@ -316,6 +388,11 @@ export class GeminiLiveClient {
       });
     } catch {
       this.micActive = false;
+      try {
+        this.session.sendRealtimeInput({ activityEnd: {} });
+      } catch {
+        // session may not support activity signals
+      }
       return;
     }
 
@@ -399,14 +476,23 @@ export class GeminiLiveClient {
     }
 
     if (wasActive && this.session) {
-      this.session.sendRealtimeInput({ audioStreamEnd: true });
+      this.armOutput();
+      try {
+        this.session.sendRealtimeInput({ activityEnd: {} });
+      } catch {
+        // session may not support activity signals
+      }
     }
   }
 
   disconnect() {
+    this.disarmOutput();
     this.stopPushToTalk();
     this.audioPlayer.destroy();
     this.audioPlayer = new PcmAudioPlayer(24000);
+    this.outputArmed = false;
+    this.greetingRetryUsed = false;
+    this.awaitingNonGreeting = true;
     this.session = null;
     this.setState(COACH_CONNECTION_STATES.CLOSED);
   }

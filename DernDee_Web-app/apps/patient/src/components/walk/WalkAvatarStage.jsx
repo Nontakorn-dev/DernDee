@@ -6,6 +6,10 @@ import {
 } from './avatarClips.js';
 
 const MAX_PACKED_WIDTH = 1600;
+const AVATAR_FRAME_W = 1280;
+const AVATAR_FRAME_H = 704;
+const MEDIA_SHOW = 'absolute inset-0 z-10 h-full w-full bg-transparent object-contain object-center';
+const MEDIA_HIDE = 'absolute inset-0 z-0 h-full w-full bg-transparent object-contain object-center opacity-0 invisible [clip-path:inset(100%)]';
 
 function applyPackedAlpha(packedImageData) {
   const packedWidth = packedImageData.width;
@@ -46,6 +50,11 @@ function usePackedAlphaDraw(videoRef, canvasRef, enabled, videoSrc) {
     const context = canvas.getContext('2d', { willReadFrequently: true, alpha: true });
     if (!context) {
       return undefined;
+    }
+
+    if (!canvas.width || !canvas.height) {
+      canvas.width = AVATAR_FRAME_W;
+      canvas.height = AVATAR_FRAME_H;
     }
 
     let frameId = 0;
@@ -127,12 +136,25 @@ function usePackedAlphaDraw(videoRef, canvasRef, enabled, videoSrc) {
   }, [canvasRef, enabled, videoRef, videoSrc]);
 }
 
-function LoopingAvatarVideo({
+function mediaClass(useCanvasKey, visible) {
+  if (useCanvasKey) {
+    return 'pointer-events-none absolute h-px w-px opacity-0';
+  }
+
+  return visible ? MEDIA_SHOW : MEDIA_HIDE;
+}
+
+function canvasClass(visible) {
+  return visible ? MEDIA_SHOW : MEDIA_HIDE;
+}
+
+function LoopingMouthLayer({
   videoRef,
   canvasRef,
   src,
   visible,
-  paused = false,
+  paused,
+  playbackRate = 1,
   useCanvasKey,
 }) {
   useLayoutEffect(() => {
@@ -146,6 +168,8 @@ function LoopingAvatarVideo({
     video.playsInline = true;
     video.setAttribute('playsinline', 'true');
     video.setAttribute('webkit-playsinline', 'true');
+    video.playbackRate = playbackRate;
+
     if (video.getAttribute('src') !== src) {
       video.src = src;
       video.load();
@@ -160,19 +184,17 @@ function LoopingAvatarVideo({
     if (playPromise?.catch) {
       playPromise.catch(() => {});
     }
-  }, [paused, src, videoRef]);
+  }, [paused, playbackRate, src, videoRef]);
 
   usePackedAlphaDraw(videoRef, canvasRef, useCanvasKey, src);
-
-  const hiddenClass = useCanvasKey
-    ? 'pointer-events-none absolute h-px w-px opacity-0'
-    : 'absolute inset-0 z-10 h-full w-full bg-transparent object-contain transition-opacity duration-200';
 
   return (
     <>
       <video
         ref={videoRef}
-        className={useCanvasKey ? hiddenClass : `${hiddenClass} ${visible ? 'opacity-100' : 'opacity-0'}`}
+        className={mediaClass(useCanvasKey, visible)}
+        width={AVATAR_FRAME_W}
+        height={AVATAR_FRAME_H}
         playsInline
         preload="auto"
         muted
@@ -181,8 +203,10 @@ function LoopingAvatarVideo({
       {useCanvasKey ? (
         <canvas
           ref={canvasRef}
-          className={`absolute inset-0 z-10 h-full w-full bg-transparent object-contain transition-opacity duration-200 ${visible ? 'opacity-100' : 'opacity-0'}`}
-          style={{ backgroundColor: 'transparent' }}
+          className={canvasClass(visible)}
+          width={AVATAR_FRAME_W}
+          height={AVATAR_FRAME_H}
+          style={{ backgroundColor: 'transparent', objectFit: 'contain', objectPosition: 'center' }}
         />
       ) : null}
     </>
@@ -195,6 +219,7 @@ const WalkAvatarStage = ({
   isListening = false,
   lipSyncActive = false,
   mouthTalking = false,
+  mouthPaceRef = null,
   subtitle = '',
   onEnded,
 }) => {
@@ -210,6 +235,9 @@ const WalkAvatarStage = ({
   const videoSrc = getAvatarVideoSrc(clip);
   const mouthIdleSrc = getAvatarVideoSrc(AVATAR_CLIPS.mouthIdle);
   const mouthTalkSrc = getAvatarVideoSrc(AVATAR_CLIPS.mouthTalk);
+  const showGait = !lipSyncActive;
+  const showMouthIdle = lipSyncActive && !mouthTalking;
+  const showMouthTalk = lipSyncActive && mouthTalking;
 
   useLayoutEffect(() => {
     const video = videoRef.current;
@@ -228,10 +256,15 @@ const WalkAvatarStage = ({
     video.playsInline = true;
     video.setAttribute('playsinline', 'true');
     video.setAttribute('webkit-playsinline', 'true');
-    video.src = videoSrc;
-    video.load();
 
-    if (!lipSyncActive) {
+    if (video.getAttribute('src') !== videoSrc) {
+      video.src = videoSrc;
+      video.load();
+    }
+
+    if (paused || lipSyncActive) {
+      video.pause();
+    } else {
       const playPromise = video.play();
       if (playPromise?.catch) {
         playPromise.catch(() => {});
@@ -244,26 +277,19 @@ const WalkAvatarStage = ({
       video.removeEventListener('ended', handleEnded);
       video.removeEventListener('error', handleEnded);
     };
-  }, [clip.loop, clipId, lipSyncActive, onEnded, videoSrc]);
+  }, [clip.loop, clipId, lipSyncActive, onEnded, paused, videoSrc]);
 
   useEffect(() => {
-    const video = videoRef.current;
-    if (!video) {
-      return;
+    const talkVideo = mouthTalkVideoRef.current;
+    if (!talkVideo) {
+      return undefined;
     }
 
-    if (paused || lipSyncActive) {
-      video.pause();
-      return;
-    }
+    talkVideo.playbackRate = lipSyncActive ? 0.7 : 1;
+    return undefined;
+  }, [lipSyncActive, mouthPaceRef]);
 
-    const playPromise = video.play();
-    if (playPromise?.catch) {
-      playPromise.catch(() => {});
-    }
-  }, [lipSyncActive, paused]);
-
-  usePackedAlphaDraw(videoRef, canvasRef, useCanvasKey && !lipSyncActive, videoSrc);
+  usePackedAlphaDraw(videoRef, canvasRef, useCanvasKey, videoSrc);
 
   return (
     <div className="relative flex h-full w-full min-h-[180px] max-h-[min(52vh,440px)] flex-col items-center justify-center">
@@ -276,40 +302,41 @@ const WalkAvatarStage = ({
 
       <video
         ref={videoRef}
-        className={useCanvasKey
-          ? 'pointer-events-none absolute h-px w-px opacity-0'
-          : `relative z-10 h-full w-full bg-transparent object-contain ${lipSyncActive ? 'hidden' : ''}`}
+        className={mediaClass(useCanvasKey, showGait)}
+        width={AVATAR_FRAME_W}
+        height={AVATAR_FRAME_H}
         playsInline
         preload="auto"
         muted={clip.loop || lipSyncActive}
       />
 
-      {useCanvasKey && !lipSyncActive ? (
+      {useCanvasKey ? (
         <canvas
           ref={canvasRef}
-          className="relative z-10 h-full w-full bg-transparent object-contain"
-          style={{ backgroundColor: 'transparent' }}
+          className={canvasClass(showGait)}
+          width={AVATAR_FRAME_W}
+          height={AVATAR_FRAME_H}
+          style={{ backgroundColor: 'transparent', objectFit: 'contain', objectPosition: 'center' }}
         />
       ) : null}
 
-      <div className={`absolute inset-0 z-10 ${lipSyncActive ? '' : 'pointer-events-none'}`}>
-        <LoopingAvatarVideo
-          videoRef={mouthIdleVideoRef}
-          canvasRef={mouthIdleCanvasRef}
-          src={mouthIdleSrc}
-          visible={lipSyncActive && !mouthTalking}
-          paused={paused || !lipSyncActive}
-          useCanvasKey={useCanvasKey}
-        />
-        <LoopingAvatarVideo
-          videoRef={mouthTalkVideoRef}
-          canvasRef={mouthTalkCanvasRef}
-          src={mouthTalkSrc}
-          visible={lipSyncActive && mouthTalking}
-          paused={paused || !lipSyncActive || !mouthTalking}
-          useCanvasKey={useCanvasKey}
-        />
-      </div>
+      <LoopingMouthLayer
+        videoRef={mouthIdleVideoRef}
+        canvasRef={mouthIdleCanvasRef}
+        src={mouthIdleSrc}
+        visible={showMouthIdle}
+        paused={paused}
+        useCanvasKey={useCanvasKey}
+      />
+      <LoopingMouthLayer
+        videoRef={mouthTalkVideoRef}
+        canvasRef={mouthTalkCanvasRef}
+        src={mouthTalkSrc}
+        visible={showMouthTalk}
+        paused={paused}
+        playbackRate={lipSyncActive ? 0.7 : 1}
+        useCanvasKey={useCanvasKey}
+      />
 
       {subtitle ? (
         <p className="pointer-events-none absolute bottom-2 z-20 max-w-[22rem] rounded-full bg-white/85 px-4 py-1.5 text-center text-sm font-semibold text-slate-700 shadow-sm backdrop-blur-sm sm:bottom-3 sm:text-base">
