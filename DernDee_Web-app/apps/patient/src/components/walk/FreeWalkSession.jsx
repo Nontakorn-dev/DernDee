@@ -39,9 +39,6 @@ import { AVATAR_CLIPS, resolveAvatarClip } from './avatarClips.js';
 
 const TARGET_TIME_SECONDS = 300;
 const COACH_CONSENT_KEY = 'derndee_free_walk_ai_consent_v1';
-const MOUTH_OPEN_RMS = 0.028;
-const MOUTH_CLOSE_RMS = 0.014;
-const MOUTH_HOLD_MS = 120;
 const ASK_HANGOVER_MS = 420;
 
 function formatTime(seconds) {
@@ -109,10 +106,8 @@ const FreeWalkSession = () => {
   const [audioUnlocked, setAudioUnlocked] = useState(false);
   const [avatarClipId, setAvatarClipId] = useState('idle');
   const [lipSyncActive, setLipSyncActive] = useState(false);
-  const [mouthOpen, setMouthOpen] = useState(false);
+  const [mouthTalking, setMouthTalking] = useState(false);
   const lipSyncActiveRef = useRef(false);
-  const mouthOpenRef = useRef(false);
-  const mouthHoldUntilRef = useRef(0);
   const askHangoverRef = useRef(null);
   const questionSentRef = useRef(false);
   const askCoachActiveRef = useRef(false);
@@ -189,8 +184,7 @@ const FreeWalkSession = () => {
 
     lipSyncActiveRef.current = true;
     setLipSyncActive(true);
-    mouthOpenRef.current = false;
-    setMouthOpen(false);
+    setMouthTalking(false);
   }, []);
 
   const endAskLipSync = useCallback((delayMs = ASK_HANGOVER_MS) => {
@@ -202,36 +196,12 @@ const FreeWalkSession = () => {
       askHangoverRef.current = null;
       lipSyncActiveRef.current = false;
       setLipSyncActive(false);
-      mouthOpenRef.current = false;
-      setMouthOpen(false);
+      setMouthTalking(false);
       orchestratorRef.current?.markAskRest();
       if (avatarClipIdRef.current === 'idle') {
         setAvatarClipId('idle');
       }
     }, delayMs);
-  }, []);
-
-  const updateMouthFromRms = useCallback((rms) => {
-    if (!lipSyncActiveRef.current) {
-      return;
-    }
-
-    const now = Date.now();
-    if (now < mouthHoldUntilRef.current) {
-      return;
-    }
-
-    const shouldOpen = mouthOpenRef.current
-      ? rms >= MOUTH_CLOSE_RMS
-      : rms >= MOUTH_OPEN_RMS;
-
-    if (shouldOpen === mouthOpenRef.current) {
-      return;
-    }
-
-    mouthOpenRef.current = shouldOpen;
-    mouthHoldUntilRef.current = now + MOUTH_HOLD_MS;
-    setMouthOpen(shouldOpen);
   }, []);
 
   const playAvatarClip = useCallback((clip) => {
@@ -385,20 +355,17 @@ const FreeWalkSession = () => {
             if (!lipSyncActiveRef.current) {
               beginAskLipSync();
             }
-            mouthOpenRef.current = true;
-            setMouthOpen(true);
+            setMouthTalking(true);
             return;
           }
 
           if (nextState === COACH_CONNECTION_STATES.READY && lipSyncActiveRef.current) {
-            mouthOpenRef.current = false;
-            setMouthOpen(false);
+            setMouthTalking(false);
             endAskLipSync();
           }
         },
         onSubtitleChange: setCoachSubtitle,
       });
-      client.setMouthLevelListener(updateMouthFromRms);
       coachClientRef.current = client;
       await client.connect();
     } catch (error) {
@@ -419,7 +386,7 @@ const FreeWalkSession = () => {
       });
       setCoachState(COACH_CONNECTION_STATES.READY);
     }
-  }, [beginAskLipSync, coachMode, endAskLipSync, updateMouthFromRms]);
+  }, [beginAskLipSync, coachMode, endAskLipSync]);
 
   const createSensorRuntime = useCallback((sample) => {
     const processor = createCalibratedGaitProcessorClient(sample.sensorKey);
@@ -932,7 +899,7 @@ const FreeWalkSession = () => {
               paused={!isActive}
               isListening={askCoachActive}
               lipSyncActive={lipSyncActive}
-              mouthOpen={mouthOpen}
+              mouthTalking={mouthTalking}
               subtitle={coachSubtitle}
               onEnded={handleAvatarEnded}
             />

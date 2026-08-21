@@ -166,7 +166,7 @@ function LoopingAvatarVideo({
 
   const hiddenClass = useCanvasKey
     ? 'pointer-events-none absolute h-px w-px opacity-0'
-    : 'absolute inset-0 z-10 h-full w-full bg-transparent object-contain transition-opacity duration-75';
+    : 'absolute inset-0 z-10 h-full w-full bg-transparent object-contain transition-opacity duration-200';
 
   return (
     <>
@@ -181,7 +181,7 @@ function LoopingAvatarVideo({
       {useCanvasKey ? (
         <canvas
           ref={canvasRef}
-          className={`absolute inset-0 z-10 h-full w-full bg-transparent object-contain transition-opacity duration-75 ${visible ? 'opacity-100' : 'opacity-0'}`}
+          className={`absolute inset-0 z-10 h-full w-full bg-transparent object-contain transition-opacity duration-200 ${visible ? 'opacity-100' : 'opacity-0'}`}
           style={{ backgroundColor: 'transparent' }}
         />
       ) : null}
@@ -194,7 +194,7 @@ const WalkAvatarStage = ({
   paused = false,
   isListening = false,
   lipSyncActive = false,
-  mouthOpen = false,
+  mouthTalking = false,
   subtitle = '',
   onEnded,
 }) => {
@@ -297,7 +297,7 @@ const WalkAvatarStage = ({
           videoRef={mouthIdleVideoRef}
           canvasRef={mouthIdleCanvasRef}
           src={mouthIdleSrc}
-          visible={lipSyncActive && !mouthOpen}
+          visible={lipSyncActive && !mouthTalking}
           paused={paused || !lipSyncActive}
           useCanvasKey={useCanvasKey}
         />
@@ -305,8 +305,8 @@ const WalkAvatarStage = ({
           videoRef={mouthTalkVideoRef}
           canvasRef={mouthTalkCanvasRef}
           src={mouthTalkSrc}
-          visible={lipSyncActive && mouthOpen}
-          paused={paused || !lipSyncActive}
+          visible={lipSyncActive && mouthTalking}
+          paused={paused || !lipSyncActive || !mouthTalking}
           useCanvasKey={useCanvasKey}
         />
       </div>

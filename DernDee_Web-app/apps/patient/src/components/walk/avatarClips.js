@@ -93,7 +93,7 @@ export const AVATAR_CLIPS = {
   },
   mouthTalk: {
     id: 'mouthTalk',
-    src: '/Avatar/video/15_MOUTH_TALK_LOOP.webm?v=smooth1',
+    src: '/Avatar/video/15_MOUTH_TALK_1S.webm?v=1',
     loop: true,
     line: '',
   },
