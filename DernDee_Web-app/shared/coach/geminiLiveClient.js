@@ -288,8 +288,11 @@ export class GeminiLiveClient {
       return false;
     }
 
-    const ready = await this.waitUntilReady();
-    if (!ready || !this.session) {
+    const ready = await this.waitUntilReady(4000);
+    if (!this.session) {
+      return false;
+    }
+    if (!ready && this.state === COACH_CONNECTION_STATES.ERROR) {
       return false;
     }
 
