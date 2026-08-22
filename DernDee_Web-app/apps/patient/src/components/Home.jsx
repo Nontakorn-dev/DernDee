@@ -18,7 +18,6 @@ import {
     LogOut,
     Play,
     Footprints,
-    ChevronDown,
     Heart,
     Activity,
 } from 'lucide-react';
@@ -30,18 +29,11 @@ const isBleDeviceConnected = (device) => device?.status === 'connected';
 const tapClass =
     'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400 focus-visible:ring-offset-2';
 
-const Avatar = ({ src, name, initials, size = 'md' }) => {
-    const sizes = {
-        sm: 'w-8 h-8 text-xs',
-        md: 'w-[72px] h-[72px] text-xl ring-4 ring-sky-50',
-    };
-
-    return (
-        <div className={`${sizes[size]} rounded-full overflow-hidden bg-sky-100 text-sky-700 font-bold flex items-center justify-center shrink-0`}>
-            {src ? <img src={src} alt={name} className="w-full h-full object-cover" /> : initials}
-        </div>
-    );
-};
+const Avatar = ({ src, name, initials }) => (
+    <div className="w-[72px] h-[72px] text-xl ring-4 ring-sky-50 rounded-full overflow-hidden bg-sky-100 text-sky-700 font-bold flex items-center justify-center shrink-0">
+        {src ? <img src={src} alt={name} className="w-full h-full object-cover" /> : initials}
+    </div>
+);
 
 const Home = () => {
     const { logOut, profile, refreshProfile, user } = useUserAuth();
@@ -100,7 +92,6 @@ const Home = () => {
     };
 
     const displayName = profile?.full_name || user?.displayName || 'ผู้ใช้';
-    const firstName = displayName.split(' ')[0];
     const avatarUrl = profile?.avatar_url || user?.photoURL;
     const initials = displayName
         .split(' ')
@@ -173,30 +164,18 @@ const Home = () => {
             <header className="sticky top-0 z-20 bg-white/90 backdrop-blur-md border-b border-sky-100">
                 <div className="mx-auto max-w-6xl px-4 sm:px-6 h-16 flex items-center justify-between gap-3">
                     <img src={derndeeLogo} alt="DernDee" className="h-9 object-contain" />
-                    <div className="flex items-center gap-2 sm:gap-3">
-                        <button
-                            type="button"
-                            onClick={() => navigate('/profile')}
-                            className={`hidden md:flex items-center gap-2 rounded-full bg-slate-50 pl-1 pr-3 py-1 min-h-11 ${tapClass}`}
-                            aria-label={`โปรไฟล์ ${firstName}`}
-                        >
-                            <Avatar src={avatarUrl} name={firstName} initials={initials} size="sm" />
-                            <span className="text-sm font-semibold text-slate-800 max-w-[10rem] truncate">{firstName}</span>
-                            <ChevronDown className="w-4 h-4 text-slate-400" />
-                        </button>
-                        <button
-                            type="button"
-                            className={`relative w-11 h-11 rounded-full bg-slate-50 text-slate-600 flex items-center justify-center ${tapClass}`}
-                            aria-label="การแจ้งเตือน"
-                        >
-                            <Bell className="w-5 h-5" />
-                            <span className="absolute top-2.5 right-2.5 w-2 h-2 rounded-full bg-rose-500 ring-2 ring-white" />
-                        </button>
-                    </div>
+                    <button
+                        type="button"
+                        className={`relative w-11 h-11 rounded-full bg-slate-50 text-slate-600 flex items-center justify-center ${tapClass}`}
+                        aria-label="การแจ้งเตือน"
+                    >
+                        <Bell className="w-5 h-5" />
+                        <span className="absolute top-2.5 right-2.5 w-2 h-2 rounded-full bg-rose-500 ring-2 ring-white" />
+                    </button>
                 </div>
             </header>
 
-            <main className="mx-auto max-w-6xl px-4 sm:px-6 py-5 sm:py-7 pb-36 space-y-4 sm:space-y-5">
+            <main className="mx-auto max-w-6xl px-4 sm:px-6 py-5 sm:py-7 space-y-4 sm:space-y-5 pb-[calc(8.5rem+env(safe-area-inset-bottom))] md:pb-[calc(10rem+env(safe-area-inset-bottom))]">
                 <section className="grid gap-4 lg:grid-cols-2">
                     <article className="rounded-[28px] border-2 border-sky-200 bg-sky-50 shadow-[0_8px_28px_rgba(14,165,233,0.10)] p-5 sm:p-6">
                         <div className="flex items-center gap-3 sm:gap-4">
@@ -303,8 +282,8 @@ const Home = () => {
                 </section>
             </main>
 
-            <nav className="fixed bottom-0 inset-x-0 z-30 px-4 sm:px-6 pb-[max(1rem,env(safe-area-inset-bottom))]">
-                <div className="mx-auto max-w-6xl rounded-[28px] border-2 border-sky-100 bg-white/95 backdrop-blur-md shadow-[0_10px_40px_rgba(15,23,42,0.12)]">
+            <nav className="pointer-events-none fixed bottom-0 inset-x-0 z-30 px-4 sm:px-6 pt-3 pb-[max(1.25rem,env(safe-area-inset-bottom))]">
+                <div className="pointer-events-auto mx-auto max-w-6xl rounded-[28px] border-2 border-sky-100 bg-white/95 backdrop-blur-md shadow-[0_10px_40px_rgba(15,23,42,0.12)]">
                     <div className="grid grid-cols-3">
                         <button
                             type="button"
