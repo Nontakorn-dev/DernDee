@@ -30,7 +30,7 @@ const tapClass =
     'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400 focus-visible:ring-offset-2';
 
 const Avatar = ({ src, name, initials }) => (
-    <div className="w-[72px] h-[72px] text-xl ring-4 ring-sky-50 rounded-full overflow-hidden bg-sky-100 text-sky-700 font-bold flex items-center justify-center shrink-0">
+    <div className="w-14 h-14 sm:w-[72px] sm:h-[72px] text-lg sm:text-xl ring-4 ring-white rounded-full overflow-hidden bg-sky-100 text-sky-700 font-bold flex items-center justify-center shrink-0">
         {src ? <img src={src} alt={name} className="w-full h-full object-cover" /> : initials}
     </div>
 );
@@ -161,7 +161,7 @@ const Home = () => {
             className="min-h-screen bg-[#D7E6F2] text-slate-900"
             style={{ fontFamily: "'Prompt', 'Noto Sans Thai', sans-serif" }}
         >
-            <header className="sticky top-0 z-20 bg-white/90 backdrop-blur-md border-b border-sky-100">
+            <header className="sticky top-0 z-20 bg-white/90 backdrop-blur-md border-b border-sky-100 pt-[env(safe-area-inset-top)]">
                 <div className="mx-auto max-w-6xl px-4 sm:px-6 h-16 flex items-center justify-between gap-3">
                     <img src={derndeeLogo} alt="DernDee" className="h-9 object-contain" />
                     <button
@@ -177,23 +177,22 @@ const Home = () => {
 
             <main className="mx-auto w-full max-w-6xl px-4 sm:px-6 py-5 sm:py-7 pb-8 space-y-4 sm:space-y-5">
                 <section className="grid gap-4 lg:grid-cols-2">
-                    <article className="rounded-[28px] border-2 border-sky-200 bg-sky-50 shadow-[0_8px_28px_rgba(14,165,233,0.10)] p-5 sm:p-6">
+                    <article className="rounded-[28px] border-2 border-sky-200 bg-sky-50 shadow-[0_8px_28px_rgba(14,165,233,0.10)] p-4 sm:p-6">
                         <div className="flex items-center gap-3 sm:gap-4">
                             <Avatar src={avatarUrl} name={displayName} initials={initials} />
-                            <div className="min-w-0 flex-1">
-                                <h1 className="text-[22px] sm:text-2xl font-bold tracking-tight truncate text-sky-950">
+                            <div className="min-w-0 flex-1 flex flex-col items-start gap-2 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
+                                <h1 className="text-lg sm:text-2xl font-bold tracking-tight truncate w-full sm:w-auto text-sky-950">
                                     {displayName}
                                 </h1>
-                                <p className="text-sky-800/70 mt-0.5 text-[15px]">Welcome back!</p>
+                                <button
+                                    type="button"
+                                    onClick={handleLogout}
+                                    className={`shrink-0 inline-flex items-center justify-center gap-1.5 min-h-10 sm:min-h-11 px-3 sm:px-4 rounded-full border-2 border-sky-500 text-sky-700 font-semibold text-sm bg-white hover:bg-sky-100 ${tapClass}`}
+                                >
+                                    <LogOut className="w-4 h-4" />
+                                    Sign Out
+                                </button>
                             </div>
-                            <button
-                                type="button"
-                                onClick={handleLogout}
-                                className={`shrink-0 inline-flex items-center justify-center gap-1.5 min-h-11 px-3 sm:px-4 rounded-full border-2 border-sky-500 text-sky-700 font-semibold text-sm bg-white hover:bg-sky-100 ${tapClass}`}
-                            >
-                                <LogOut className="w-4 h-4" />
-                                Sign Out
-                            </button>
                         </div>
                     </article>
 
