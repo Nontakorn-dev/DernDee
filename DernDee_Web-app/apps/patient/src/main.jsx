@@ -2,6 +2,7 @@ import React from 'react'
 import ReactDOM from 'react-dom/client'
 import Login from '@patient/components/Login.jsx'
 import Register from '@patient/components/Register.jsx'
+import ResetPassword from '@patient/components/ResetPassword.jsx'
 import Home from '@patient/components/Home.jsx'
 import Profile from '@patient/components/Profile.jsx'
 import Settings from '@patient/components/Settings.jsx'
@@ -43,6 +44,10 @@ const router = createBrowserRouter([
   {
     path: "/register",
     element: <Register />
+  },
+  {
+    path: "/reset-password",
+    element: <ResetPassword />
   },
   {
     path: "/home",

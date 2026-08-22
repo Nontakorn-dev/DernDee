@@ -137,7 +137,7 @@ function Login() {
         try {
             const supabase = getSupabaseClient();
             const { error: resetError } = await supabase.auth.resetPasswordForEmail(email, {
-                redirectTo: getAuthRedirectUrl('/login'),
+                redirectTo: getAuthRedirectUrl('/reset-password'),
             });
 
             if (resetError) {
@@ -271,8 +271,8 @@ function Login() {
                                 </div>
                             </div>
 
-                            <div className="hidden items-center justify-between gap-3 lg:landscape:flex">
-                                <label className="inline-flex cursor-pointer items-center gap-2 text-sm font-medium text-sky-700">
+                            <div className="flex items-center justify-between gap-3">
+                                <label className="hidden cursor-pointer items-center gap-2 text-sm font-medium text-sky-700 lg:landscape:inline-flex">
                                     <input
                                         type="checkbox"
                                         checked={rememberMe}
@@ -285,7 +285,7 @@ function Login() {
                                     type="button"
                                     onClick={handleForgotPassword}
                                     disabled={isResettingPassword}
-                                    className={`text-sm font-semibold text-sky-600 hover:text-sky-800 disabled:opacity-70 ${tapClass}`}
+                                    className={`ml-auto text-sm font-semibold text-sky-600 hover:text-sky-800 disabled:opacity-70 ${tapClass}`}
                                 >
                                     {isResettingPassword ? 'กำลังส่ง...' : 'ลืมรหัสผ่าน?'}
                                 </button>
