@@ -18,15 +18,15 @@ export function getProfileImageBucket() {
 }
 
 export function getAuthRedirectUrl(path = '/login') {
+  if (typeof window !== 'undefined' && window.location?.origin) {
+    return new URL(path, window.location.origin).toString()
+  }
+
   if (authRedirectUrl) {
     return authRedirectUrl
   }
 
-  if (typeof window === 'undefined') {
-    return path
-  }
-
-  return new URL(path, window.location.origin).toString()
+  return path
 }
 
 export function getSupabaseClient() {
