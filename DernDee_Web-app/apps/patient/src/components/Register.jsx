@@ -125,7 +125,7 @@ function Register() {
             className="min-h-screen bg-[#D7E6F2] text-slate-900 lg:landscape:bg-[#E8EEF4]"
             style={{ fontFamily: "'Prompt', 'Noto Sans Thai', sans-serif" }}
         >
-            <div className="mx-auto flex min-h-screen max-w-5xl items-center px-4 py-8 sm:px-6 lg:landscape:max-w-[1100px] lg:landscape:px-8">
+            <div className="mx-auto flex min-h-screen max-w-5xl items-center px-4 py-8 sm:px-6 md:portrait:max-w-[28rem] md:portrait:px-10 lg:landscape:max-w-[1100px] lg:landscape:px-8">
                 <div className="grid w-full gap-5 lg:landscape:min-h-[680px] lg:landscape:grid-cols-[0.92fr_1.08fr] lg:landscape:items-stretch lg:landscape:gap-0 lg:landscape:overflow-hidden lg:landscape:rounded-[32px] lg:landscape:bg-white lg:landscape:shadow-[0_24px_60px_rgba(15,23,42,0.12)]">
                     <AuthBrandPanel
                         description={(
@@ -137,7 +137,7 @@ function Register() {
                         )}
                     />
 
-                    <section className="flex flex-col justify-center rounded-[32px] border-2 border-sky-200 bg-white p-6 shadow-[0_8px_28px_rgba(14,165,233,0.10)] sm:p-8 lg:landscape:rounded-none lg:landscape:border-0 lg:landscape:shadow-none lg:landscape:px-10 lg:landscape:py-9">
+                    <section className="flex flex-col justify-center rounded-[32px] border-2 border-sky-200 bg-white p-6 shadow-[0_8px_28px_rgba(14,165,233,0.10)] sm:p-8 md:portrait:min-h-[40rem] md:portrait:px-10 md:portrait:py-14 lg:landscape:min-h-0 lg:landscape:rounded-none lg:landscape:border-0 lg:landscape:shadow-none lg:landscape:px-10 lg:landscape:py-9">
                         <img src={derndeeLogo} alt="DernDee" className="mb-6 h-10 object-contain lg:landscape:hidden" />
                         <h2 className="text-[28px] font-bold tracking-tight text-sky-950">สมัครสมาชิก</h2>
                         <p className="mb-6 mt-1 text-sky-800/70">Create an account with Google or email</p>
