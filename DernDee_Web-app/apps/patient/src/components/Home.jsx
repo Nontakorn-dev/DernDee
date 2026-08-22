@@ -2,23 +2,54 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useUserAuth } from '@shared/context/UserAuthContext.jsx';
 import { fetchPatientDailyProgress } from '@shared/services/sessionService.js';
-// Import Home icon as HomeIcon to avoid naming conflict with component
-import { Home as HomeIcon, User, Settings, Bluetooth, Clock, TrendingUp, Video, Menu, Bell, LogOut, Upload } from 'lucide-react';
+import {
+    getBrowserBleDevicesSnapshot,
+    subscribeToBrowserBleDevices,
+} from '@shared/gateway/realtimeTransport.js';
+import {
+    Home as HomeIcon,
+    User,
+    Settings,
+    Bluetooth,
+    Clock,
+    TrendingUp,
+    Video,
+    Bell,
+    LogOut,
+    Play,
+    Footprints,
+    ChevronDown,
+    Heart,
+    Activity,
+} from 'lucide-react';
 import derndeeLogo from '@shared/assets/images/derndee-logo.png';
 import doctorImageSrc from '@shared/assets/images/doctor.png';
+
+const isBleDeviceConnected = (device) => device?.status === 'connected';
+
+const tapClass =
+    'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400 focus-visible:ring-offset-2';
+
+const Avatar = ({ src, name, initials, size = 'md' }) => {
+    const sizes = {
+        sm: 'w-8 h-8 text-xs',
+        md: 'w-[72px] h-[72px] text-xl ring-4 ring-sky-50',
+    };
+
+    return (
+        <div className={`${sizes[size]} rounded-full overflow-hidden bg-sky-100 text-sky-700 font-bold flex items-center justify-center shrink-0`}>
+            {src ? <img src={src} alt={name} className="w-full h-full object-cover" /> : initials}
+        </div>
+    );
+};
 
 const Home = () => {
     const { logOut, profile, refreshProfile, user } = useUserAuth();
     const navigate = useNavigate();
-    const [userProfile, setUserProfile] = useState(null);
     const [loading, setLoading] = useState(true);
-    const [isConnected, setIsConnected] = useState(false);
-    const [connectedDevices, setConnectedDevices] = useState([]);
-    const [menuOpen, setMenuOpen] = useState(false);
-    const [profileImage, setProfileImage] = useState(null);
+    const [connectedCount, setConnectedCount] = useState(0);
     const [stepsProgress, setStepsProgress] = useState({ current: 0, target: 500 });
-    // ใช้ imported image หรือสามารถกำหนดเป็น path อื่นได้
-    const [doctorImage, setDoctorImage] = useState(doctorImageSrc);
+    const [heroImage, setHeroImage] = useState(doctorImageSrc);
 
     useEffect(() => {
         const fetchUserProfile = async () => {
@@ -29,8 +60,6 @@ const Home = () => {
 
             try {
                 const data = profile || await refreshProfile();
-                setUserProfile(data);
-
                 const configuredTargetSteps = Number(data?.preferences?.dailyStepGoal);
                 const targetSteps = Number.isFinite(configuredTargetSteps) && configuredTargetSteps > 0
                     ? configuredTargetSteps
@@ -42,7 +71,7 @@ const Home = () => {
                     target: dailyProgress.targetSteps,
                 });
             } catch (error) {
-                console.error("Error fetching user profile:", error);
+                console.error('Error fetching user profile:', error);
                 setStepsProgress({ current: 0, target: 500 });
             } finally {
                 setLoading(false);
@@ -52,10 +81,14 @@ const Home = () => {
         fetchUserProfile();
     }, [profile, refreshProfile, user]);
 
-    // Update connection status when connectedDevices changes
     useEffect(() => {
-        setIsConnected(connectedDevices.length > 0);
-    }, [connectedDevices]);
+        const syncDevices = (devices = []) => {
+            setConnectedCount(devices.filter(isBleDeviceConnected).length);
+        };
+
+        syncDevices(getBrowserBleDevicesSnapshot());
+        return subscribeToBrowserBleDevices(syncDevices);
+    }, []);
 
     const handleLogout = async () => {
         try {
@@ -66,234 +99,243 @@ const Home = () => {
         }
     };
 
-    const handleConnectDevice = () => {
-        navigate('/device-connection');
-    };
-
-
-    const handleImageUpload = (e) => {
-        const file = e.target.files[0];
-        if (file) {
-            const reader = new FileReader();
-            reader.onloadend = () => {
-                setProfileImage(reader.result);
-            };
-            reader.readAsDataURL(file);
-        }
-    };
-
-    // Get initials for avatar placeholder
-    const getInitials = () => {
-        const name = user?.displayName || 'Nontakorn Pulakkeaw';
-        const parts = name.split(' ');
-        if (parts.length >= 2) {
-            return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
-        }
-        return name.substring(0, 2).toUpperCase();
-    };
-
-    const stepsPercentage = Math.min((stepsProgress.current / stepsProgress.target) * 100, 100);
+    const displayName = profile?.full_name || user?.displayName || 'ผู้ใช้';
+    const firstName = displayName.split(' ')[0];
+    const avatarUrl = profile?.avatar_url || user?.photoURL;
+    const initials = displayName
+        .split(' ')
+        .filter(Boolean)
+        .slice(0, 2)
+        .map((part) => part[0])
+        .join('')
+        .toUpperCase() || 'DD';
+    const stepsPercentage = Math.min((stepsProgress.current / Math.max(stepsProgress.target, 1)) * 100, 100);
+    const isConnected = connectedCount > 0;
 
     if (loading) {
         return (
-            <div className="min-h-screen bg-gradient-to-b from-blue-50 via-blue-100 to-blue-200 flex items-center justify-center">
-                <div className="flex flex-col items-center gap-6">
-                    <div className="w-12 h-12 border-4 border-blue-400 border-t-transparent rounded-full animate-spin"></div>
-                    <p className="text-lg text-gray-700">Loading your profile...</p>
+            <div className="min-h-screen bg-[#D7E6F2] flex items-center justify-center" style={{ fontFamily: "'Prompt', 'Noto Sans Thai', sans-serif" }}>
+                <div className="flex flex-col items-center gap-4">
+                    <div className="w-10 h-10 border-[3px] border-sky-200 border-t-sky-600 rounded-full animate-spin" />
+                    <p className="text-base text-slate-600">กำลังโหลดหน้าหลัก...</p>
                 </div>
             </div>
         );
     }
 
+    const quickActions = [
+        {
+            title: 'Connected',
+            thai: isConnected
+                ? `อุปกรณ์เชื่อมต่อแล้ว${connectedCount > 1 ? ` ${connectedCount} เครื่อง` : ''}`
+                : 'แตะเพื่อเชื่อมเซ็นเซอร์',
+            icon: Bluetooth,
+            iconWrap: 'bg-sky-500 text-white',
+            card: 'bg-sky-50 border-sky-200 hover:border-sky-400 hover:bg-sky-100',
+            titleColor: 'text-sky-950',
+            onClick: () => navigate('/device-connection'),
+            connected: isConnected,
+        },
+        {
+            title: 'History',
+            thai: 'ดูประวัติการฝึก',
+            icon: Clock,
+            iconWrap: 'bg-emerald-500 text-white',
+            card: 'bg-emerald-50 border-emerald-200 hover:border-emerald-400 hover:bg-emerald-100',
+            titleColor: 'text-emerald-950',
+            onClick: () => navigate('/history'),
+        },
+        {
+            title: 'Analysis Result',
+            thai: 'ผลการวิเคราะห์การเดิน',
+            icon: TrendingUp,
+            iconWrap: 'bg-violet-500 text-white',
+            card: 'bg-violet-50 border-violet-200 hover:border-violet-400 hover:bg-violet-100',
+            titleColor: 'text-violet-950',
+            onClick: () => navigate('/walk-summary'),
+        },
+        {
+            title: 'Telemedicine',
+            thai: 'ปรึกษาแพทย์ออนไลน์',
+            icon: Video,
+            iconWrap: 'bg-orange-500 text-white',
+            card: 'bg-orange-50 border-orange-200 hover:border-orange-400 hover:bg-orange-100',
+            titleColor: 'text-orange-950',
+            onClick: () => navigate('/telemedicine'),
+        },
+    ];
+
     return (
-        <div className="min-h-screen bg-gradient-to-b from-blue-50 via-blue-100 to-blue-200">
-            {/* Header */}
-            <header className="bg-white shadow-xl px-4 sm:px-6 py-3 sm:py-4 flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                    <img src={derndeeLogo} alt="DernDee" className="h-8 sm:h-10 md:h-12 object-contain" />
+        <div
+            className="min-h-screen bg-[#D7E6F2] text-slate-900"
+            style={{ fontFamily: "'Prompt', 'Noto Sans Thai', sans-serif" }}
+        >
+            <header className="sticky top-0 z-20 bg-white/90 backdrop-blur-md border-b border-sky-100">
+                <div className="mx-auto max-w-6xl px-4 sm:px-6 h-16 flex items-center justify-between gap-3">
+                    <img src={derndeeLogo} alt="DernDee" className="h-9 object-contain" />
+                    <div className="flex items-center gap-2 sm:gap-3">
+                        <button
+                            type="button"
+                            onClick={() => navigate('/profile')}
+                            className={`hidden md:flex items-center gap-2 rounded-full bg-slate-50 pl-1 pr-3 py-1 min-h-11 ${tapClass}`}
+                            aria-label={`โปรไฟล์ ${firstName}`}
+                        >
+                            <Avatar src={avatarUrl} name={firstName} initials={initials} size="sm" />
+                            <span className="text-sm font-semibold text-slate-800 max-w-[10rem] truncate">{firstName}</span>
+                            <ChevronDown className="w-4 h-4 text-slate-400" />
+                        </button>
+                        <button
+                            type="button"
+                            className={`relative w-11 h-11 rounded-full bg-slate-50 text-slate-600 flex items-center justify-center ${tapClass}`}
+                            aria-label="การแจ้งเตือน"
+                        >
+                            <Bell className="w-5 h-5" />
+                            <span className="absolute top-2.5 right-2.5 w-2 h-2 rounded-full bg-rose-500 ring-2 ring-white" />
+                        </button>
+                    </div>
                 </div>
             </header>
 
-            {/* Main Content */}
-            <main className="p-3 sm:p-4 md:p-5 lg:p-6 xl:p-8 pb-6 max-w-7xl mx-auto">
-                <div className="lg:grid lg:grid-cols-12 lg:gap-8 lg:items-start">
-                    {/* LEFT COLUMN (Profile + Therapy) - Desktop: Span 9/12 */}
-                    <div className="col-span-12 lg:col-span-9 flex flex-col gap-4 lg:gap-8 h-full">
-
-                        {/* Profile Card */}
-                        <div className="bg-white rounded-2xl sm:rounded-3xl shadow-2xl p-4 sm:p-5 md:p-6 lg:p-7 xl:p-8">
-                            <div className="flex items-start justify-between mb-3 sm:mb-4 md:mb-5 gap-3 sm:gap-4">
-                                <div className="flex items-center gap-3 sm:gap-4 md:gap-5 flex-1 min-w-0">
-                                    <div className="w-16 h-16 sm:w-20 sm:h-20 md:w-24 md:h-24 lg:w-28 lg:h-28 xl:w-32 xl:h-32 rounded-full border-2 sm:border-3 md:border-4 border-blue-400 overflow-hidden bg-blue-100 shadow-lg relative group cursor-pointer flex-shrink-0">
-                                        {profileImage || user?.photoURL ? (
-                                            <img
-                                                src={profileImage || user.photoURL}
-                                                alt="Profile"
-                                                className="w-full h-full object-cover"
-                                            />
-                                        ) : (
-                                            <div className="w-full h-full flex items-center justify-center text-blue-600 font-bold text-base sm:text-lg md:text-xl lg:text-2xl xl:text-3xl">
-                                                {getInitials()}
-                                            </div>
-                                        )}
-                                        <label className="absolute inset-0 flex items-center justify-center bg-black bg-opacity-50 rounded-full opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer">
-                                            <Upload className="w-4 h-4 sm:w-5 sm:h-5 md:w-6 md:h-6 lg:w-7 lg:h-7 text-white" />
-                                            <input
-                                                type="file"
-                                                accept="image/*"
-                                                onChange={handleImageUpload}
-                                                className="hidden"
-                                            />
-                                        </label>
-                                    </div>
-                                    <div className="flex flex-col gap-1.5 sm:gap-2 md:gap-3 min-w-0 flex-1">
-                                        <h2 className="text-base sm:text-lg md:text-xl lg:text-2xl xl:text-3xl font-bold text-gray-800 break-words leading-tight">
-                                            {user?.displayName || 'Nontakorn Pulakkeaw'}
-                                        </h2>
-                                        <button
-                                            onClick={handleLogout}
-                                            className="bg-blue-500 text-white px-3 sm:px-4 md:px-5 lg:px-6 xl:px-7 py-1.5 sm:py-2 md:py-2.5 lg:py-3 rounded-full flex items-center gap-1.5 sm:gap-2 md:gap-2.5 font-semibold hover:bg-blue-600 transition-colors shadow-lg w-fit text-sm sm:text-base md:text-lg lg:text-xl"
-                                        >
-                                            <LogOut className="w-4 h-4 sm:w-5 sm:h-5 md:w-5 md:h-5 lg:w-6 lg:h-6" />
-                                            Sign Out
-                                        </button>
-                                    </div>
-                                </div>
-                                <div className="relative flex-shrink-0">
-                                    <div className="w-8 h-8 sm:w-10 sm:h-10 md:w-12 md:h-12 lg:w-14 lg:h-14 bg-blue-100 rounded-full flex items-center justify-center shadow-lg cursor-pointer hover:bg-blue-200 transition-colors">
-                                        <Bell className="w-4 h-4 sm:w-5 sm:h-5 md:w-6 md:h-6 lg:w-7 lg:h-7 text-blue-500" />
-                                        <div className="absolute top-0 right-0 w-2 h-2 sm:w-2.5 sm:h-2.5 md:w-3 md:h-3 bg-red-500 rounded-full border-2 border-white"></div>
-                                    </div>
-                                </div>
+            <main className="mx-auto max-w-6xl px-4 sm:px-6 py-5 sm:py-7 pb-36 space-y-4 sm:space-y-5">
+                <section className="grid gap-4 lg:grid-cols-2">
+                    <article className="rounded-[28px] border-2 border-sky-200 bg-sky-50 shadow-[0_8px_28px_rgba(14,165,233,0.10)] p-5 sm:p-6">
+                        <div className="flex items-center gap-3 sm:gap-4">
+                            <Avatar src={avatarUrl} name={displayName} initials={initials} />
+                            <div className="min-w-0 flex-1">
+                                <h1 className="text-[22px] sm:text-2xl font-bold tracking-tight truncate text-sky-950">
+                                    {displayName}
+                                </h1>
+                                <p className="text-sky-800/70 mt-0.5 text-[15px]">Welcome back!</p>
                             </div>
-
-                            {/* Progress Bar */}
-                            <div className="mt-3 sm:mt-4 md:mt-5 lg:mt-6">
-                                <div className="flex justify-between items-center mb-2 sm:mb-3 flex-wrap gap-2">
-                                    <span className="text-base sm:text-lg md:text-xl lg:text-2xl xl:text-3xl font-semibold text-gray-700">Today&apos;s walk</span>
-                                    <span className="text-base sm:text-lg md:text-xl lg:text-2xl xl:text-3xl font-bold text-gray-800">
-                                        {stepsProgress.current} / {stepsProgress.target} Steps
-                                    </span>
-                                </div>
-                                <div className="w-full bg-gray-200 rounded-full h-2.5 sm:h-3 md:h-3.5 lg:h-4 overflow-hidden shadow-inner">
-                                    <div
-                                        className="bg-gradient-to-r from-blue-400 to-blue-500 h-full rounded-full shadow-md transition-all duration-500"
-                                        style={{ width: `${stepsPercentage}%` }}
-                                    ></div>
-                                </div>
-                            </div>
+                            <button
+                                type="button"
+                                onClick={handleLogout}
+                                className={`shrink-0 inline-flex items-center justify-center gap-1.5 min-h-11 px-3 sm:px-4 rounded-full border-2 border-sky-500 text-sky-700 font-semibold text-sm bg-white hover:bg-sky-100 ${tapClass}`}
+                            >
+                                <LogOut className="w-4 h-4" />
+                                Sign Out
+                            </button>
                         </div>
+                    </article>
 
-                        {/* Therapy Card */}
-                        <div className="bg-gradient-to-br from-blue-200 via-blue-300 to-blue-400 rounded-2xl sm:rounded-3xl shadow-2xl p-5 sm:p-5 md:p-6 lg:p-7 xl:p-8 relative overflow-hidden min-h-[200px] sm:min-h-[220px] md:min-h-[240px] lg:min-h-[260px] xl:min-h-[300px] cursor-pointer flex items-center"
-                            onClick={() => navigate('/therapy')}>
-                            <div className="relative z-10 max-w-[55%] sm:max-w-[50%] md:max-w-[45%] lg:max-w-[40%]">
-                                <h3 className="text-4xl sm:text-3xl md:text-4xl lg:text-5xl xl:text-6xl font-extrabold text-gray-800 mb-2 sm:mb-2 md:mb-2.5 drop-shadow-md">
-                                    Therapy
-                                </h3>
-                                <p className="text-lg sm:text-base md:text-lg lg:text-xl xl:text-2xl text-gray-700 mb-3 sm:mb-3 md:mb-4 font-medium drop-shadow-sm">
-                                    กายภาพบำบัดเรียลไทม์
+                    <article className="rounded-[28px] border-2 border-emerald-200 bg-emerald-50 shadow-[0_8px_28px_rgba(16,185,129,0.12)] p-5 sm:p-6 flex flex-col justify-center">
+                        <div className="flex items-center gap-3">
+                            <div className="w-11 h-11 rounded-full bg-emerald-500 text-white flex items-center justify-center shrink-0">
+                                <Footprints className="w-5 h-5" aria-hidden="true" />
+                            </div>
+                            <div className="min-w-0 flex-1">
+                                <p className="text-sm font-semibold text-emerald-800/70">Today&apos;s walk</p>
+                                <p className="text-xl sm:text-2xl font-bold tabular-nums leading-tight text-emerald-950">
+                                    {stepsProgress.current}
+                                    <span className="text-emerald-700/60 font-semibold"> / {stepsProgress.target} Steps</span>
                                 </p>
-                                <button className="bg-blue-600 hover:bg-blue-700 text-white px-5 sm:px-4 md:px-5 lg:px-8 xl:px-10 py-2.5 sm:py-2 md:py-2.5 lg:py-3.5 xl:py-4 rounded-full text-base sm:text-sm md:text-base lg:text-xl xl:text-2xl font-bold hover:scale-105 transition-all duration-300 shadow-xl hover:shadow-2xl">
-                                    Start Therapy
-                                </button>
-                            </div>
-                            <div className="absolute right-0 bottom-0 flex items-end justify-end z-0">
-                                {doctorImage ? (
-                                    <img
-                                        src={doctorImage}
-                                        alt="Doctor"
-                                        className="w-40 h-40 sm:w-44 sm:h-44 md:w-56 md:h-56 lg:w-64 lg:h-64 xl:w-80 xl:h-80 object-contain translate-y-4"
-                                        onError={() => setDoctorImage(null)}
-                                        loading="lazy"
-                                    />
-                                ) : (
-                                    <div className="text-7xl sm:text-7xl md:text-9xl lg:text-[10rem] xl:text-[12rem]">👨‍⚕️</div>
-                                )}
                             </div>
                         </div>
-                    </div>
-
-                    {/* RIGHT COLUMN (Features Stack) - Desktop: Span 3/12 */}
-                    <div className="col-span-12 lg:col-span-3 grid grid-cols-2 md:grid-cols-4 lg:flex lg:flex-col gap-4 sm:gap-3 md:gap-4 lg:gap-5 mt-4 lg:mt-0 h-full">
-                        {/* Connected */}
                         <div
-                            className="bg-white rounded-2xl sm:rounded-3xl shadow-2xl p-3 sm:p-4 md:p-4 lg:p-4 flex flex-col items-center justify-center flex-1 min-h-[100px] sm:min-h-[120px] md:min-h-[140px] lg:min-h-[120px] xl:min-h-[140px] hover:shadow-3xl transition-shadow cursor-pointer"
-                            onClick={handleConnectDevice}
+                            className="mt-4 h-2.5 rounded-full bg-emerald-200/80 overflow-hidden"
+                            role="progressbar"
+                            aria-valuenow={stepsProgress.current}
+                            aria-valuemin={0}
+                            aria-valuemax={stepsProgress.target}
+                            aria-label="ก้าวเดินวันนี้"
                         >
-                            <div className="w-10 h-10 sm:w-12 sm:h-12 md:w-14 md:h-14 lg:w-14 lg:h-14 xl:w-16 xl:h-16 bg-blue-100 rounded-full flex items-center justify-center mb-2 sm:mb-2 md:mb-3 shadow-lg">
-                                <Bluetooth className={`w-5 h-5 sm:w-6 sm:h-6 md:w-7 md:h-7 lg:w-7 lg:h-7 xl:w-8 xl:h-8 ${isConnected ? 'text-blue-500' : 'text-gray-400'}`} />
-                            </div>
-                            <h4 className="text-xs sm:text-sm md:text-base lg:text-base xl:text-lg font-bold text-gray-800 text-center">Connected</h4>
-                            {connectedDevices.length > 0 && (
-                                <p className="text-[10px] sm:text-xs text-gray-500 mt-0.5">{connectedDevices.length} device(s)</p>
-                            )}
+                            <div
+                                className="h-full rounded-full bg-emerald-500 transition-all duration-500"
+                                style={{ width: `${Math.max(stepsPercentage, stepsProgress.current > 0 ? 2 : 0)}%` }}
+                            />
                         </div>
+                    </article>
+                </section>
 
-                        {/* History */}
-                        <div
-                            onClick={() => navigate('/history')}
-                            className="bg-white rounded-2xl sm:rounded-3xl shadow-2xl p-3 sm:p-4 md:p-4 lg:p-4 flex flex-col items-center justify-center flex-1 min-h-[100px] sm:min-h-[120px] md:min-h-[140px] lg:min-h-[120px] xl:min-h-[140px] hover:shadow-3xl transition-shadow cursor-pointer"
-                        >
-                            <div className="w-10 h-10 sm:w-12 sm:h-12 md:w-14 md:h-14 lg:w-14 lg:h-14 xl:w-16 xl:h-16 bg-green-100 rounded-full flex items-center justify-center mb-2 sm:mb-2 md:mb-3 shadow-lg">
-                                <Clock className="w-5 h-5 sm:w-6 sm:h-6 md:w-7 md:h-7 lg:w-7 lg:h-7 xl:w-8 xl:h-8 text-green-500" />
-                            </div>
-                            <h4 className="text-xs sm:text-sm md:text-base lg:text-base xl:text-lg font-bold text-gray-800 text-center">History</h4>
-                        </div>
+                <section className="relative overflow-hidden rounded-[32px] min-h-[220px] sm:min-h-[248px] bg-gradient-to-r from-[#3B82F6] via-[#38BDF8] to-[#2DD4BF] shadow-[0_14px_40px_rgba(14,165,233,0.28)]">
+                    <Activity className="absolute right-24 top-6 w-24 h-24 text-white/15" aria-hidden="true" />
+                    <Heart className="absolute right-8 top-16 w-16 h-16 text-white/10" aria-hidden="true" />
+                    <Footprints className="absolute right-36 bottom-8 w-20 h-20 text-white/10" aria-hidden="true" />
 
-                        {/* Analysis Result */}
-                        <div
-                            onClick={() => navigate('/walk-summary')}
-                            className="bg-white rounded-2xl sm:rounded-3xl shadow-2xl p-3 sm:p-4 md:p-4 lg:p-4 flex flex-col items-center justify-center flex-1 min-h-[100px] sm:min-h-[120px] md:min-h-[140px] lg:min-h-[120px] xl:min-h-[140px] hover:shadow-3xl transition-shadow cursor-pointer"
-                        >
-                            <div className="w-10 h-10 sm:w-12 sm:h-12 md:w-14 md:h-14 lg:w-14 lg:h-14 xl:w-16 xl:h-16 bg-purple-100 rounded-full flex items-center justify-center mb-2 sm:mb-2 md:mb-3 shadow-lg">
-                                <TrendingUp className="w-5 h-5 sm:w-6 sm:h-6 md:w-7 md:h-7 lg:w-7 lg:h-7 xl:w-8 xl:h-8 text-purple-500" />
-                            </div>
-                            <h4 className="text-xs sm:text-sm md:text-base lg:text-base xl:text-lg font-bold text-gray-800 text-center">Analysis Result</h4>
-                        </div>
-
-                        {/* Telemedicine */}
-                        <div
-                            onClick={() => navigate('/telemedicine')}
-                            className="bg-white rounded-2xl sm:rounded-3xl shadow-2xl p-3 sm:p-4 md:p-4 lg:p-4 flex flex-col items-center justify-center flex-1 min-h-[100px] sm:min-h-[120px] md:min-h-[140px] lg:min-h-[120px] xl:min-h-[140px] hover:shadow-3xl transition-shadow cursor-pointer"
-                        >
-                            <div className="w-10 h-10 sm:w-12 sm:h-12 md:w-14 md:h-14 lg:w-14 lg:h-14 xl:w-16 xl:h-16 bg-orange-100 rounded-full flex items-center justify-center mb-2 sm:mb-2 md:mb-3 shadow-lg">
-                                <Video className="w-5 h-5 sm:w-6 sm:h-6 md:w-7 md:h-7 lg:w-7 lg:h-7 xl:w-8 xl:h-8 text-orange-500" />
-                            </div>
-                            <h4 className="text-xs sm:text-sm md:text-base lg:text-base xl:text-lg font-bold text-gray-800 text-center">Telemedicine</h4>
-                        </div>
-                    </div>
-                </div>
-
-                {/* Bottom Navigation */}
-                <nav className="mt-4 sm:mt-5 md:mt-6 lg:mt-8 bg-white shadow-lg rounded-2xl sm:rounded-3xl mx-2 sm:mx-3 md:mx-4 mb-2 sm:mb-3 md:mb-4 lg:mx-0">
-                    <div className="flex items-center justify-around py-2 sm:py-3 md:py-4 px-3 sm:px-4 md:px-5 lg:px-6">
+                    <div className="relative z-10 p-6 sm:p-8 max-w-[62%] sm:max-w-[52%]">
+                        <h2 className="text-white text-[40px] sm:text-5xl font-extrabold tracking-tight leading-none">Therapy</h2>
+                        <p className="text-white text-lg font-semibold mt-2">กายภาพบำบัด</p>
+                        <p className="text-white/90 text-[15px] sm:text-base mt-1 leading-snug">
+                            เริ่มต้นการฝึกเดินของคุณวันนี้
+                        </p>
                         <button
-                            onClick={() => navigate('/profile')}
-                            className="flex flex-col items-center gap-0.5 sm:gap-1 text-gray-400 hover:text-gray-800 transition-colors"
+                            type="button"
+                            className={`mt-5 inline-flex items-center justify-center gap-2 min-h-12 px-6 rounded-full bg-white text-sky-600 font-bold text-base shadow-sm hover:bg-sky-50 ${tapClass}`}
+                            onClick={() => navigate('/therapy')}
                         >
-                            <User className="w-5 h-5 sm:w-6 sm:h-6 md:w-7 md:h-7" />
-                            <span className="text-xs sm:text-sm md:text-base font-medium">Profile</span>
-                        </button>
-
-                        <button
-                            className="flex flex-col items-center gap-0.5 sm:gap-1 text-blue-500"
-                        >
-                            <HomeIcon className="w-5 h-5 sm:w-6 sm:h-6 md:w-7 md:h-7" />
-                            <span className="text-xs sm:text-sm md:text-base font-medium">Home</span>
-                        </button>
-
-                        <button
-                            onClick={() => navigate('/settings')}
-                            className="flex flex-col items-center gap-0.5 sm:gap-1 text-gray-400 hover:text-gray-800 transition-colors"
-                        >
-                            <Settings className="w-5 h-5 sm:w-6 sm:h-6 md:w-7 md:h-7" />
-                            <span className="text-xs sm:text-sm md:text-base font-medium">Settings</span>
+                            <Play className="w-4 h-4 fill-current" aria-hidden="true" />
+                            Start Therapy
                         </button>
                     </div>
-                </nav>
+                    {heroImage ? (
+                        <img
+                            src={heroImage}
+                            alt=""
+                            className="absolute right-[-8px] bottom-[-20px] h-[108%] max-h-[280px] w-auto object-contain object-bottom pointer-events-none select-none drop-shadow-lg"
+                            onError={() => setHeroImage(null)}
+                        />
+                    ) : null}
+                </section>
+
+                <section className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
+                    {quickActions.map((action) => {
+                        const Icon = action.icon;
+                        return (
+                            <button
+                                key={action.title}
+                                type="button"
+                                onClick={action.onClick}
+                                className={`rounded-[28px] border-2 shadow-[0_8px_24px_rgba(15,23,42,0.06)] ${action.card} ${tapClass} min-h-[152px] p-5 text-left flex flex-col items-start justify-center gap-3 hover:-translate-y-0.5 active:scale-[0.99] transition-all`}
+                            >
+                                <div className={`relative w-14 h-14 rounded-full flex items-center justify-center shadow-sm ${action.iconWrap}`}>
+                                    <Icon className="w-7 h-7" aria-hidden="true" />
+                                    {action.connected ? (
+                                        <span className="absolute -top-0.5 -right-0.5 w-3.5 h-3.5 rounded-full bg-emerald-400 ring-2 ring-white" />
+                                    ) : null}
+                                </div>
+                                <div>
+                                    <p className={`text-[17px] font-bold leading-tight ${action.titleColor}`}>{action.title}</p>
+                                    <p className="text-sm text-slate-600 mt-1 leading-snug">{action.thai}</p>
+                                </div>
+                            </button>
+                        );
+                    })}
+                </section>
             </main>
 
+            <nav className="fixed bottom-0 inset-x-0 z-30 px-4 sm:px-6 pb-[max(1rem,env(safe-area-inset-bottom))]">
+                <div className="mx-auto max-w-6xl rounded-[28px] border-2 border-sky-100 bg-white/95 backdrop-blur-md shadow-[0_10px_40px_rgba(15,23,42,0.12)]">
+                    <div className="grid grid-cols-3">
+                        <button
+                            type="button"
+                            onClick={() => navigate('/profile')}
+                            className={`min-h-[68px] flex flex-col items-center justify-center gap-1 text-slate-400 hover:text-slate-700 ${tapClass} rounded-l-[28px]`}
+                        >
+                            <User className="w-6 h-6" />
+                            <span className="text-xs font-medium">Profile</span>
+                            <span className="w-1.5 h-1.5 rounded-full bg-transparent" />
+                        </button>
+                        <button
+                            type="button"
+                            aria-current="page"
+                            className={`min-h-[68px] flex flex-col items-center justify-center gap-1 text-sky-600 ${tapClass}`}
+                        >
+                            <HomeIcon className="w-6 h-6" />
+                            <span className="text-xs font-semibold">Home</span>
+                            <span className="w-1.5 h-1.5 rounded-full bg-sky-500" />
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => navigate('/settings')}
+                            className={`min-h-[68px] flex flex-col items-center justify-center gap-1 text-slate-400 hover:text-slate-700 ${tapClass} rounded-r-[28px]`}
+                        >
+                            <Settings className="w-6 h-6" />
+                            <span className="text-xs font-medium">Settings</span>
+                            <span className="w-1.5 h-1.5 rounded-full bg-transparent" />
+                        </button>
+                    </div>
+                </div>
+            </nav>
         </div>
     );
 };
