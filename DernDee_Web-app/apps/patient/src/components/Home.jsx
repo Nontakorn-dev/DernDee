@@ -250,7 +250,7 @@ const Home = () => {
                         <img
                             src={heroImage}
                             alt=""
-                            className="absolute right-[-6px] bottom-[-20px] h-[122%] max-h-[210px] sm:h-[108%] sm:max-h-[280px] w-auto object-contain object-bottom pointer-events-none select-none drop-shadow-lg"
+                            className="absolute right-[-6px] bottom-[-20px] h-[98%] max-h-[168px] sm:h-[108%] sm:max-h-[280px] w-auto object-contain object-bottom pointer-events-none select-none drop-shadow-lg"
                             onError={() => setHeroImage(null)}
                         />
                     ) : null}
