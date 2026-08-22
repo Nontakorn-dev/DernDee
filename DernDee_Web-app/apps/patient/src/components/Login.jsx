@@ -157,7 +157,7 @@ function Login() {
             className="min-h-screen bg-[#D7E6F2] text-slate-900 lg:landscape:bg-[#E8EEF4]"
             style={{ fontFamily: "'Prompt', 'Noto Sans Thai', sans-serif" }}
         >
-            <div className="mx-auto flex min-h-screen max-w-5xl items-center px-4 py-8 sm:px-6 md:portrait:max-w-[28rem] md:portrait:px-10 lg:landscape:max-w-[1100px] lg:landscape:px-8">
+            <div className="mx-auto flex min-h-screen max-w-5xl items-center px-4 py-8 sm:px-6 md:portrait:max-w-[33.6rem] md:portrait:px-10 lg:landscape:max-w-[1100px] lg:landscape:px-8">
                 <div className="grid w-full gap-5 lg:landscape:min-h-[680px] lg:landscape:grid-cols-[0.92fr_1.08fr] lg:landscape:items-stretch lg:landscape:gap-0 lg:landscape:overflow-hidden lg:landscape:rounded-[32px] lg:landscape:bg-white lg:landscape:shadow-[0_24px_60px_rgba(15,23,42,0.12)]">
                     <AuthBrandPanel
                         description={(
