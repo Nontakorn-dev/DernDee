@@ -226,12 +226,12 @@ const Home = () => {
                     </article>
                 </section>
 
-                <section className="relative overflow-hidden rounded-[24px] sm:rounded-[32px] min-h-[156px] sm:min-h-[220px] md:min-h-[248px] bg-gradient-to-r from-[#3B82F6] via-[#38BDF8] to-[#2DD4BF] shadow-[0_14px_40px_rgba(14,165,233,0.28)]">
+                <section className="relative overflow-hidden rounded-[24px] sm:rounded-[32px] min-h-[168px] sm:min-h-[220px] md:min-h-[248px] bg-gradient-to-r from-[#3B82F6] via-[#38BDF8] to-[#2DD4BF] shadow-[0_14px_40px_rgba(14,165,233,0.28)] flex items-center">
                     <Activity className="hidden sm:block absolute right-24 top-6 w-24 h-24 text-white/15" aria-hidden="true" />
                     <Heart className="hidden sm:block absolute right-8 top-16 w-16 h-16 text-white/10" aria-hidden="true" />
                     <Footprints className="hidden sm:block absolute right-36 bottom-8 w-20 h-20 text-white/10" aria-hidden="true" />
 
-                    <div className="relative z-10 p-4 sm:p-8 pr-[42%] sm:pr-8 sm:max-w-[52%]">
+                    <div className="relative z-10 w-full p-4 sm:p-8 pr-[42%] sm:pr-8 sm:max-w-[52%] text-left">
                         <h2 className="text-white text-[28px] sm:text-5xl font-extrabold tracking-tight leading-none">Therapy</h2>
                         <p className="text-white text-sm sm:text-lg font-semibold mt-1 sm:mt-2">กายภาพบำบัด</p>
                         <p className="hidden sm:block text-white/90 text-base mt-1 leading-snug">
@@ -250,7 +250,7 @@ const Home = () => {
                         <img
                             src={heroImage}
                             alt=""
-                            className="absolute right-[-10px] bottom-[-16px] h-[78%] max-h-[132px] sm:h-[108%] sm:max-h-[280px] w-auto object-contain object-bottom pointer-events-none select-none drop-shadow-lg"
+                            className="absolute right-[-6px] bottom-[-20px] h-[122%] max-h-[210px] sm:h-[108%] sm:max-h-[280px] w-auto object-contain object-bottom pointer-events-none select-none drop-shadow-lg"
                             onError={() => setHeroImage(null)}
                         />
                     ) : null}

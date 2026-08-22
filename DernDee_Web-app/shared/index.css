@@ -21,6 +21,10 @@ body {
   -moz-osx-font-smoothing: grayscale;
 }
 
+header {
+  padding-top: calc(0.75rem + env(safe-area-inset-top, 0px)) !important;
+}
+
 html.dark {
   color-scheme: dark;
 }
