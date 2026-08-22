@@ -139,6 +139,7 @@ const Home = () => {
         {
             title: 'Analysis Result',
             thai: 'ผลการวิเคราะห์การเดิน',
+            thaiMobile: 'ผลการวิเคราะห์',
             icon: TrendingUp,
             iconWrap: 'bg-violet-500 text-white',
             card: 'bg-violet-50 border-violet-200 hover:border-violet-400 hover:bg-violet-100',
@@ -180,14 +181,14 @@ const Home = () => {
                     <article className="rounded-[28px] border-2 border-sky-200 bg-sky-50 shadow-[0_8px_28px_rgba(14,165,233,0.10)] p-4 sm:p-6">
                         <div className="flex items-center gap-3 sm:gap-4">
                             <Avatar src={avatarUrl} name={displayName} initials={initials} />
-                            <div className="min-w-0 flex-1 flex flex-col items-start gap-2 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
-                                <h1 className="text-lg sm:text-2xl font-bold tracking-tight truncate w-full sm:w-auto text-sky-950">
+                            <div className="min-w-0 flex-1 flex items-center gap-2 sm:gap-3">
+                                <h1 className="min-w-0 flex-1 text-lg sm:text-2xl font-bold tracking-tight truncate text-sky-950">
                                     {displayName}
                                 </h1>
                                 <button
                                     type="button"
                                     onClick={handleLogout}
-                                    className={`shrink-0 inline-flex items-center justify-center gap-1.5 min-h-10 sm:min-h-11 px-3 sm:px-4 rounded-full border-2 border-sky-500 text-sky-700 font-semibold text-sm bg-white hover:bg-sky-100 ${tapClass}`}
+                                    className={`shrink-0 inline-flex items-center justify-center gap-1.5 min-h-9 sm:min-h-11 px-2.5 sm:px-4 rounded-full border-2 border-sky-500 text-sky-700 font-semibold text-xs sm:text-sm bg-white hover:bg-sky-100 whitespace-nowrap ${tapClass}`}
                                 >
                                     <LogOut className="w-4 h-4" />
                                     Sign Out
@@ -225,20 +226,20 @@ const Home = () => {
                     </article>
                 </section>
 
-                <section className="relative overflow-hidden rounded-[32px] min-h-[220px] sm:min-h-[248px] bg-gradient-to-r from-[#3B82F6] via-[#38BDF8] to-[#2DD4BF] shadow-[0_14px_40px_rgba(14,165,233,0.28)]">
-                    <Activity className="absolute right-24 top-6 w-24 h-24 text-white/15" aria-hidden="true" />
-                    <Heart className="absolute right-8 top-16 w-16 h-16 text-white/10" aria-hidden="true" />
-                    <Footprints className="absolute right-36 bottom-8 w-20 h-20 text-white/10" aria-hidden="true" />
+                <section className="relative overflow-hidden rounded-[24px] sm:rounded-[32px] min-h-[156px] sm:min-h-[220px] md:min-h-[248px] bg-gradient-to-r from-[#3B82F6] via-[#38BDF8] to-[#2DD4BF] shadow-[0_14px_40px_rgba(14,165,233,0.28)]">
+                    <Activity className="hidden sm:block absolute right-24 top-6 w-24 h-24 text-white/15" aria-hidden="true" />
+                    <Heart className="hidden sm:block absolute right-8 top-16 w-16 h-16 text-white/10" aria-hidden="true" />
+                    <Footprints className="hidden sm:block absolute right-36 bottom-8 w-20 h-20 text-white/10" aria-hidden="true" />
 
-                    <div className="relative z-10 p-6 sm:p-8 max-w-[62%] sm:max-w-[52%]">
-                        <h2 className="text-white text-[40px] sm:text-5xl font-extrabold tracking-tight leading-none">Therapy</h2>
-                        <p className="text-white text-lg font-semibold mt-2">กายภาพบำบัด</p>
-                        <p className="text-white/90 text-[15px] sm:text-base mt-1 leading-snug">
+                    <div className="relative z-10 p-4 sm:p-8 pr-[42%] sm:pr-8 sm:max-w-[52%]">
+                        <h2 className="text-white text-[28px] sm:text-5xl font-extrabold tracking-tight leading-none">Therapy</h2>
+                        <p className="text-white text-sm sm:text-lg font-semibold mt-1 sm:mt-2">กายภาพบำบัด</p>
+                        <p className="hidden sm:block text-white/90 text-base mt-1 leading-snug">
                             เริ่มต้นการฝึกเดินของคุณวันนี้
                         </p>
                         <button
                             type="button"
-                            className={`mt-5 inline-flex items-center justify-center gap-2 min-h-12 px-6 rounded-full bg-white text-sky-600 font-bold text-base shadow-sm hover:bg-sky-50 ${tapClass}`}
+                            className={`mt-3 sm:mt-5 inline-flex items-center justify-center gap-2 min-h-10 sm:min-h-12 px-4 sm:px-6 rounded-full bg-white text-sky-600 font-bold text-sm sm:text-base shadow-sm hover:bg-sky-50 ${tapClass}`}
                             onClick={() => navigate('/therapy')}
                         >
                             <Play className="w-4 h-4 fill-current" aria-hidden="true" />
@@ -249,7 +250,7 @@ const Home = () => {
                         <img
                             src={heroImage}
                             alt=""
-                            className="absolute right-[-8px] bottom-[-20px] h-[108%] max-h-[280px] w-auto object-contain object-bottom pointer-events-none select-none drop-shadow-lg"
+                            className="absolute right-[-10px] bottom-[-16px] h-[78%] max-h-[132px] sm:h-[108%] sm:max-h-[280px] w-auto object-contain object-bottom pointer-events-none select-none drop-shadow-lg"
                             onError={() => setHeroImage(null)}
                         />
                     ) : null}
@@ -273,7 +274,14 @@ const Home = () => {
                                 </div>
                                 <div>
                                     <p className={`text-[17px] font-bold leading-tight ${action.titleColor}`}>{action.title}</p>
-                                    <p className="text-sm text-slate-600 mt-1 leading-snug">{action.thai}</p>
+                                    <p className="text-sm text-slate-600 mt-1 leading-snug">
+                                        {action.thaiMobile ? (
+                                            <>
+                                                <span className="sm:hidden">{action.thaiMobile}</span>
+                                                <span className="hidden sm:inline">{action.thai}</span>
+                                            </>
+                                        ) : action.thai}
+                                    </p>
                                 </div>
                             </button>
                         );
