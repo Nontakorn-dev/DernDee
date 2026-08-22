@@ -175,7 +175,7 @@ const Home = () => {
                 </div>
             </header>
 
-            <main className="mx-auto max-w-6xl px-4 sm:px-6 py-5 sm:py-7 space-y-4 sm:space-y-5 pb-[calc(8.5rem+env(safe-area-inset-bottom))] md:pb-[calc(10rem+env(safe-area-inset-bottom))]">
+            <main className="mx-auto w-full max-w-6xl px-4 sm:px-6 py-5 sm:py-7 pb-8 space-y-4 sm:space-y-5">
                 <section className="grid gap-4 lg:grid-cols-2">
                     <article className="rounded-[28px] border-2 border-sky-200 bg-sky-50 shadow-[0_8px_28px_rgba(14,165,233,0.10)] p-5 sm:p-6">
                         <div className="flex items-center gap-3 sm:gap-4">
@@ -280,41 +280,41 @@ const Home = () => {
                         );
                     })}
                 </section>
-            </main>
 
-            <nav className="pointer-events-none fixed bottom-0 inset-x-0 z-30 px-4 sm:px-6 pt-3 pb-[max(1.25rem,env(safe-area-inset-bottom))]">
-                <div className="pointer-events-auto mx-auto max-w-6xl rounded-[28px] border-2 border-sky-100 bg-white/95 backdrop-blur-md shadow-[0_10px_40px_rgba(15,23,42,0.12)]">
-                    <div className="grid grid-cols-3">
-                        <button
-                            type="button"
-                            onClick={() => navigate('/profile')}
-                            className={`min-h-[68px] flex flex-col items-center justify-center gap-1 text-slate-400 hover:text-slate-700 ${tapClass} rounded-l-[28px]`}
-                        >
-                            <User className="w-6 h-6" />
-                            <span className="text-xs font-medium">Profile</span>
-                            <span className="w-1.5 h-1.5 rounded-full bg-transparent" />
-                        </button>
-                        <button
-                            type="button"
-                            aria-current="page"
-                            className={`min-h-[68px] flex flex-col items-center justify-center gap-1 text-sky-600 ${tapClass}`}
-                        >
-                            <HomeIcon className="w-6 h-6" />
-                            <span className="text-xs font-semibold">Home</span>
-                            <span className="w-1.5 h-1.5 rounded-full bg-sky-500" />
-                        </button>
-                        <button
-                            type="button"
-                            onClick={() => navigate('/settings')}
-                            className={`min-h-[68px] flex flex-col items-center justify-center gap-1 text-slate-400 hover:text-slate-700 ${tapClass} rounded-r-[28px]`}
-                        >
-                            <Settings className="w-6 h-6" />
-                            <span className="text-xs font-medium">Settings</span>
-                            <span className="w-1.5 h-1.5 rounded-full bg-transparent" />
-                        </button>
+                <nav className="pt-1 pb-[max(0.5rem,env(safe-area-inset-bottom))]">
+                    <div className="rounded-[28px] border-2 border-sky-100 bg-white/95 shadow-[0_10px_40px_rgba(15,23,42,0.12)]">
+                        <div className="grid grid-cols-3">
+                            <button
+                                type="button"
+                                onClick={() => navigate('/profile')}
+                                className={`min-h-[68px] flex flex-col items-center justify-center gap-1 text-slate-400 hover:text-slate-700 ${tapClass} rounded-l-[28px]`}
+                            >
+                                <User className="w-6 h-6" />
+                                <span className="text-xs font-medium">Profile</span>
+                                <span className="w-1.5 h-1.5 rounded-full bg-transparent" />
+                            </button>
+                            <button
+                                type="button"
+                                aria-current="page"
+                                className={`min-h-[68px] flex flex-col items-center justify-center gap-1 text-sky-600 ${tapClass}`}
+                            >
+                                <HomeIcon className="w-6 h-6" />
+                                <span className="text-xs font-semibold">Home</span>
+                                <span className="w-1.5 h-1.5 rounded-full bg-sky-500" />
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => navigate('/settings')}
+                                className={`min-h-[68px] flex flex-col items-center justify-center gap-1 text-slate-400 hover:text-slate-700 ${tapClass} rounded-r-[28px]`}
+                            >
+                                <Settings className="w-6 h-6" />
+                                <span className="text-xs font-medium">Settings</span>
+                                <span className="w-1.5 h-1.5 rounded-full bg-transparent" />
+                            </button>
+                        </div>
                     </div>
-                </div>
-            </nav>
+                </nav>
+            </main>
         </div>
     );
 };
