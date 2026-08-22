@@ -2,8 +2,9 @@ import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ArrowRight, Eye, EyeOff, Lock, Mail, ShieldCheck } from 'lucide-react';
 import { useUserAuth } from '@shared/context/UserAuthContext.jsx';
-import { getAuthRedirectUrl, getSupabaseClient } from '@shared/supabase/client.js';
+import { isEmailConfirmationError, mapAuthError } from '@shared/auth/mapAuthError.js';
 import AuthBrandPanel from '@patient/components/AuthBrandPanel.jsx';
+import EmailOtpPanel from '@patient/components/EmailOtpPanel.jsx';
 import derndeeLogo from '@shared/assets/images/derndee-logo.png';
 
 const tapClass =
@@ -21,10 +22,6 @@ const GoogleMark = () => (
     </svg>
 );
 
-const isConfirmationError = (message = '') => (
-    /confirm|verified|verification|ยืนยัน/i.test(message)
-);
-
 const REMEMBER_EMAIL_KEY = 'derndee-remember-email';
 
 function Login() {
@@ -37,8 +34,9 @@ function Login() {
     const [isLoading, setIsLoading] = useState(false);
     const [isGoogleLoading, setIsGoogleLoading] = useState(false);
     const [isResendingConfirmation, setIsResendingConfirmation] = useState(false);
-    const [isResettingPassword, setIsResettingPassword] = useState(false);
-    const { logIn, profile, resendSignUpConfirmation, signInWithGoogle, user, loading } = useUserAuth();
+    const [isVerifyingOtp, setIsVerifyingOtp] = useState(false);
+    const [awaitingSignupOtp, setAwaitingSignupOtp] = useState(false);
+    const { logIn, profile, resendSignUpConfirmation, verifyEmailOtp, signInWithGoogle, user, loading } = useUserAuth();
     const navigate = useNavigate();
 
     useEffect(() => {
@@ -84,7 +82,19 @@ function Login() {
 
             navigate('/home');
         } catch (err) {
-            setError(err.message);
+            const mapped = mapAuthError(err);
+            setError(mapped);
+
+            if (isEmailConfirmationError(err) && email) {
+                try {
+                    await resendSignUpConfirmation(email);
+                    setAwaitingSignupOtp(true);
+                    setError('');
+                    setNotice('บัญชียังไม่ได้ยืนยัน เราได้ส่งรหัส 6 หลักไปที่อีเมลแล้ว');
+                } catch (resendError) {
+                    setError(mapAuthError(resendError));
+                }
+            }
         } finally {
             setIsLoading(false);
         }
@@ -98,7 +108,7 @@ function Login() {
         try {
             await signInWithGoogle();
         } catch (err) {
-            setError(err.message);
+            setError(mapAuthError(err));
         } finally {
             setIsGoogleLoading(false);
         }
@@ -106,7 +116,7 @@ function Login() {
 
     const handleResendConfirmation = async () => {
         if (!email) {
-            setError('กรอกอีเมลก่อนเพื่อส่งลิงก์ยืนยันอีกครั้ง');
+            setError('กรอกอีเมลก่อนเพื่อส่งรหัสยืนยันอีกครั้ง');
             return;
         }
 
@@ -116,40 +126,37 @@ function Login() {
 
         try {
             await resendSignUpConfirmation(email);
-            setNotice('ส่งอีเมลยืนยันใหม่แล้ว เปิดอีเมลล่าสุดแล้วกดลิงก์ในนั้น');
+            setAwaitingSignupOtp(true);
+            setNotice('ส่งรหัสยืนยันใหม่แล้ว ใช้รหัสจากเมลล่าสุดเท่านั้น');
         } catch (err) {
-            setError(err.message);
+            setError(mapAuthError(err));
         } finally {
             setIsResendingConfirmation(false);
         }
     };
 
-    const handleForgotPassword = async () => {
-        if (!email) {
+    const handleVerifySignupOtp = async (token) => {
+        setError('');
+        setIsVerifyingOtp(true);
+
+        try {
+            await verifyEmailOtp(email, token, 'signup');
+            navigate('/home');
+        } catch (err) {
+            setError(mapAuthError(err));
+        } finally {
+            setIsVerifyingOtp(false);
+        }
+    };
+
+    const handleForgotPassword = () => {
+        const nextEmail = email.trim();
+        if (!nextEmail) {
             setError('กรอกอีเมลก่อนเพื่อรีเซ็ตรหัสผ่าน');
             return;
         }
 
-        setError('');
-        setNotice('');
-        setIsResettingPassword(true);
-
-        try {
-            const supabase = getSupabaseClient();
-            const { error: resetError } = await supabase.auth.resetPasswordForEmail(email, {
-                redirectTo: getAuthRedirectUrl('/reset-password'),
-            });
-
-            if (resetError) {
-                throw resetError;
-            }
-
-            setNotice('ส่งลิงก์รีเซ็ตรหัสผ่านไปที่อีเมลแล้ว');
-        } catch (err) {
-            setError(err.message);
-        } finally {
-            setIsResettingPassword(false);
-        }
+        navigate(`/reset-password?email=${encodeURIComponent(nextEmail)}`);
     };
 
     return (
@@ -177,6 +184,25 @@ function Login() {
                             <span className="hidden lg:landscape:inline">ลงชื่อเข้าใช้ด้วย Google หรืออีเมลของคุณ</span>
                         </p>
 
+                        {awaitingSignupOtp ? (
+                            <EmailOtpPanel
+                                email={email}
+                                title="กรอกรหัสจากอีเมล"
+                                description="บัญชียังไม่ได้ยืนยัน นำรหัส 6 หลักจากเมลมาใส่ที่นี่ ไม่ต้องกดลิงก์ในเมล"
+                                notice={notice}
+                                error={error}
+                                isVerifying={isVerifyingOtp}
+                                isResending={isResendingConfirmation}
+                                onVerify={handleVerifySignupOtp}
+                                onResend={handleResendConfirmation}
+                                onBack={() => {
+                                    setAwaitingSignupOtp(false);
+                                    setError('');
+                                    setNotice('');
+                                }}
+                            />
+                        ) : (
+                            <>
                         <button
                             type="button"
                             onClick={handleGoogleSignIn}
@@ -209,17 +235,6 @@ function Login() {
                             <div className="mb-4 rounded-2xl border-2 border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800">
                                 {error}
                             </div>
-                        ) : null}
-
-                        {isConfirmationError(error) ? (
-                            <button
-                                type="button"
-                                onClick={handleResendConfirmation}
-                                disabled={isResendingConfirmation}
-                                className={`mb-4 min-h-11 w-full rounded-full border-2 border-sky-300 bg-white text-sm font-semibold text-sky-700 hover:bg-sky-50 disabled:opacity-70 ${tapClass}`}
-                            >
-                                {isResendingConfirmation ? 'กำลังส่ง...' : 'ส่งอีเมลยืนยันอีกครั้ง'}
-                            </button>
                         ) : null}
 
                         <form onSubmit={handleSubmit} className="space-y-4">
@@ -284,10 +299,9 @@ function Login() {
                                 <button
                                     type="button"
                                     onClick={handleForgotPassword}
-                                    disabled={isResettingPassword}
-                                    className={`ml-auto text-sm font-semibold text-sky-600 hover:text-sky-800 disabled:opacity-70 ${tapClass}`}
+                                    className={`ml-auto text-sm font-semibold text-sky-600 hover:text-sky-800 ${tapClass}`}
                                 >
-                                    {isResettingPassword ? 'กำลังส่ง...' : 'ลืมรหัสผ่าน?'}
+                                    ลืมรหัสผ่าน?
                                 </button>
                             </div>
 
@@ -325,6 +339,8 @@ function Login() {
                             <ShieldCheck className="h-4 w-4 text-sky-500" aria-hidden="true" />
                             ระบบของเราปกป้องข้อมูลของคุณด้วยมาตรฐานความปลอดภัยระดับสูง
                         </p>
+                            </>
+                        )}
                     </section>
                 </div>
             </div>

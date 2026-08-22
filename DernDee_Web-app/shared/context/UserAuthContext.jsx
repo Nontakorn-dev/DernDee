@@ -106,7 +106,7 @@ export function UserAuthContextProvider({ children }) {
             email,
             password,
             options: {
-                emailRedirectTo: getAuthRedirectUrl('/login'),
+                emailRedirectTo: getAuthRedirectUrl('/register'),
                 data: {
                     full_name: email.split('@')[0],
                     role: 'patient',
@@ -147,8 +147,40 @@ export function UserAuthContextProvider({ children }) {
             type: 'signup',
             email,
             options: {
-                emailRedirectTo: getAuthRedirectUrl('/login'),
+                emailRedirectTo: getAuthRedirectUrl('/register'),
             },
+        });
+
+        if (error) {
+            throw error;
+        }
+
+        return data;
+    }
+
+    async function verifyEmailOtp(email, token, type = 'signup') {
+        const supabase = getSupabaseClient();
+        const { data, error } = await supabase.auth.verifyOtp({
+            email,
+            token,
+            type,
+        });
+
+        if (error) {
+            throw error;
+        }
+
+        if (data.session?.user) {
+            return syncAuthenticatedUser(data.session.user);
+        }
+
+        return data;
+    }
+
+    async function requestPasswordRecovery(email) {
+        const supabase = getSupabaseClient();
+        const { data, error } = await supabase.auth.resetPasswordForEmail(email, {
+            redirectTo: getAuthRedirectUrl('/reset-password'),
         });
 
         if (error) {
@@ -267,6 +299,8 @@ export function UserAuthContextProvider({ children }) {
             logOut, 
             signInWithGoogle,
             resendSignUpConfirmation,
+            verifyEmailOtp,
+            requestPasswordRecovery,
             loading,
             isConfigured: isSupabaseConfigured,
             bypassEmailConfirmationInDev,

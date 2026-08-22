@@ -1,7 +1,9 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useUserAuth } from '@shared/context/UserAuthContext.jsx';
+import { isExistingEmailSignUp, mapAuthError } from '@shared/auth/mapAuthError.js';
 import AuthBrandPanel from '@patient/components/AuthBrandPanel.jsx';
+import EmailOtpPanel from '@patient/components/EmailOtpPanel.jsx';
 import derndeeLogo from '@shared/assets/images/derndee-logo.png';
 
 const tapClass =
@@ -27,11 +29,14 @@ function Register() {
     const [notice, setNotice] = useState('');
     const [isLoading, setIsLoading] = useState(false);
     const [isGoogleLoading, setIsGoogleLoading] = useState(false);
+    const [isVerifyingOtp, setIsVerifyingOtp] = useState(false);
     const [isResendingConfirmation, setIsResendingConfirmation] = useState(false);
+    const [awaitingOtp, setAwaitingOtp] = useState(false);
     const {
         signUp,
         signInWithGoogle,
         resendSignUpConfirmation,
+        verifyEmailOtp,
         profile,
         user,
         loading,
@@ -76,11 +81,17 @@ function Register() {
                 return;
             }
 
+            if (isExistingEmailSignUp(result)) {
+                setError('อีเมลนี้มีบัญชีอยู่แล้ว กรุณาเข้าสู่ระบบ หรือถ้าเคยใช้ Google ให้กด Continue with Google');
+                return;
+            }
+
             if (result?.user && !result?.session) {
-                setNotice('สมัครสำเร็จแล้ว ตรวจสอบอีเมลเพื่อยืนยันบัญชีก่อนเข้าสู่ระบบ');
+                setAwaitingOtp(true);
+                setNotice('ส่งรหัส 6 หลักไปที่อีเมลแล้ว กรอกด้านล่างเพื่อยืนยันบัญชี');
             }
         } catch (err) {
-            setError(err.message);
+            setError(mapAuthError(err));
         } finally {
             setIsLoading(false);
         }
@@ -94,15 +105,29 @@ function Register() {
         try {
             await signInWithGoogle();
         } catch (err) {
-            setError(err.message);
+            setError(mapAuthError(err));
         } finally {
             setIsGoogleLoading(false);
         }
     };
 
+    const handleVerifyOtp = async (token) => {
+        setError('');
+        setIsVerifyingOtp(true);
+
+        try {
+            await verifyEmailOtp(email, token, 'signup');
+            navigate('/home');
+        } catch (err) {
+            setError(mapAuthError(err));
+        } finally {
+            setIsVerifyingOtp(false);
+        }
+    };
+
     const handleResendConfirmation = async () => {
         if (!email) {
-            setError('กรอกอีเมลก่อนเพื่อส่งลิงก์ยืนยันอีกครั้ง');
+            setError('กรอกอีเมลก่อนเพื่อส่งรหัสยืนยันอีกครั้ง');
             return;
         }
 
@@ -112,9 +137,10 @@ function Register() {
 
         try {
             await resendSignUpConfirmation(email);
-            setNotice('ส่งอีเมลยืนยันใหม่แล้ว เปิดอีเมลล่าสุดแล้วกดลิงก์ในนั้น');
+            setAwaitingOtp(true);
+            setNotice('ส่งรหัสยืนยันใหม่แล้ว ใช้รหัสจากเมลล่าสุดเท่านั้น');
         } catch (err) {
-            setError(err.message);
+            setError(mapAuthError(err));
         } finally {
             setIsResendingConfirmation(false);
         }
@@ -142,127 +168,137 @@ function Register() {
                         <h2 className="text-[28px] font-bold tracking-tight text-sky-950">สมัครสมาชิก</h2>
                         <p className="mb-6 mt-1 text-sky-800/70">Create an account with Google or email</p>
 
-                        <button
-                            type="button"
-                            onClick={handleGoogleSignUp}
-                            disabled={isGoogleLoading}
-                            className={`inline-flex min-h-12 w-full items-center justify-center gap-3 rounded-full border-2 border-sky-200 bg-sky-50 text-base font-semibold text-sky-950 hover:bg-sky-100 disabled:opacity-70 ${tapClass}`}
-                        >
-                            {isGoogleLoading ? (
-                                <span className="h-5 w-5 animate-spin rounded-full border-[3px] border-sky-200 border-t-sky-600" />
-                            ) : (
-                                <>
-                                    <GoogleMark />
-                                    Continue with Google
-                                </>
-                            )}
-                        </button>
+                        {awaitingOtp ? (
+                            <EmailOtpPanel
+                                email={email}
+                                title="กรอกรหัสจากอีเมล"
+                                description="เราได้ส่งรหัส 6 หลักไปแล้ว ไม่ต้องกดลิงก์ในเมล นำรหัสมาใส่ที่นี่เพื่อยืนยันบัญชี"
+                                notice={notice}
+                                error={error}
+                                isVerifying={isVerifyingOtp}
+                                isResending={isResendingConfirmation}
+                                onVerify={handleVerifyOtp}
+                                onResend={handleResendConfirmation}
+                                onBack={() => {
+                                    setAwaitingOtp(false);
+                                    setError('');
+                                    setNotice('');
+                                }}
+                            />
+                        ) : (
+                            <>
+                                <button
+                                    type="button"
+                                    onClick={handleGoogleSignUp}
+                                    disabled={isGoogleLoading}
+                                    className={`inline-flex min-h-12 w-full items-center justify-center gap-3 rounded-full border-2 border-sky-200 bg-sky-50 text-base font-semibold text-sky-950 hover:bg-sky-100 disabled:opacity-70 ${tapClass}`}
+                                >
+                                    {isGoogleLoading ? (
+                                        <span className="h-5 w-5 animate-spin rounded-full border-[3px] border-sky-200 border-t-sky-600" />
+                                    ) : (
+                                        <>
+                                            <GoogleMark />
+                                            Continue with Google
+                                        </>
+                                    )}
+                                </button>
 
-                        <div className="my-6 flex items-center gap-3">
-                            <span className="h-px flex-1 bg-sky-200" />
-                            <span className="text-sm font-medium text-sky-800/70">หรือใช้อีเมล</span>
-                            <span className="h-px flex-1 bg-sky-200" />
-                        </div>
+                                <div className="my-6 flex items-center gap-3">
+                                    <span className="h-px flex-1 bg-sky-200" />
+                                    <span className="text-sm font-medium text-sky-800/70">หรือใช้อีเมล</span>
+                                    <span className="h-px flex-1 bg-sky-200" />
+                                </div>
 
-                        {bypassEmailConfirmationInDev ? (
-                            <div className="mb-4 rounded-2xl border-2 border-sky-200 bg-sky-50 px-4 py-3 text-sm text-sky-800">
-                                โหมดพัฒนา: ยืนยันอีเมลอัตโนมัติบนเครื่องนี้
-                            </div>
-                        ) : null}
+                                {bypassEmailConfirmationInDev ? (
+                                    <div className="mb-4 rounded-2xl border-2 border-sky-200 bg-sky-50 px-4 py-3 text-sm text-sky-800">
+                                        โหมดพัฒนา: ยืนยันอีเมลอัตโนมัติบนเครื่องนี้
+                                    </div>
+                                ) : null}
 
-                        {notice ? (
-                            <div className="mb-4 rounded-2xl border-2 border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
-                                {notice}
-                            </div>
-                        ) : null}
+                                {notice ? (
+                                    <div className="mb-4 rounded-2xl border-2 border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
+                                        {notice}
+                                    </div>
+                                ) : null}
 
-                        {error ? (
-                            <div className="mb-4 rounded-2xl border-2 border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800">
-                                {error}
-                            </div>
-                        ) : null}
+                                {error ? (
+                                    <div className="mb-4 rounded-2xl border-2 border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800">
+                                        {error}
+                                    </div>
+                                ) : null}
 
-                        {notice ? (
-                            <button
-                                type="button"
-                                onClick={handleResendConfirmation}
-                                disabled={isResendingConfirmation}
-                                className={`mb-4 min-h-11 w-full rounded-full border-2 border-sky-300 bg-white text-sm font-semibold text-sky-700 hover:bg-sky-50 disabled:opacity-70 ${tapClass}`}
-                            >
-                                {isResendingConfirmation ? 'กำลังส่ง...' : 'ส่งอีเมลยืนยันอีกครั้ง'}
-                            </button>
-                        ) : null}
+                                <form onSubmit={handleSubmit} className="space-y-4">
+                                    <div className="text-left">
+                                        <label htmlFor="register-email" className="mb-2 block text-sm font-semibold text-sky-950">
+                                            Email
+                                        </label>
+                                        <input
+                                            type="email"
+                                            id="register-email"
+                                            value={email}
+                                            onChange={(event) => setEmail(event.target.value)}
+                                            className={fieldClass}
+                                            placeholder="you@email.com"
+                                            autoComplete="email"
+                                            required
+                                        />
+                                    </div>
 
-                        <form onSubmit={handleSubmit} className="space-y-4">
-                            <div className="text-left">
-                                <label htmlFor="register-email" className="mb-2 block text-sm font-semibold text-sky-950">
-                                    Email
-                                </label>
-                                <input
-                                    type="email"
-                                    id="register-email"
-                                    value={email}
-                                    onChange={(event) => setEmail(event.target.value)}
-                                    className={fieldClass}
-                                    placeholder="you@email.com"
-                                    autoComplete="email"
-                                    required
-                                />
-                            </div>
+                                    <div className="text-left">
+                                        <label htmlFor="register-password" className="mb-2 block text-sm font-semibold text-sky-950">
+                                            Password
+                                        </label>
+                                        <input
+                                            type="password"
+                                            id="register-password"
+                                            value={password}
+                                            onChange={(event) => setPassword(event.target.value)}
+                                            className={fieldClass}
+                                            placeholder="อย่างน้อย 6 ตัวอักษร"
+                                            autoComplete="new-password"
+                                            required
+                                        />
+                                    </div>
 
-                            <div className="text-left">
-                                <label htmlFor="register-password" className="mb-2 block text-sm font-semibold text-sky-950">
-                                    Password
-                                </label>
-                                <input
-                                    type="password"
-                                    id="register-password"
-                                    value={password}
-                                    onChange={(event) => setPassword(event.target.value)}
-                                    className={fieldClass}
-                                    placeholder="อย่างน้อย 6 ตัวอักษร"
-                                    autoComplete="new-password"
-                                    required
-                                />
-                            </div>
+                                    <div className="text-left">
+                                        <label htmlFor="register-confirm-password" className="mb-2 block text-sm font-semibold text-sky-950">
+                                            Confirm password
+                                        </label>
+                                        <input
+                                            type="password"
+                                            id="register-confirm-password"
+                                            value={confirmPassword}
+                                            onChange={(event) => setConfirmPassword(event.target.value)}
+                                            className={fieldClass}
+                                            placeholder="พิมพ์รหัสผ่านอีกครั้ง"
+                                            autoComplete="new-password"
+                                            required
+                                        />
+                                    </div>
 
-                            <div className="text-left">
-                                <label htmlFor="register-confirm-password" className="mb-2 block text-sm font-semibold text-sky-950">
-                                    Confirm password
-                                </label>
-                                <input
-                                    type="password"
-                                    id="register-confirm-password"
-                                    value={confirmPassword}
-                                    onChange={(event) => setConfirmPassword(event.target.value)}
-                                    className={fieldClass}
-                                    placeholder="พิมพ์รหัสผ่านอีกครั้ง"
-                                    autoComplete="new-password"
-                                    required
-                                />
-                            </div>
+                                    <button
+                                        type="submit"
+                                        disabled={isLoading}
+                                        className={`inline-flex min-h-12 w-full items-center justify-center rounded-full bg-sky-600 text-base font-bold text-white shadow-sm hover:bg-sky-700 disabled:opacity-70 ${tapClass}`}
+                                    >
+                                        {isLoading ? (
+                                            <span className="h-5 w-5 animate-spin rounded-full border-[3px] border-white/40 border-t-white" />
+                                        ) : (
+                                            'Sign up'
+                                        )}
+                                    </button>
+                                </form>
 
-                            <button
-                                type="submit"
-                                disabled={isLoading}
-                                className={`inline-flex min-h-12 w-full items-center justify-center rounded-full bg-sky-600 text-base font-bold text-white shadow-sm hover:bg-sky-700 disabled:opacity-70 ${tapClass}`}
-                            >
-                                {isLoading ? (
-                                    <span className="h-5 w-5 animate-spin rounded-full border-[3px] border-white/40 border-t-white" />
-                                ) : (
-                                    'Sign up'
-                                )}
-                            </button>
-                        </form>
-
-                        <p className="mt-6 text-center text-sm text-sky-800/70">มีบัญชีอยู่แล้ว?</p>
-                        <button
-                            type="button"
-                            onClick={() => navigate('/login')}
-                            className={`mt-2 min-h-12 w-full rounded-full border-2 border-sky-400 bg-white text-base font-semibold text-sky-700 hover:bg-sky-50 ${tapClass}`}
-                        >
-                            เข้าสู่ระบบ
-                        </button>
+                                <p className="mt-6 text-center text-sm text-sky-800/70">มีบัญชีอยู่แล้ว?</p>
+                                <button
+                                    type="button"
+                                    onClick={() => navigate('/login')}
+                                    className={`mt-2 min-h-12 w-full rounded-full border-2 border-sky-400 bg-white text-base font-semibold text-sky-700 hover:bg-sky-50 ${tapClass}`}
+                                >
+                                    เข้าสู่ระบบ
+                                </button>
+                            </>
+                        )}
                     </section>
                 </div>
             </div>

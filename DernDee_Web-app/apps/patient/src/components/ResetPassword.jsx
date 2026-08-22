@@ -1,8 +1,10 @@
 import React, { useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useUserAuth } from '@shared/context/UserAuthContext.jsx';
+import { mapAuthError } from '@shared/auth/mapAuthError.js';
 import { getSupabaseClient } from '@shared/supabase/client.js';
 import AuthBrandPanel from '@patient/components/AuthBrandPanel.jsx';
+import EmailOtpPanel from '@patient/components/EmailOtpPanel.jsx';
 import derndeeLogo from '@shared/assets/images/derndee-logo.png';
 
 const tapClass =
@@ -11,14 +13,23 @@ const tapClass =
 const fieldClass =
     'w-full min-h-12 px-4 rounded-2xl border-2 border-sky-200 bg-white text-base text-sky-950 placeholder:text-slate-400 outline-none focus:border-sky-500 focus:ring-2 focus:ring-sky-200 lg:landscape:min-h-[52px] lg:landscape:rounded-xl lg:landscape:border-slate-200';
 
+const sentRecoveryEmails = new Set();
+
 function ResetPassword() {
-    const { loading, user } = useUserAuth();
+    const { loading, user, requestPasswordRecovery, verifyEmailOtp } = useUserAuth();
     const navigate = useNavigate();
+    const [searchParams] = useSearchParams();
+    const emailFromQuery = searchParams.get('email') || '';
+
+    const [email, setEmail] = useState(emailFromQuery);
     const [password, setPassword] = useState('');
     const [confirmPassword, setConfirmPassword] = useState('');
     const [error, setError] = useState('');
     const [notice, setNotice] = useState('');
     const [isSaving, setIsSaving] = useState(false);
+    const [isSendingOtp, setIsSendingOtp] = useState(false);
+    const [isVerifyingOtp, setIsVerifyingOtp] = useState(false);
+    const [awaitingOtp, setAwaitingOtp] = useState(false);
     const [ready, setReady] = useState(false);
 
     useEffect(() => {
@@ -28,6 +39,93 @@ function ResetPassword() {
 
         setReady(true);
     }, [loading]);
+
+    useEffect(() => {
+        if (!ready || user || !emailFromQuery) {
+            return undefined;
+        }
+
+        const sentFlag = `derndee-recovery-otp:${emailFromQuery.toLowerCase()}`;
+        const alreadySent = sentRecoveryEmails.has(emailFromQuery.toLowerCase())
+            || window.sessionStorage.getItem(sentFlag) === '1';
+
+        if (alreadySent) {
+            setAwaitingOtp(true);
+            setNotice('กรอกรหัส 6 หลักจากเมลล่าสุดได้เลย');
+            return undefined;
+        }
+
+        let cancelled = false;
+        sentRecoveryEmails.add(emailFromQuery.toLowerCase());
+
+        const sendCode = async () => {
+            setIsSendingOtp(true);
+            setError('');
+            try {
+                await requestPasswordRecovery(emailFromQuery);
+                if (cancelled) {
+                    return;
+                }
+                window.sessionStorage.setItem(sentFlag, '1');
+                setAwaitingOtp(true);
+                setNotice('ส่งรหัส 6 หลักไปที่อีเมลแล้ว กรอกด้านล่างเพื่อตั้งรหัสผ่านใหม่');
+            } catch (err) {
+                sentRecoveryEmails.delete(emailFromQuery.toLowerCase());
+                window.sessionStorage.removeItem(sentFlag);
+                if (!cancelled) {
+                    setError(mapAuthError(err));
+                }
+            } finally {
+                if (!cancelled) {
+                    setIsSendingOtp(false);
+                }
+            }
+        };
+
+        void sendCode();
+
+        return () => {
+            cancelled = true;
+        };
+    }, [emailFromQuery, ready, user]);
+
+    const handleSendOtp = async (event) => {
+        event?.preventDefault?.();
+        if (!email.trim()) {
+            setError('กรอกอีเมลก่อนเพื่อรับรหัส');
+            return;
+        }
+
+        setError('');
+        setNotice('');
+        setIsSendingOtp(true);
+
+        try {
+            await requestPasswordRecovery(email.trim());
+            window.sessionStorage.setItem(`derndee-recovery-otp:${email.trim().toLowerCase()}`, '1');
+            setAwaitingOtp(true);
+            setNotice('ส่งรหัส 6 หลักไปที่อีเมลแล้ว กรอกด้านล่างเพื่อตั้งรหัสผ่านใหม่');
+        } catch (err) {
+            setError(mapAuthError(err));
+        } finally {
+            setIsSendingOtp(false);
+        }
+    };
+
+    const handleVerifyOtp = async (token) => {
+        setError('');
+        setIsVerifyingOtp(true);
+
+        try {
+            await verifyEmailOtp(email.trim(), token, 'recovery');
+            setAwaitingOtp(false);
+            setNotice('ยืนยันแล้ว ตั้งรหัสผ่านใหม่ได้เลย');
+        } catch (err) {
+            setError(mapAuthError(err));
+        } finally {
+            setIsVerifyingOtp(false);
+        }
+    };
 
     const handleSubmit = async (event) => {
         event.preventDefault();
@@ -54,11 +152,13 @@ function ResetPassword() {
             setNotice('ตั้งรหัสผ่านใหม่แล้ว');
             window.setTimeout(() => navigate('/home'), 800);
         } catch (err) {
-            setError(err.message);
+            setError(mapAuthError(err));
         } finally {
             setIsSaving(false);
         }
     };
+
+    const showPasswordForm = Boolean(user);
 
     return (
         <div
@@ -80,24 +180,13 @@ function ResetPassword() {
                     <section className="flex flex-col justify-center rounded-[32px] border-2 border-sky-200 bg-white p-6 shadow-[0_8px_28px_rgba(14,165,233,0.10)] sm:p-8 md:portrait:min-h-[40rem] md:portrait:px-10 md:portrait:py-14 lg:landscape:min-h-0 lg:landscape:rounded-none lg:landscape:border-0 lg:landscape:shadow-none lg:landscape:px-10 lg:landscape:py-9">
                         <img src={derndeeLogo} alt="DernDee" className="mb-6 h-10 object-contain lg:landscape:hidden" />
                         <h2 className="text-[28px] font-bold tracking-tight text-sky-950">ตั้งรหัสผ่านใหม่</h2>
-                        <p className="mb-6 mt-1 text-sky-800/70">กรอกรหัสผ่านใหม่สำหรับบัญชีนี้</p>
+                        <p className="mb-6 mt-1 text-sky-800/70">ยืนยันด้วยรหัส 6 หลักจากอีเมล แล้วตั้งรหัสผ่านใหม่</p>
 
                         {!ready ? (
-                            <p className="text-sky-800/70">กำลังตรวจสอบลิงก์...</p>
-                        ) : !user ? (
-                            <div className="space-y-4">
-                                <div className="rounded-2xl border-2 border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800">
-                                    ลิงก์หมดอายุหรือไม่ถูกต้อง กรุณาขอลิงก์รีเซ็ตใหม่จากหน้าเข้าสู่ระบบ
-                                </div>
-                                <button
-                                    type="button"
-                                    onClick={() => navigate('/login')}
-                                    className={`min-h-12 w-full rounded-full bg-sky-600 text-base font-bold text-white hover:bg-sky-700 ${tapClass}`}
-                                >
-                                    กลับไปเข้าสู่ระบบ
-                                </button>
-                            </div>
-                        ) : (
+                            <p className="text-sky-800/70">กำลังตรวจสอบ...</p>
+                        ) : isSendingOtp && !awaitingOtp && !user ? (
+                            <p className="text-sky-800/70">กำลังส่งรหัส 6 หลักไปที่อีเมล...</p>
+                        ) : showPasswordForm ? (
                             <form onSubmit={handleSubmit} className="space-y-4">
                                 {error ? (
                                     <div className="rounded-2xl border-2 border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800">
@@ -143,6 +232,58 @@ function ResetPassword() {
                                     className={`min-h-12 w-full rounded-full bg-sky-600 text-base font-bold text-white hover:bg-sky-700 disabled:opacity-70 ${tapClass}`}
                                 >
                                     {isSaving ? 'กำลังบันทึก...' : 'บันทึกรหัสผ่านใหม่'}
+                                </button>
+                            </form>
+                        ) : awaitingOtp ? (
+                            <EmailOtpPanel
+                                email={email}
+                                title="กรอกรหัสจากอีเมล"
+                                description="นำรหัส 6 หลักจากเมลมาใส่ที่นี่ ไม่ต้องกดลิงก์ในเมล หลังจากนั้นจะตั้งรหัสผ่านใหม่ได้"
+                                notice={notice}
+                                error={error}
+                                isVerifying={isVerifyingOtp}
+                                isResending={isSendingOtp}
+                                verifyLabel="ยืนยันรหัส"
+                                resendLabel="ส่งรหัสใหม่"
+                                backLabel="กลับไปเข้าสู่ระบบ"
+                                onVerify={handleVerifyOtp}
+                                onResend={handleSendOtp}
+                                onBack={() => navigate('/login')}
+                            />
+                        ) : (
+                            <form onSubmit={handleSendOtp} className="space-y-4">
+                                {error ? (
+                                    <div className="rounded-2xl border-2 border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800">
+                                        {error}
+                                    </div>
+                                ) : null}
+                                <div className="text-left">
+                                    <label htmlFor="reset-email" className="mb-2 block text-sm font-semibold text-sky-950">
+                                        อีเมล
+                                    </label>
+                                    <input
+                                        type="email"
+                                        id="reset-email"
+                                        value={email}
+                                        onChange={(event) => setEmail(event.target.value)}
+                                        className={fieldClass}
+                                        autoComplete="email"
+                                        required
+                                    />
+                                </div>
+                                <button
+                                    type="submit"
+                                    disabled={isSendingOtp}
+                                    className={`min-h-12 w-full rounded-full bg-sky-600 text-base font-bold text-white hover:bg-sky-700 disabled:opacity-70 ${tapClass}`}
+                                >
+                                    {isSendingOtp ? 'กำลังส่ง...' : 'ส่งรหัส 6 หลัก'}
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() => navigate('/login')}
+                                    className={`min-h-12 w-full rounded-full border-2 border-sky-400 bg-white text-base font-semibold text-sky-700 hover:bg-sky-50 ${tapClass}`}
+                                >
+                                    กลับไปเข้าสู่ระบบ
                                 </button>
                             </form>
                         )}
