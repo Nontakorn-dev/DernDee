@@ -1,0 +1,343 @@
+export type MovementKind = "dorsiflexor" | "plantarflexor" | "hip-flexor" | "combined";
+
+export function chapterNeedsJump(chapter: MovementKind) {
+  return chapter === "hip-flexor" || chapter === "combined";
+}
+
+export function isEnergyRun(chapter: MovementKind) {
+  return chapter === "plantarflexor";
+}
+
+export type StageDef = {
+  id: number;
+  name: string;
+  gaps: number;
+  targetAngle: number;
+  runSeconds: number;
+  story: {
+    title: string;
+    body: string;
+  };
+};
+
+export type ChapterDef = {
+  id: MovementKind;
+  order: number;
+  title: string;
+  titleEn: string;
+  blurb: string;
+  metricLabel: string;
+  metricEn: string;
+  tipTitle: string;
+  tipLines: [string, string];
+  unlockScore: number;
+  unlockHint: string;
+  stages: StageDef[];
+};
+
+export const CHAPTERS: ChapterDef[] = [
+  {
+    id: "dorsiflexor",
+    order: 1,
+    title: "นกบินต่ำ",
+    titleEn: "Sky Duck",
+    blurb: "ก้มหลบนกที่บินผ่าน แล้วเดินต่อไป",
+    metricLabel: "พลัง",
+    metricEn: "Power",
+    tipTitle: "เคล็ดลับ",
+    tipLines: ["ก้มตัวลง ค้างไว้", "หลบนกที่บินผ่าน"],
+    unlockScore: 0,
+    unlockHint: "",
+    stages: [
+      {
+        id: 1,
+        name: "ทางออกหมู่บ้าน",
+        gaps: 5,
+        targetAngle: 12,
+        runSeconds: 5,
+        story: {
+          title: "ไดโนน้อยออกเดินทาง",
+          body: "หมู่บ้านเงียบเกินไปแล้ว นกบินต่ำขวางทาง — ก้มหลบแล้วเดินต่อไป",
+        },
+      },
+      {
+        id: 2,
+        name: "ทุ่งใบไม้ทอง",
+        gaps: 5,
+        targetAngle: 16,
+        runSeconds: 5,
+        story: {
+          title: "ลมบอกทาง",
+          body: "ใบไม้สีทองปลิวตามทาง ยิ่งหลบเก่ง ธงเขียวยิ่งใกล้",
+        },
+      },
+      {
+        id: 3,
+        name: "ฝูงนกหิมะ",
+        gaps: 5,
+        targetAngle: 20,
+        runSeconds: 5,
+        story: {
+          title: "หลบนกครบแล้ว",
+          body: "ฝูงนกสุดท้ายบินผ่านทุ่งขาว ถนนยาวข้างหน้าชวนให้พุ่งต่อ",
+        },
+      },
+    ],
+  },
+  {
+    id: "plantarflexor",
+    order: 2,
+    title: "พุ่งสุดแรง",
+    titleEn: "Boost Dash",
+    blurb: "วิ่งให้ไกล เติมพลัง แล้วพุ่งต่อ",
+    metricLabel: "พลัง",
+    metricEn: "Power",
+    tipTitle: "เคล็ดลับ",
+    tipLines: ["กดลง ค้างไว้", "เติมพลังแล้วพุ่งต่อ"],
+    unlockScore: 0,
+    unlockHint: "ผ่านด่านฝูงนกหิมะของนกบินต่ำก่อน",
+    stages: [
+      {
+        id: 1,
+        name: "ถนนไกลบ้าน",
+        gaps: 5,
+        targetAngle: 12,
+        runSeconds: 5,
+        story: {
+          title: "ทางวิ่งไกล",
+          body: "ทางยังอีกยาว วิ่งไปจนเหนื่อย — เติมพลังแล้วพุ่งต่อไป",
+        },
+      },
+      {
+        id: 2,
+        name: "เนินลมทอง",
+        gaps: 5,
+        targetAngle: 16,
+        runSeconds: 5,
+        story: {
+          title: "ลมดันหลัง",
+          body: "ใบไม้สีทองปลิวตามก้าว ยิ่งพุ่งเก่ง ธงเขียวยิ่งอยู่พ้นเนิน",
+        },
+      },
+      {
+        id: 3,
+        name: "ลานขาวสุดขอบ",
+        gaps: 5,
+        targetAngle: 20,
+        runSeconds: 5,
+        story: {
+          title: "พุ่งถึงขอบขาว",
+          body: "หิมะทำให้ทางยาว แต่พลังยังพุ่งได้ เหวหินทรายรออยู่ในเกมต่อไป",
+        },
+      },
+    ],
+  },
+  {
+    id: "hip-flexor",
+    order: 3,
+    title: "ข้ามเหว",
+    titleEn: "Cliff Hopper",
+    blurb: "กระโดดข้ามเหว ไปให้ถึงธง",
+    metricLabel: "พลัง",
+    metricEn: "Power",
+    tipTitle: "เคล็ดลับ",
+    tipLines: ["กระโดดขึ้น ค้างไว้", "ข้ามเหวให้พ้น"],
+    unlockScore: 0,
+    unlockHint: "ผ่านด่านลานขาวสุดขอบของพุ่งสุดแรงก่อน",
+    stages: [
+      {
+        id: 1,
+        name: "โขดหินสีชาด",
+        gaps: 5,
+        targetAngle: 22,
+        runSeconds: 5,
+        story: {
+          title: "ก้าวที่ยาวขึ้น",
+          body: "กระโดดพ้นโขดหิน ไดโนน้อยเห็นสะพานไม้ไกลออกไป",
+        },
+      },
+      {
+        id: 2,
+        name: "สะพานใบไม้",
+        gaps: 5,
+        targetAngle: 26,
+        runSeconds: 5,
+        story: {
+          title: "ข้ามสะพานลม",
+          body: "ลมแรงแต่ก้าวไม่สั่น ใบไม้ร่วงสองข้างทาง ป่าใหญ่รออยู่ข้างหน้า",
+        },
+      },
+      {
+        id: 3,
+        name: "เหวน้ำแข็ง",
+        gaps: 5,
+        targetAngle: 30,
+        runSeconds: 5,
+        story: {
+          title: "ก้าวบนน้ำแข็ง",
+          body: "เหวขาวกว่าเดิม แต่ยังข้ามได้ ป่าหิมะกำลังรอจังหวะถัดไป",
+        },
+      },
+    ],
+  },
+  {
+    id: "combined",
+    order: 4,
+    title: "ป่าจังหวะ",
+    titleEn: "Wild Trail",
+    blurb: "หลบนกสลับกระโดดเหว ให้ถึงธง",
+    metricLabel: "พลัง",
+    metricEn: "Power",
+    tipTitle: "เคล็ดลับ",
+    tipLines: ["หลบนกสลับกระโดดเหว", "เดินให้ถึงธง"],
+    unlockScore: 0,
+    unlockHint: "ผ่านด่านเหวน้ำแข็งของข้ามเหวก่อน",
+    stages: [
+      {
+        id: 1,
+        name: "ป่าธงเขียว",
+        gaps: 5,
+        targetAngle: 24,
+        runSeconds: 5,
+        story: {
+          title: "สองจังหวะหนึ่งทาง",
+          body: "หลบแล้วกระโดดกลายเป็นก้าวเดียว ไดโนน้อยกำลังเดินทางจริง ๆ",
+        },
+      },
+      {
+        id: 2,
+        name: "ป่าสีทอง",
+        gaps: 5,
+        targetAngle: 28,
+        runSeconds: 5,
+        story: {
+          title: "ก้าวในใบไม้",
+          body: "ก้มแล้วกระโดดสลับกันในทุ่งส้ม ธงยังอยู่ไกล แต่จังหวะเริ่มนิ่ง",
+        },
+      },
+      {
+        id: 3,
+        name: "เส้นชัยขอบฟ้า",
+        gaps: 5,
+        targetAngle: 32,
+        runSeconds: 5,
+        story: {
+          title: "ถึงขอบฟ้าแล้ว",
+          body: "ธงปักบนเนินหิมะสุดท้าย ทางยังไม่จบ แต่ทุกก้าวเป็นเรื่องของตัวเอง",
+        },
+      },
+    ],
+  },
+];
+
+export type SaveState = {
+  totalScore: number;
+  completed: string[];
+  lastPlayed: { chapter: MovementKind; stage: number } | null;
+};
+
+const SAVE_KEY = "derndee-save-v1";
+
+export function stageKey(chapter: MovementKind, stage: number) {
+  return `${chapter}-${stage}`;
+}
+
+export function getChapter(id: MovementKind) {
+  return CHAPTERS.find((c) => c.id === id) ?? CHAPTERS[0];
+}
+
+export function getStage(chapter: MovementKind, stageId: number) {
+  const ch = getChapter(chapter);
+  return ch.stages.find((s) => s.id === stageId) ?? ch.stages[0];
+}
+
+export function loadSave(): SaveState {
+  if (typeof window === "undefined") {
+    return { totalScore: 0, completed: [], lastPlayed: null };
+  }
+  try {
+    const raw = localStorage.getItem(SAVE_KEY);
+    if (!raw) return { totalScore: 0, completed: [], lastPlayed: null };
+    const parsed = JSON.parse(raw) as SaveState;
+    return {
+      totalScore: parsed.totalScore ?? 0,
+      completed: parsed.completed ?? [],
+      lastPlayed: parsed.lastPlayed ?? null,
+    };
+  } catch {
+    return { totalScore: 0, completed: [], lastPlayed: null };
+  }
+}
+
+export function writeSave(next: SaveState) {
+  localStorage.setItem(SAVE_KEY, JSON.stringify(next));
+}
+
+export function isChapterUnlocked(chapter: ChapterDef, save: SaveState) {
+  if (chapter.id === "dorsiflexor") return true;
+  if (chapter.id === "plantarflexor") return save.completed.includes(stageKey("dorsiflexor", 3));
+  if (chapter.id === "hip-flexor") return save.completed.includes(stageKey("plantarflexor", 3));
+  return save.completed.includes(stageKey("hip-flexor", 3));
+}
+
+export function isStageUnlocked(
+  chapter: ChapterDef,
+  stage: StageDef,
+  save: SaveState,
+) {
+  if (!isChapterUnlocked(chapter, save)) return false;
+  if (stage.id === 1) return true;
+  return save.completed.includes(stageKey(chapter.id, stage.id - 1));
+}
+
+export function applyStageClear(
+  save: SaveState,
+  chapter: MovementKind,
+  stage: number,
+  earned: number,
+): SaveState {
+  const key = stageKey(chapter, stage);
+  const completed = save.completed.includes(key)
+    ? save.completed
+    : [...save.completed, key];
+  return {
+    totalScore: save.totalScore + earned,
+    completed,
+    lastPlayed: { chapter, stage },
+  };
+}
+
+export function nextPlayable(save: SaveState): { chapter: MovementKind; stage: number } {
+  for (const ch of CHAPTERS) {
+    if (!isChapterUnlocked(ch, save)) continue;
+    for (const st of ch.stages) {
+      if (!save.completed.includes(stageKey(ch.id, st.id)) && isStageUnlocked(ch, st, save)) {
+        return { chapter: ch.id, stage: st.id };
+      }
+    }
+  }
+  if (save.lastPlayed) return save.lastPlayed;
+  return { chapter: "dorsiflexor", stage: 1 };
+}
+
+export function nextPlayableInChapter(chapter: ChapterDef, save: SaveState) {
+  for (const st of chapter.stages) {
+    if (!save.completed.includes(stageKey(chapter.id, st.id)) && isStageUnlocked(chapter, st, save)) {
+      return st.id;
+    }
+  }
+  return chapter.stages[0]?.id ?? 1;
+}
+
+export function nextDestination(chapter: MovementKind, stage: number) {
+  const ch = getChapter(chapter);
+  const idx = ch.stages.findIndex((s) => s.id === stage);
+  if (idx >= 0 && idx < ch.stages.length - 1) {
+    return { chapter, stage: ch.stages[idx + 1].id, kind: "stage" as const };
+  }
+  const nextChapter = CHAPTERS.find((c) => c.order === ch.order + 1);
+  if (nextChapter) {
+    return { chapter: nextChapter.id, stage: 1, kind: "chapter" as const };
+  }
+  return { chapter, stage, kind: "complete" as const };
+}

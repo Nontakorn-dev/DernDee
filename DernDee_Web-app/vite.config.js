@@ -349,6 +349,9 @@ export default defineConfig(({ mode }) => {
           'vite.svg',
           'audio/*.m4a',
         ],
+        injectManifest: {
+          globIgnores: ['**/node_modules/**', '**/game/**'],
+        },
         manifest: {
           name: 'DernDee',
           short_name: 'DernDee',
@@ -379,6 +382,7 @@ export default defineConfig(({ mode }) => {
         '@shared': path.resolve(__dirname, 'shared'),
         '@patient': path.resolve(__dirname, 'apps/patient/src'),
         '@clinic': path.resolve(__dirname, 'apps/clinic/src'),
+        '@trail': path.resolve(__dirname, 'apps/patient/src/trail-quest'),
       },
     },
     build: {
@@ -389,7 +393,7 @@ export default defineConfig(({ mode }) => {
         },
       },
     },
-    assetsInclude: ['**/*.m4a', '**/*.mp3', '**/*.mp4'],
+    assetsInclude: ['**/*.m4a', '**/*.mp3', '**/*.mp4', '**/*.wav'],
     server: {
       host: '0.0.0.0',
       port: 5174,

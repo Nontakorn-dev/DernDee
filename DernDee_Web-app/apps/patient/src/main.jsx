@@ -21,6 +21,8 @@ import GameBalance from '@patient/components/games/GameBalance.jsx'
 import GameRhythm from '@patient/components/games/GameRhythm.jsx'
 import GameSteppingStones from '@patient/components/games/GameSteppingStones.jsx'
 import GameKneeFlexion from '@patient/components/games/GameKneeFlexion.jsx'
+import { JourneyMap } from '@trail/components/journey/JourneyMap'
+import { PlayClient } from '@trail/components/game/PlayClient'
 import ProtectedRoute from '@shared/auth/ProtectedRoute.jsx'
 import { registerDernDeePwa } from '@shared/pwa/registerPwa.js'
 
@@ -124,6 +126,18 @@ const router = createBrowserRouter([
   {
     path: "/game/knee-flexion",
     element: <ProtectedRoute><GameKneeFlexion /></ProtectedRoute>
+  },
+  {
+    path: "/game/trail",
+    element: <ProtectedRoute><JourneyMap /></ProtectedRoute>
+  },
+  {
+    path: "/map",
+    element: <ProtectedRoute><JourneyMap /></ProtectedRoute>
+  },
+  {
+    path: "/play",
+    element: <ProtectedRoute><PlayClient /></ProtectedRoute>
   }
 ])
 

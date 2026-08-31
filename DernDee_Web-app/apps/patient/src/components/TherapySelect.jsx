@@ -1,6 +1,6 @@
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Activity, ArrowLeft, Footprints, Mountain, Target, Music, Timer, Accessibility } from 'lucide-react';
+import { Activity, ArrowLeft, Footprints, Map, Mountain, Target, Music, Timer, Accessibility } from 'lucide-react';
 import derndeeLogo from '@shared/assets/images/derndee-logo.png';
 
 const TherapySelect = () => {
@@ -8,49 +8,14 @@ const TherapySelect = () => {
 
     const therapyModes = [
         {
-            id: 'clearance',
-            title: 'High Stepper',
-            description: 'Train high knees, fix foot dragging.',
-            icon: Mountain,
+            id: 'trail',
+            title: 'Trail Quest',
+            description: 'Duck, dash, and hop your way to the flag.',
+            icon: Map,
             iconBg: 'bg-orange-100',
             iconColor: 'text-orange-600',
-            route: '/game/clearance'
-        },
-        {
-            id: 'balance',
-            title: 'Magic Plate',
-            description: 'Train foot placement and balance.',
-            icon: Target,
-            iconBg: 'bg-yellow-100',
-            iconColor: 'text-yellow-600',
-            route: '/game/balance'
-        },
-        {
-            id: 'rhythm',
-            title: 'Rhythm Drummer',
-            description: 'Walk consistently to the beat.',
-            icon: Music,
-            iconBg: 'bg-blue-100',
-            iconColor: 'text-blue-600',
-            route: '/game/rhythm'
-        },
-        {
-            id: 'knee-flexion',
-            title: 'Knee Flexion Quest',
-            description: 'Train knee bend and foot clearance with thigh + shank sensors.',
-            icon: Accessibility,
-            iconBg: 'bg-violet-100',
-            iconColor: 'text-violet-600',
-            route: '/game/knee-flexion'
-        },
-        {
-            id: 'stepping-stones',
-            title: 'Stepping Stones',
-            description: 'Train step reach and safe weight shift.',
-            icon: Footprints,
-            iconBg: 'bg-emerald-100',
-            iconColor: 'text-emerald-600',
-            route: '/game/stepping-stones'
+            route: '/game/trail',
+            hidden: false,
         },
         {
             id: 'freewalk',
@@ -59,7 +24,58 @@ const TherapySelect = () => {
             icon: Timer,
             iconBg: 'bg-green-100',
             iconColor: 'text-green-600',
-            route: '/walk-session'
+            route: '/walk-session',
+            hidden: false,
+        },
+        {
+            id: 'clearance',
+            title: 'High Stepper',
+            description: 'Train high knees, fix foot dragging.',
+            icon: Mountain,
+            iconBg: 'bg-orange-100',
+            iconColor: 'text-orange-600',
+            route: '/game/clearance',
+            hidden: true,
+        },
+        {
+            id: 'balance',
+            title: 'Magic Plate',
+            description: 'Train foot placement and balance.',
+            icon: Target,
+            iconBg: 'bg-yellow-100',
+            iconColor: 'text-yellow-600',
+            route: '/game/balance',
+            hidden: true,
+        },
+        {
+            id: 'rhythm',
+            title: 'Rhythm Drummer',
+            description: 'Walk consistently to the beat.',
+            icon: Music,
+            iconBg: 'bg-blue-100',
+            iconColor: 'text-blue-600',
+            route: '/game/rhythm',
+            hidden: true,
+        },
+        {
+            id: 'knee-flexion',
+            title: 'Knee Flexion Quest',
+            description: 'Train knee bend and foot clearance with thigh + shank sensors.',
+            icon: Accessibility,
+            iconBg: 'bg-violet-100',
+            iconColor: 'text-violet-600',
+            route: '/game/knee-flexion',
+            hidden: true,
+        },
+        {
+            id: 'stepping-stones',
+            title: 'Stepping Stones',
+            description: 'Train step reach and safe weight shift.',
+            icon: Footprints,
+            iconBg: 'bg-emerald-100',
+            iconColor: 'text-emerald-600',
+            route: '/game/stepping-stones',
+            hidden: true,
         }
     ];
 
@@ -110,7 +126,7 @@ const TherapySelect = () => {
 
                 {/* Cards Grid */}
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-6 md:gap-8 w-full max-w-4xl">
-                    {therapyModes.map((mode) => {
+                    {therapyModes.filter((mode) => !mode.hidden).map((mode) => {
                         const IconComponent = mode.icon;
                         return (
                             <div
