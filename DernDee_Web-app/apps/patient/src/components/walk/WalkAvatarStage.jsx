@@ -5,7 +5,7 @@ import {
   getAvatarVideoSrc,
 } from './avatarClips.js';
 
-const MAX_PACKED_WIDTH = 1600;
+const MAX_PACKED_WIDTH = 960;
 const AVATAR_FRAME_W = 1280;
 const AVATAR_FRAME_H = 704;
 const MEDIA_SHOW = 'absolute inset-0 z-10 h-full w-full bg-transparent object-contain object-center';
@@ -57,9 +57,21 @@ function usePackedAlphaDraw(videoRef, canvasRef, enabled, videoSrc) {
       canvas.height = AVATAR_FRAME_H;
     }
 
-    let frameId = 0;
+    let rafId = 0;
+    let vfcId = 0;
+    let stopped = false;
     const scratch = document.createElement('canvas');
     const scratchContext = scratch.getContext('2d', { willReadFrequently: true, alpha: true });
+    const canVfc = typeof video.requestVideoFrameCallback === 'function';
+
+    const cancelDraw = () => {
+      window.cancelAnimationFrame(rafId);
+      if (vfcId && typeof video.cancelVideoFrameCallback === 'function') {
+        video.cancelVideoFrameCallback(vfcId);
+      }
+      rafId = 0;
+      vfcId = 0;
+    };
 
     const isDecoderBlackFrame = (imageData) => {
       const { data, width, height } = imageData;
@@ -75,11 +87,8 @@ function usePackedAlphaDraw(videoRef, canvasRef, enabled, videoSrc) {
       return luma < 16;
     };
 
-    const drawFrame = () => {
-      if (video.readyState < 2 || video.seeking || !video.videoWidth || !video.videoHeight) {
-        if (!video.paused && !video.ended) {
-          frameId = window.requestAnimationFrame(drawFrame);
-        }
+    const drawOnce = () => {
+      if (!scratchContext || video.readyState < 2 || video.seeking || !video.videoWidth || !video.videoHeight) {
         return;
       }
 
@@ -96,9 +105,6 @@ function usePackedAlphaDraw(videoRef, canvasRef, enabled, videoSrc) {
       scratchContext.drawImage(video, 0, 0, width, height);
       const packed = scratchContext.getImageData(0, 0, width, height);
       if (isDecoderBlackFrame(packed)) {
-        if (!video.paused && !video.ended) {
-          frameId = window.requestAnimationFrame(drawFrame);
-        }
         return;
       }
 
@@ -109,29 +115,37 @@ function usePackedAlphaDraw(videoRef, canvasRef, enabled, videoSrc) {
       }
 
       context.putImageData(framed, 0, 0);
+    };
 
-      if (!video.paused && !video.ended) {
-        frameId = window.requestAnimationFrame(drawFrame);
+    const schedule = () => {
+      if (stopped) return;
+      cancelDraw();
+      if (canVfc) {
+        vfcId = video.requestVideoFrameCallback(() => {
+          drawOnce();
+          if (!stopped && !video.paused && !video.ended) schedule();
+        });
+        return;
       }
+      rafId = window.requestAnimationFrame(() => {
+        drawOnce();
+        if (!stopped && !video.paused && !video.ended) schedule();
+      });
     };
 
-    const startDrawing = () => {
-      window.cancelAnimationFrame(frameId);
-      drawFrame();
-    };
-
-    video.addEventListener('play', startDrawing);
-    video.addEventListener('playing', startDrawing);
-    video.addEventListener('loadeddata', startDrawing);
-    video.addEventListener('seeked', startDrawing);
-    startDrawing();
+    video.addEventListener('play', schedule);
+    video.addEventListener('playing', schedule);
+    video.addEventListener('loadeddata', schedule);
+    video.addEventListener('seeked', schedule);
+    schedule();
 
     return () => {
-      window.cancelAnimationFrame(frameId);
-      video.removeEventListener('play', startDrawing);
-      video.removeEventListener('playing', startDrawing);
-      video.removeEventListener('loadeddata', startDrawing);
-      video.removeEventListener('seeked', startDrawing);
+      stopped = true;
+      cancelDraw();
+      video.removeEventListener('play', schedule);
+      video.removeEventListener('playing', schedule);
+      video.removeEventListener('loadeddata', schedule);
+      video.removeEventListener('seeked', schedule);
     };
   }, [canvasRef, enabled, videoRef, videoSrc]);
 }
@@ -186,7 +200,7 @@ function LoopingMouthLayer({
     }
   }, [paused, playbackRate, src, videoRef]);
 
-  usePackedAlphaDraw(videoRef, canvasRef, useCanvasKey, src);
+  usePackedAlphaDraw(videoRef, canvasRef, useCanvasKey && visible, src);
 
   return (
     <>
@@ -289,7 +303,7 @@ const WalkAvatarStage = ({
     return undefined;
   }, [lipSyncActive, mouthPaceRef]);
 
-  usePackedAlphaDraw(videoRef, canvasRef, useCanvasKey, videoSrc);
+  usePackedAlphaDraw(videoRef, canvasRef, useCanvasKey && showGait, videoSrc);
 
   return (
     <div className="relative flex h-full w-full min-h-[180px] max-h-[min(52vh,440px)] flex-col items-center justify-center">

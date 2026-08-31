@@ -304,7 +304,7 @@ export function GameScreen({
         >
           <canvas
             ref={canvasRef}
-            className="absolute inset-0 h-full w-full touch-none"
+            className="absolute inset-0 z-10 h-full w-full touch-none"
             onPointerDown={() => {
               if (storyOpenRef.current || pausedRef.current || settingsOpenRef.current) return;
               engineRef.current?.unlock();

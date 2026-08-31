@@ -112,6 +112,40 @@ export function sceneTile(
 }
 
 const videoCache = new Map<string, Promise<HTMLVideoElement>>();
+const CLIP_DECODE_PX = 288;
+const CLIP_HOST_ID = "trail-clip-host";
+
+function clipHost(root?: HTMLElement | null) {
+  let host = document.getElementById(CLIP_HOST_ID) as HTMLDivElement | null;
+  if (!host) {
+    host = document.createElement("div");
+    host.id = CLIP_HOST_ID;
+    host.setAttribute("aria-hidden", "true");
+    host.style.cssText =
+      "position:absolute;left:0;top:0;width:8px;height:8px;overflow:hidden;pointer-events:none;z-index:0;opacity:0.01";
+  }
+  const parent = root ?? document.body;
+  if (host.parentElement !== parent) parent.appendChild(host);
+  return host;
+}
+
+function mountClip(video: HTMLVideoElement, root?: HTMLElement | null) {
+  video.width = CLIP_DECODE_PX;
+  video.height = CLIP_DECODE_PX;
+  video.style.cssText = `width:${CLIP_DECODE_PX}px;height:${CLIP_DECODE_PX}px;display:block;position:absolute;left:0;top:0`;
+  const host = clipHost(root);
+  if (video.parentElement !== host) host.appendChild(video);
+}
+
+/** Keep clips in the visible game tree so WebKit/Bluefy actually decode frames. */
+export function attachGameClips(root?: HTMLElement | null) {
+  const host = clipHost(root);
+  for (const pending of videoCache.values()) {
+    void pending.then((video) => {
+      if (video.parentElement !== host) host.appendChild(video);
+    });
+  }
+}
 
 function loadVideo(src: string, loop: boolean) {
   const cached = videoCache.get(src);
@@ -126,18 +160,30 @@ function loadVideo(src: string, loop: boolean) {
     video.setAttribute("playsinline", "true");
     video.setAttribute("webkit-playsinline", "true");
     video.crossOrigin = "anonymous";
+    mountClip(video);
     video.src = src;
+    let settled = false;
     const onReady = () => {
+      if (settled) return;
+      settled = true;
+      video.removeEventListener("loadeddata", onReady);
+      video.removeEventListener("canplay", onReady);
       video.removeEventListener("canplaythrough", onReady);
       video.removeEventListener("error", onErr);
       video.pause();
-      video.currentTime = 0;
+      try {
+        video.currentTime = 0;
+      } catch {
+        /* WebKit may still be opening the decoder */
+      }
       resolve(video);
     };
     const onErr = () => {
       videoCache.delete(src);
       reject(new Error(`load ${src}`));
     };
+    video.addEventListener("loadeddata", onReady);
+    video.addEventListener("canplay", onReady);
     video.addEventListener("canplaythrough", onReady);
     video.addEventListener("error", onErr);
     video.load();
@@ -283,6 +329,7 @@ function disposeVideo(video: HTMLVideoElement) {
   video.removeAttribute("src");
   video.src = "";
   video.load();
+  video.remove();
 }
 
 /** Drop decoded clips/scenes so Free Walk and the rest of the app can breathe. */
@@ -293,4 +340,5 @@ export function releaseGameMedia() {
   videoCache.clear();
   sharedPromise = null;
   seasonCache.clear();
+  document.getElementById(CLIP_HOST_ID)?.remove();
 }

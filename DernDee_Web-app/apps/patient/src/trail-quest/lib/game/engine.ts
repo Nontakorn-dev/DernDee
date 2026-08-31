@@ -10,11 +10,13 @@ import {
   sceneCapacity,
   sceneTile,
   tryPlay,
+  attachGameClips,
   type CharacterClips,
   type SceneBlit,
 } from "@trail/lib/game/assets";
 import { getCharacter } from "@trail/lib/game/characters";
 import { ChromaBlit } from "@trail/lib/game/chroma";
+import { isConstrainedWebKit } from "@trail/lib/game/runtime";
 import {
   birdPlacements,
   drawBackdrop,
@@ -109,8 +111,13 @@ function hudFrom(state: InternalState, config: EngineConfig): HudSnapshot {
 }
 
 export function createEngine(canvas: HTMLCanvasElement, config: EngineConfig) {
-  const ctx = canvas.getContext("2d");
+  const ctx =
+    canvas.getContext("2d", { alpha: false, desynchronized: true }) ||
+    canvas.getContext("2d", { alpha: false }) ||
+    canvas.getContext("2d");
   if (!ctx) throw new Error("No 2D context");
+  const constrained = isConstrainedWebKit();
+  attachGameClips(canvas.parentElement);
 
   const freeWalk = Boolean(config.freeWalk);
   const { platforms, encounters } = buildWorld(config.chapter, config.gaps, freeWalk);
@@ -155,6 +162,7 @@ export function createEngine(canvas: HTMLCanvasElement, config: EngineConfig) {
   let lastAnimPhase: GamePhase | null = null;
   let lastSfxPhase: GamePhase | null = null;
   let tiredWrapAt = 0;
+  let walkClock = 0;
 
   const emit = (force = false) => {
     const next = hudFrom(state, config);
@@ -165,11 +173,13 @@ export function createEngine(canvas: HTMLCanvasElement, config: EngineConfig) {
   };
 
   const resize = () => {
-    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    const dpr = Math.min(window.devicePixelRatio || 1, constrained ? 1.25 : 2);
     const rect = canvas.getBoundingClientRect();
     canvas.width = Math.max(1, Math.floor(rect.width * dpr));
     canvas.height = Math.max(1, Math.floor(rect.height * dpr));
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = constrained ? "low" : "medium";
   };
 
   const worldScale = () => canvas.getBoundingClientRect().height / SCENE_SRC_H;
@@ -271,19 +281,26 @@ export function createEngine(canvas: HTMLCanvasElement, config: EngineConfig) {
       walk.loop = true;
       walk.playbackRate = state.phase === "running" ? 1.35 : 1;
       const seek = spec.walkSeek;
-      const dur = walk.duration;
       const entering = lastAnimPhase !== "walking" && lastAnimPhase !== "running";
       if (entering) {
-        walk.currentTime = seek;
-        void tryPlay(walk);
-      } else if (walk.currentTime < seek - 0.01) {
-        walk.currentTime = seek;
-        if (walk.paused) void tryPlay(walk);
-      } else if (Number.isFinite(dur) && dur > seek + 1 && walk.currentTime >= dur - 0.08) {
+        walkClock = 0;
         walk.currentTime = seek;
         void tryPlay(walk);
       } else if (walk.paused) {
         void tryPlay(walk);
+      } else {
+        walkClock += 1;
+        // WebKit stalls if we poke currentTime every frame.
+        if (walkClock % 12 === 0) {
+          const t = walk.currentTime;
+          const dur = walk.duration;
+          if (t < seek - 0.25) {
+            walk.currentTime = seek;
+          } else if (Number.isFinite(dur) && dur > seek + 1 && t >= dur - 0.18) {
+            walk.currentTime = seek;
+            void tryPlay(walk);
+          }
+        }
       }
     } else if (
       (state.phase === "tired" || state.phase === "charging") &&
@@ -749,6 +766,7 @@ export function createEngine(canvas: HTMLCanvasElement, config: EngineConfig) {
       cancelAnimationFrame(raf);
       window.removeEventListener("resize", resize);
       pauseClips();
+      chroma.dispose();
       config.sfx?.stop();
     },
     unlock() {
