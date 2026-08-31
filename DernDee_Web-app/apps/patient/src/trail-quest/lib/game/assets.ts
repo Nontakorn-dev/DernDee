@@ -12,6 +12,8 @@ export const FLAG_RATE = 1.55;
 export const SCENE_HOLE_START = 806;
 export const SCENE_HOLE_END = 992;
 export const SCENE_COUNT = 10;
+/** First five tiles live in one strip so joins can be blended. */
+export const STRIP_TILES = 5;
 /** 5 encounters + 2 finish tiles — enough for a stage, cheaper than all 10. */
 export const SEASON_TILES = 7;
 
@@ -34,6 +36,8 @@ export type CharacterClips = {
 export type WorldAssets = {
   scenes: HTMLImageElement[];
   scenesDuck: HTMLImageElement[];
+  jumpStrip: HTMLImageElement | null;
+  duckStrip: HTMLImageElement | null;
   bird: HTMLVideoElement;
   flag: HTMLVideoElement;
 };
@@ -55,6 +59,56 @@ function loadImage(src: string) {
     img.onerror = () => reject(new Error(`load ${src}`));
     img.src = src;
   });
+}
+
+async function loadImageOptional(src: string) {
+  try {
+    return await loadImage(src);
+  } catch {
+    return null;
+  }
+}
+
+async function loadFirstImage(srcs: string[]) {
+  for (const src of srcs) {
+    const img = await loadImageOptional(src);
+    if (img) return img;
+  }
+  return null;
+}
+
+function usableStrip(img: HTMLImageElement | null) {
+  if (!img?.naturalWidth) return null;
+  if (img.naturalWidth < SCENE_SRC_W * STRIP_TILES) return null;
+  return img;
+}
+
+export type SceneBlit = {
+  img: HTMLImageElement;
+  srcX: number;
+};
+
+export function sceneCapacity(assets: WorldAssets) {
+  const jumpN = (assets.jumpStrip ? STRIP_TILES : 0) + assets.scenes.length;
+  const duckN = (assets.duckStrip ? STRIP_TILES : 0) + assets.scenesDuck.length;
+  return Math.max(jumpN, duckN);
+}
+
+export function sceneTile(
+  assets: WorldAssets,
+  kind: "jump" | "duck",
+  index: number,
+): SceneBlit | null {
+  const strip = kind === "duck" ? assets.duckStrip : assets.jumpStrip;
+  const extras = kind === "duck" ? assets.scenesDuck : assets.scenes;
+  const other = kind === "duck" ? assets.scenes : assets.scenesDuck;
+  if (strip && index < STRIP_TILES) {
+    return { img: strip, srcX: index * SCENE_SRC_W };
+  }
+  const extraIndex = strip ? index - STRIP_TILES : index;
+  const tile = extras[extraIndex] ?? other[extraIndex];
+  if (!tile) return null;
+  return { img: tile, srcX: 0 };
 }
 
 const videoCache = new Map<string, Promise<HTMLVideoElement>>();
@@ -95,23 +149,34 @@ function loadVideo(src: string, loop: boolean) {
 let sharedPromise: Promise<{ bird: HTMLVideoElement; flag: HTMLVideoElement }> | null = null;
 const seasonCache = new Map<
   string,
-  Promise<{ scenes: HTMLImageElement[]; scenesDuck: HTMLImageElement[] }>
+  Promise<{
+    scenes: HTMLImageElement[];
+    scenesDuck: HTMLImageElement[];
+    jumpStrip: HTMLImageElement | null;
+    duckStrip: HTMLImageElement | null;
+  }>
 >();
 
 function seasonUrls(season: SceneSeason) {
   if (season === "autumn") {
     return {
+      jumpStrip: ["/game/scenes/autumn/hip/sence-strip.jpg"],
+      duckStrip: ["/game/scenes/autumn/dorsi/sence-strip.jpg"],
       jump: (i: number) => `/game/scenes/autumn/hip/sence${i}.jpg`,
       duck: (i: number) => `/game/scenes/autumn/dorsi/sence${i}.jpg`,
     };
   }
   if (season === "snow") {
     return {
+      jumpStrip: ["/game/scenes/snow/hip/sence-strip.jpg"],
+      duckStrip: ["/game/scenes/snow/dorsi/sence-strip.jpg"],
       jump: (i: number) => `/game/scenes/snow/hip/sence${i}.jpg`,
       duck: (i: number) => `/game/scenes/snow/dorsi/sence${i}.jpg`,
     };
   }
   return {
+    jumpStrip: ["/game/scenes/sence-strip.png", "/game/scenes/sence-strip.jpg"],
+    duckStrip: ["/game/scenes/dorsi/sence-strip.jpg"],
     jump: (i: number) => `/game/scenes/sence${i}.png`,
     duck: (i: number) => `/game/scenes/dorsi/sence${i}.jpg`,
   };
@@ -130,23 +195,30 @@ function loadSharedWorld() {
   return sharedPromise;
 }
 
+function tileRange(from: number, to: number) {
+  return Array.from({ length: to - from + 1 }, (_, i) => from + i);
+}
+
 function loadSeasonPack(season: SceneSeason, needJump: boolean) {
   const key = `${season}:${needJump ? "jump" : "duck"}`;
   const cached = seasonCache.get(key);
   if (cached) return cached;
   const urls = seasonUrls(season);
-  const duck = Promise.all(
-    Array.from({ length: SEASON_TILES }, (_, i) => loadImage(urls.duck(i + 1))),
-  );
-  const jump = needJump
-    ? Promise.all(
-        Array.from({ length: SEASON_TILES }, (_, i) => loadImage(urls.jump(i + 1))),
-      )
-    : duck;
-  const pending = Promise.all([jump, duck]).then(([scenes, scenesDuck]) => ({
-    scenes,
-    scenesDuck,
-  }));
+  const pending = (async () => {
+    const [jumpStripRaw, duckStripRaw] = await Promise.all([
+      needJump ? loadFirstImage(urls.jumpStrip) : Promise.resolve(null),
+      loadFirstImage(urls.duckStrip),
+    ]);
+    const jumpStrip = needJump ? usableStrip(jumpStripRaw) : null;
+    const duckStrip = usableStrip(duckStripRaw);
+    const duckFrom = duckStrip ? STRIP_TILES + 1 : 1;
+    const jumpFrom = jumpStrip ? STRIP_TILES + 1 : 1;
+    const duck = await Promise.all(tileRange(duckFrom, SEASON_TILES).map((i) => loadImage(urls.duck(i))));
+    const scenes = needJump
+      ? await Promise.all(tileRange(jumpFrom, SEASON_TILES).map((i) => loadImage(urls.jump(i))))
+      : duck;
+    return { scenes, scenesDuck: duck, jumpStrip, duckStrip };
+  })();
   pending.catch(() => {
     seasonCache.delete(key);
   });

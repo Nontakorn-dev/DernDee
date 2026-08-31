@@ -7,8 +7,11 @@ import {
   SCENE_GRASS_FRAC,
   SCENE_SRC_H,
   SCENE_SRC_W,
+  sceneCapacity,
+  sceneTile,
   tryPlay,
   type CharacterClips,
+  type SceneBlit,
 } from "@trail/lib/game/assets";
 import { getCharacter } from "@trail/lib/game/characters";
 import { ChromaBlit } from "@trail/lib/game/chroma";
@@ -586,15 +589,17 @@ export function createEngine(canvas: HTMLCanvasElement, config: EngineConfig) {
     const scale = worldScale();
     ctx.clearRect(0, 0, w, h);
 
-    const sceneCount = Math.min(config.gaps, assets?.scenes.length ?? 0);
+    const sceneCount = Math.min(config.gaps, assets ? sceneCapacity(assets) : 0);
     if (assets && sceneCount > 0) {
-      const tiles = assets.scenes.slice(0, sceneCount).map((jumpScene, i) => {
-        const duckScene = assets.scenesDuck[i];
-        return hazardKindFor(config.chapter, i) === "duck" && duckScene ? duckScene : jumpScene;
-      });
-      const flats = assets.scenesDuck.length > 0 ? assets.scenesDuck : assets.scenes;
+      const tiles: SceneBlit[] = [];
+      for (let i = 0; i < sceneCount; i += 1) {
+        const kind = hazardKindFor(config.chapter, i) === "duck" ? "duck" : "jump";
+        const tile = sceneTile(assets, kind, i) ?? sceneTile(assets, kind === "duck" ? "jump" : "duck", i);
+        if (tile) tiles.push(tile);
+      }
       for (let j = 0; j < FINISH_TILES; j += 1) {
-        tiles.push(flats[(sceneCount + j) % flats.length]);
+        const tile = sceneTile(assets, "duck", sceneCount + j) ?? sceneTile(assets, "jump", sceneCount + j);
+        if (tile) tiles.push(tile);
       }
       drawSceneStrip(ctx, tiles, state.cameraX, w, h, SCENE_SRC_W, SCENE_SRC_H);
     } else {

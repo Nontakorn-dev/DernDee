@@ -545,7 +545,7 @@ export function drawBirdFlock(
 
 export function drawSceneStrip(
   ctx: CanvasRenderingContext2D,
-  scenes: HTMLImageElement[],
+  scenes: { img: HTMLImageElement; srcX: number }[],
   cameraX: number,
   canvasW: number,
   canvasH: number,
@@ -553,10 +553,20 @@ export function drawSceneStrip(
   sceneHeight: number,
 ) {
   const scale = canvasH / sceneHeight;
-  const destW = sceneWidth * scale;
   for (let i = 0; i < scenes.length; i += 1) {
-    const dx = (i * sceneWidth - cameraX) * scale;
-    if (dx + destW < -8 || dx > canvasW + 8) continue;
-    ctx.drawImage(scenes[i], dx, 0, destW, canvasH);
+    const x0 = Math.round((i * sceneWidth - cameraX) * scale);
+    const x1 = Math.round(((i + 1) * sceneWidth - cameraX) * scale);
+    if (x1 < -8 || x0 > canvasW + 8) continue;
+    ctx.drawImage(
+      scenes[i].img,
+      scenes[i].srcX,
+      0,
+      sceneWidth,
+      sceneHeight,
+      x0,
+      0,
+      Math.max(1, x1 - x0 + 1),
+      canvasH,
+    );
   }
 }
