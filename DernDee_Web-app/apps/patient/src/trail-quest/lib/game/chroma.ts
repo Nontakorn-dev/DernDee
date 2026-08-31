@@ -179,7 +179,7 @@ export function isPackedSource(source: CanvasImageSource) {
 
 function sourceReady(source: CanvasImageSource) {
   if (source instanceof HTMLVideoElement) {
-    return source.readyState >= 2 && source.videoWidth > 0 && !source.seeking;
+    return source.readyState >= 2 && source.videoWidth > 0;
   }
   if (source instanceof HTMLImageElement) {
     return source.naturalWidth > 0;

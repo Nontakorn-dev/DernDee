@@ -149,7 +149,7 @@ export function GameScreen({
       .then((assets) => {
         if (cancelled) return;
         startEngine(assets);
-        void hydrateGameAssets(assets, needJump).catch(() => {});
+        void hydrateGameAssets(assets, season, needJump).catch(() => {});
       })
       .catch(() => startEngine());
 

@@ -296,23 +296,31 @@ export function createEngine(canvas: HTMLCanvasElement, config: EngineConfig) {
         }
         void tryPlay(duck);
       }
-    } else if (state.phase === "walking" || state.phase === "running") {
+    } else if (
+      state.phase === "walking" ||
+      state.phase === "running" ||
+      (!isEnergyRun(config.chapter) && (state.phase === "waiting" || state.phase === "charging"))
+    ) {
       jump?.pause();
       duck?.pause();
       tired?.pause();
       walk.loop = true;
       walk.playbackRate = state.phase === "running" ? 1.35 : 1;
       const seek = spec.walkSeek;
-      const entering = lastAnimPhase !== "walking" && lastAnimPhase !== "running";
+      const entering = lastAnimPhase !== "walking" && lastAnimPhase !== "running"
+        && lastAnimPhase !== "waiting" && lastAnimPhase !== "charging";
       if (entering) {
         walkClock = 0;
-        walk.currentTime = seek;
+        try {
+          walk.currentTime = seek;
+        } catch {
+          /* WebKit may ignore the first seek */
+        }
         void tryPlay(walk);
       } else if (walk.paused) {
         void tryPlay(walk);
-      } else {
+      } else if (!constrained) {
         walkClock += 1;
-        // WebKit stalls if we poke currentTime every frame.
         if (walkClock % 12 === 0) {
           const t = walk.currentTime;
           const dur = walk.duration;
@@ -744,7 +752,7 @@ export function createEngine(canvas: HTMLCanvasElement, config: EngineConfig) {
         for (const p of placements) {
           chroma.draw(ctx, assets.bird, p.x - p.size * 0.5, p.y - p.size * 0.55, p.size, p.size);
         }
-      } else {
+      } else if (!assets && placements.length > 0) {
         drawBirdFlock(ctx, birdWorldXs(), { ...birdView(w, h, gy, scale), time: state.time });
       }
     }

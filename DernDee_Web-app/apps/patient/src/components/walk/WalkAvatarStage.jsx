@@ -60,6 +60,8 @@ function usePackedAlphaDraw(videoRef, canvasRef, enabled, videoSrc) {
     let rafId = 0;
     let vfcId = 0;
     let stopped = false;
+    let drawing = false;
+    let lastDrawAt = 0;
     const scratch = document.createElement('canvas');
     const scratchContext = scratch.getContext('2d', { willReadFrequently: true, alpha: true });
     const canVfc = typeof video.requestVideoFrameCallback === 'function';
@@ -88,33 +90,42 @@ function usePackedAlphaDraw(videoRef, canvasRef, enabled, videoSrc) {
     };
 
     const drawOnce = () => {
+      if (drawing || stopped) return;
+      const now = performance.now();
+      if (now - lastDrawAt < 33) return;
       if (!scratchContext || video.readyState < 2 || video.seeking || !video.videoWidth || !video.videoHeight) {
         return;
       }
 
-      const scale = Math.min(1, MAX_PACKED_WIDTH / video.videoWidth);
-      const width = Math.max(2, Math.round(video.videoWidth * scale));
-      const height = Math.max(1, Math.round(video.videoHeight * scale));
-      const colorWidth = Math.floor(width / 2);
+      drawing = true;
+      lastDrawAt = now;
+      try {
+        const scale = Math.min(1, MAX_PACKED_WIDTH / video.videoWidth);
+        const width = Math.max(2, Math.round(video.videoWidth * scale));
+        const height = Math.max(1, Math.round(video.videoHeight * scale));
+        const colorWidth = Math.floor(width / 2);
 
-      if (scratch.width !== width || scratch.height !== height) {
-        scratch.width = width;
-        scratch.height = height;
+        if (scratch.width !== width || scratch.height !== height) {
+          scratch.width = width;
+          scratch.height = height;
+        }
+
+        scratchContext.drawImage(video, 0, 0, width, height);
+        const packed = scratchContext.getImageData(0, 0, width, height);
+        if (isDecoderBlackFrame(packed)) {
+          return;
+        }
+
+        const framed = applyPackedAlpha(packed);
+        if (canvas.width !== colorWidth || canvas.height !== height) {
+          canvas.width = colorWidth;
+          canvas.height = height;
+        }
+
+        context.putImageData(framed, 0, 0);
+      } finally {
+        drawing = false;
       }
-
-      scratchContext.drawImage(video, 0, 0, width, height);
-      const packed = scratchContext.getImageData(0, 0, width, height);
-      if (isDecoderBlackFrame(packed)) {
-        return;
-      }
-
-      const framed = applyPackedAlpha(packed);
-      if (canvas.width !== colorWidth || canvas.height !== height) {
-        canvas.width = colorWidth;
-        canvas.height = height;
-      }
-
-      context.putImageData(framed, 0, 0);
     };
 
     const schedule = () => {

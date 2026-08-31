@@ -49,14 +49,7 @@ function loadImage(src: string) {
   return new Promise<HTMLImageElement>((resolve, reject) => {
     const img = new Image();
     img.decoding = "async";
-    img.onload = () => {
-      const decoded = img.decode?.();
-      if (decoded) {
-        void decoded.then(() => resolve(img)).catch(() => resolve(img));
-        return;
-      }
-      resolve(img);
-    };
+    img.onload = () => resolve(img);
     img.onerror = () => reject(new Error(`load ${src}`));
     img.src = src;
   });
@@ -115,6 +108,7 @@ export function sceneTile(
 const videoCache = new Map<string, Promise<HTMLVideoElement>>();
 const CLIP_DECODE_PX = 288;
 const CLIP_HOST_ID = "trail-clip-host";
+let mediaEpoch = 0;
 
 function clipHost(root?: HTMLElement | null) {
   let host = document.getElementById(CLIP_HOST_ID) as HTMLDivElement | null;
@@ -152,6 +146,7 @@ function loadVideo(src: string, loop: boolean) {
   const cached = videoCache.get(src);
   if (cached) return cached;
   const packed = isPackedSrc(src);
+  const epoch = mediaEpoch;
   const pending = new Promise<HTMLVideoElement>((resolve, reject) => {
     const video = document.createElement("video");
     video.muted = true;
@@ -163,20 +158,33 @@ function loadVideo(src: string, loop: boolean) {
     video.setAttribute("webkit-playsinline", "true");
     video.crossOrigin = "anonymous";
     mountClip(video, packed);
+    if (epoch !== mediaEpoch) {
+      disposeVideo(video);
+      reject(new Error("released"));
+      return;
+    }
     video.src = src;
     let settled = false;
-    const onReady = () => {
+    const finish = (ok: boolean) => {
       if (settled) return;
       settled = true;
       video.removeEventListener("loadeddata", onReady);
       video.removeEventListener("canplay", onReady);
       video.removeEventListener("error", onErr);
-      resolve(video);
+      if (epoch !== mediaEpoch) {
+        disposeVideo(video);
+        videoCache.delete(src);
+        reject(new Error("released"));
+        return;
+      }
+      if (ok) resolve(video);
+      else {
+        videoCache.delete(src);
+        reject(new Error(`load ${src}`));
+      }
     };
-    const onErr = () => {
-      videoCache.delete(src);
-      reject(new Error(`load ${src}`));
-    };
+    const onReady = () => finish(true);
+    const onErr = () => finish(false);
     video.addEventListener("loadeddata", onReady);
     video.addEventListener("canplay", onReady);
     video.addEventListener("error", onErr);
@@ -260,31 +268,72 @@ function tileRange(from: number, to: number) {
   return Array.from({ length: to - from + 1 }, (_, i) => from + i);
 }
 
-function loadSeasonPack(season: SceneSeason, needJump: boolean) {
-  const key = `${season}:${needJump ? "jump" : "duck"}`;
+function loadSeasonPlayable(season: SceneSeason, needJump: boolean) {
+  const key = `play:${season}:${needJump ? "jump" : "duck"}`;
   const cached = seasonCache.get(key);
   if (cached) return cached;
   const urls = seasonUrls(season);
   const pending = (async () => {
-    const [jumpStripRaw, duckStripRaw] = await Promise.all([
-      needJump ? loadFirstImage(urls.jumpStrip) : Promise.resolve(null),
-      loadFirstImage(urls.duckStrip),
-    ]);
-    const jumpStrip = needJump ? usableStrip(jumpStripRaw) : null;
-    const duckStrip = usableStrip(duckStripRaw);
-    const duckFrom = duckStrip ? STRIP_TILES + 1 : 1;
-    const jumpFrom = jumpStrip ? STRIP_TILES + 1 : 1;
-    const duck = await Promise.all(tileRange(duckFrom, SEASON_TILES).map((i) => loadImage(urls.duck(i))));
-    const scenes = needJump
-      ? await Promise.all(tileRange(jumpFrom, SEASON_TILES).map((i) => loadImage(urls.jump(i))))
-      : duck;
-    return { scenes, scenesDuck: duck, jumpStrip, duckStrip };
+    const primary = needJump
+      ? usableStrip(await loadFirstImage(urls.jumpStrip))
+      : usableStrip(await loadFirstImage(urls.duckStrip));
+    return {
+      scenes: [] as HTMLImageElement[],
+      scenesDuck: [] as HTMLImageElement[],
+      jumpStrip: needJump ? primary : null,
+      duckStrip: needJump ? null : primary,
+    };
   })();
   pending.catch(() => {
     seasonCache.delete(key);
   });
   seasonCache.set(key, pending);
   return pending;
+}
+
+function loadSeasonPack(season: SceneSeason, needJump: boolean) {
+  const key = `${season}:${needJump ? "jump" : "duck"}`;
+  const cached = seasonCache.get(key);
+  if (cached) return cached;
+  const pending = (async () => {
+    const playable = await loadSeasonPlayable(season, needJump);
+    return hydrateSeasonExtras(playable, season, needJump);
+  })();
+  pending.catch(() => {
+    seasonCache.delete(key);
+  });
+  seasonCache.set(key, pending);
+  return pending;
+}
+
+async function hydrateSeasonExtras(
+  pack: {
+    scenes: HTMLImageElement[];
+    scenesDuck: HTMLImageElement[];
+    jumpStrip: HTMLImageElement | null;
+    duckStrip: HTMLImageElement | null;
+  },
+  season: SceneSeason,
+  needJump: boolean,
+) {
+  const urls = seasonUrls(season);
+  if (!pack.jumpStrip) {
+    pack.jumpStrip = usableStrip(await loadFirstImage(urls.jumpStrip));
+  }
+  if (!pack.duckStrip) {
+    pack.duckStrip = usableStrip(await loadFirstImage(urls.duckStrip));
+  }
+  const duckFrom = pack.duckStrip ? STRIP_TILES + 1 : 1;
+  const jumpFrom = pack.jumpStrip ? STRIP_TILES + 1 : 1;
+  if (pack.scenesDuck.length === 0) {
+    pack.scenesDuck = await Promise.all(tileRange(duckFrom, SEASON_TILES).map((i) => loadImage(urls.duck(i))));
+  }
+  if (needJump && pack.scenes.length === 0) {
+    pack.scenes = await Promise.all(tileRange(jumpFrom, SEASON_TILES).map((i) => loadImage(urls.jump(i))));
+  } else if (!needJump && pack.scenes.length === 0) {
+    pack.scenes = pack.scenesDuck;
+  }
+  return pack;
 }
 
 export async function loadWorldAssets(
@@ -328,7 +377,7 @@ export async function loadPlayableAssets(
   const spec = getCharacter(characterId);
   const [walk, pack] = await Promise.all([
     loadGameClip(spec.walk, true),
-    loadSeasonPack(season, needJump),
+    loadSeasonPlayable(season, needJump),
   ]);
   return {
     characterId: spec.id,
@@ -342,39 +391,50 @@ export async function loadPlayableAssets(
   };
 }
 
-/** Fill jump/duck/bird/flag on the same object the engine already holds. */
-export async function hydrateGameAssets(assets: GameAssets, _needJump = true) {
+/** Fill jump/duck/bird/flag and the rest of the season on the live assets object. */
+export async function hydrateGameAssets(
+  assets: GameAssets,
+  season: SceneSeason = "summer",
+  needJump = true,
+) {
   const spec = getCharacter(assets.characterId);
+  const epoch = mediaEpoch;
   const jobs: Promise<void>[] = [];
   if (!assets.jump) {
     jobs.push(
       loadGameClip(spec.jump, false).then((video) => {
-        assets.jump = video;
+        if (epoch === mediaEpoch) assets.jump = video;
       }),
     );
   }
   if (!assets.duck) {
     jobs.push(
       loadGameClip(spec.duck, false).then((video) => {
-        assets.duck = video;
+        if (epoch === mediaEpoch) assets.duck = video;
       }),
     );
   }
   if (!assets.tired && spec.tired) {
     jobs.push(
       loadOptionalVideo(spec.tired, false).then((video) => {
-        assets.tired = video;
+        if (epoch === mediaEpoch) assets.tired = video;
       }),
     );
   }
   if (!assets.bird || !assets.flag) {
     jobs.push(
       loadSharedWorld().then(({ bird, flag }) => {
+        if (epoch !== mediaEpoch) return;
         assets.bird = bird;
         assets.flag = flag;
       }),
     );
   }
+  jobs.push(
+    hydrateSeasonExtras(assets, season, needJump).then(() => {
+      /* pack fields live on assets */
+    }),
+  );
   await Promise.all(jobs);
 }
 
@@ -384,7 +444,7 @@ export async function loadGameAssets(
   needJump = true,
 ): Promise<GameAssets> {
   const assets = await loadPlayableAssets(characterId, season, needJump);
-  await hydrateGameAssets(assets, needJump);
+  await hydrateGameAssets(assets, season, needJump);
   return assets;
 }
 
@@ -406,6 +466,7 @@ function disposeVideo(video: HTMLVideoElement) {
 
 /** Drop decoded clips/scenes so Free Walk and the rest of the app can breathe. */
 export function releaseGameMedia() {
+  mediaEpoch += 1;
   for (const pending of videoCache.values()) {
     void pending.then(disposeVideo).catch(() => {});
   }
