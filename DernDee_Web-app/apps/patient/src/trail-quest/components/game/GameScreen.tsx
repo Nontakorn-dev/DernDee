@@ -144,8 +144,8 @@ export function GameScreen({
 
     const season = sceneSeasonForStage(stageId);
     const needJump = chapterNeedsJump(chapterId);
-    void loadPlayableAssets(settings.character, season, needJump)
-      .catch(() => loadPlayableAssets("dino", season, needJump))
+    void loadPlayableAssets(settings.character, season, needJump, isEnergyRun(chapterId))
+      .catch(() => loadPlayableAssets("dino", season, needJump, isEnergyRun(chapterId)))
       .then((assets) => {
         if (cancelled) return;
         startEngine(assets);

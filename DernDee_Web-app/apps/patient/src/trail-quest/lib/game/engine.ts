@@ -10,6 +10,8 @@ import {
   sceneCapacity,
   sceneTile,
   tryPlay,
+  playFrom,
+  seekAndPause,
   attachGameClips,
   type CharacterClips,
   type SceneBlit,
@@ -163,6 +165,7 @@ export function createEngine(canvas: HTMLCanvasElement, config: EngineConfig) {
   let lastSfxPhase: GamePhase | null = null;
   let tiredWrapAt = 0;
   let walkClock = 0;
+  let animClip: HTMLVideoElement | null = null;
 
   const emit = (force = false) => {
     const next = hudFrom(state, config);
@@ -261,63 +264,44 @@ export function createEngine(canvas: HTMLCanvasElement, config: EngineConfig) {
     if (state.phase === "jumping") {
       duck?.pause();
       tired?.pause();
-      if (!jump) {
-        if (walk.paused) void tryPlay(walk);
-      } else if (lastAnimPhase !== "jumping") {
-        walk.pause();
-        jump.pause();
-        jump.currentTime = spec.jumpSeek;
-        jump.playbackRate = spec.jumpRate;
-        void tryPlay(jump);
-      } else if (jump.paused) {
-        walk.pause();
-        if (jump.currentTime < spec.jumpSeek - 0.1) {
-          jump.currentTime = spec.jumpSeek;
-          jump.playbackRate = spec.jumpRate;
+      if (jump) {
+        if (lastAnimPhase !== "jumping" || animClip !== jump) {
+          animClip = jump;
+          walk.pause();
+          playFrom(jump, spec.jumpSeek, spec.jumpRate);
+        } else if (jump.paused && !jump.seeking) {
+          void tryPlay(jump);
         }
-        void tryPlay(jump);
+      } else if (walk.paused) {
+        void tryPlay(walk);
       }
     } else if (state.phase === "ducking") {
       jump?.pause();
       tired?.pause();
-      if (!duck) {
-        if (walk.paused) void tryPlay(walk);
-      } else if (lastAnimPhase !== "ducking") {
-        walk.pause();
-        duck.pause();
-        duck.currentTime = spec.duckSeek;
-        duck.playbackRate = spec.duckRate;
-        void tryPlay(duck);
-      } else if (duck.paused) {
-        walk.pause();
-        if (duck.currentTime < spec.duckSeek - 0.1) {
-          duck.currentTime = spec.duckSeek;
-          duck.playbackRate = spec.duckRate;
+      if (duck) {
+        if (lastAnimPhase !== "ducking" || animClip !== duck) {
+          animClip = duck;
+          walk.pause();
+          playFrom(duck, spec.duckSeek, spec.duckRate);
+        } else if (duck.paused && !duck.seeking) {
+          void tryPlay(duck);
         }
-        void tryPlay(duck);
+      } else if (walk.paused) {
+        void tryPlay(walk);
       }
-    } else if (
-      state.phase === "walking" ||
-      state.phase === "running" ||
-      (!isEnergyRun(config.chapter) && (state.phase === "waiting" || state.phase === "charging"))
-    ) {
+    } else if (state.phase === "walking" || state.phase === "running") {
       jump?.pause();
       duck?.pause();
       tired?.pause();
       walk.loop = true;
       walk.playbackRate = state.phase === "running" ? 1.35 : 1;
       const seek = spec.walkSeek;
-      const entering = lastAnimPhase !== "walking" && lastAnimPhase !== "running"
-        && lastAnimPhase !== "waiting" && lastAnimPhase !== "charging";
-      if (entering) {
+      const entering = lastAnimPhase !== "walking" && lastAnimPhase !== "running";
+      if (entering || animClip !== walk) {
+        animClip = walk;
         walkClock = 0;
-        try {
-          walk.currentTime = seek;
-        } catch {
-          /* WebKit may ignore the first seek */
-        }
-        void tryPlay(walk);
-      } else if (walk.paused) {
+        playFrom(walk, seek, walk.playbackRate);
+      } else if (walk.paused && !walk.seeking) {
         void tryPlay(walk);
       } else if (!constrained) {
         walkClock += 1;
@@ -327,10 +311,22 @@ export function createEngine(canvas: HTMLCanvasElement, config: EngineConfig) {
           if (t < seek - 0.25) {
             walk.currentTime = seek;
           } else if (Number.isFinite(dur) && dur > seek + 1 && t >= dur - 0.18) {
-            walk.currentTime = seek;
-            void tryPlay(walk);
+            playFrom(walk, seek, walk.playbackRate);
           }
         }
+      }
+    } else if (
+      !isEnergyRun(config.chapter) &&
+      (state.phase === "waiting" || state.phase === "charging")
+    ) {
+      jump?.pause();
+      duck?.pause();
+      tired?.pause();
+      if (lastAnimPhase !== "waiting" && lastAnimPhase !== "charging") {
+        animClip = walk;
+        seekAndPause(walk, 0);
+      } else if (!walk.paused) {
+        walk.pause();
       }
     } else if (
       (state.phase === "tired" || state.phase === "charging") &&
@@ -340,25 +336,26 @@ export function createEngine(canvas: HTMLCanvasElement, config: EngineConfig) {
       jump?.pause();
       duck?.pause();
       walk.pause();
-      tired.loop = false;
+      tired.loop = constrained;
       tired.playbackRate = spec.tiredRate;
       const entering = lastAnimPhase !== "tired" && lastAnimPhase !== "charging";
       const hold = spec.tiredHold;
       const end = Math.max(hold + 0.6, (tired.duration || hold) - 0.04);
-      if (entering) {
+      if (entering || animClip !== tired) {
+        animClip = tired;
         tiredWrapAt = 0;
-        tired.currentTime = spec.tiredSeek;
-        void tryPlay(tired);
+        playFrom(tired, spec.tiredSeek, spec.tiredRate);
+      } else if (constrained) {
+        if (tired.paused && !tired.seeking) void tryPlay(tired);
       } else if (tired.ended || tired.currentTime >= end) {
         const now = performance.now();
         if (now >= tiredWrapAt) {
-          tired.currentTime = hold;
           tiredWrapAt = now + 900;
-          void tryPlay(tired);
-        } else if (tired.paused) {
+          playFrom(tired, hold, spec.tiredRate);
+        } else if (tired.paused && !tired.seeking) {
           void tryPlay(tired);
         }
-      } else if (tired.paused) {
+      } else if (tired.paused && !tired.seeking) {
         void tryPlay(tired);
       }
     } else {
@@ -789,12 +786,7 @@ export function createEngine(canvas: HTMLCanvasElement, config: EngineConfig) {
       window.addEventListener("resize", resize);
       if (assets) {
         const spec = getCharacter(assets.characterId);
-        try {
-          assets.walk.currentTime = spec.walkSeek;
-        } catch {
-          /* WebKit may still be opening the decoder */
-        }
-        void tryPlay(assets.walk);
+        playFrom(assets.walk, spec.walkSeek, 1);
         if (assets.flag) void tryPlay(assets.flag);
       }
       emit(true);
@@ -855,6 +847,7 @@ export function createEngine(canvas: HTMLCanvasElement, config: EngineConfig) {
         assets.tired = clips.tired;
       }
       lastAnimPhase = null;
+      animClip = null;
     },
   };
 }

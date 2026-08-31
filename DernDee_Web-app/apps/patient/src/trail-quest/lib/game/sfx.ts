@@ -99,7 +99,31 @@ export function createGameSfx(opts?: { energyRun?: boolean }) {
       const first = !unlocked;
       unlocked = true;
       audioPrimed = true;
-      if (first) flushPending();
+      if (first) {
+        for (const clip of all) {
+          const vol = clip.volume;
+          clip.volume = 0;
+          void clip
+            .play()
+            .then(() => {
+              clip.volume = vol;
+              if (clip === walk || clip === tired) {
+                syncLoops();
+                return;
+              }
+              clip.pause();
+              try {
+                clip.currentTime = 0;
+              } catch {
+                /* iOS may still be buffering */
+              }
+            })
+            .catch(() => {
+              clip.volume = vol;
+            });
+        }
+      }
+      flushPending();
       syncLoops();
     },
     setMuted(next: boolean) {

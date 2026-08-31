@@ -368,24 +368,33 @@ export async function loadCharacterClips(characterId: CharacterId): Promise<Char
   return { characterId: spec.id, walk, jump, duck, tired };
 }
 
-/** Walk + season art only — enough to start moving on iPad. */
+/** Walk + the clip this chapter needs first, plus season art. */
 export async function loadPlayableAssets(
   characterId: CharacterId,
   season: SceneSeason = "summer",
   needJump = true,
+  energyRun = false,
 ): Promise<GameAssets> {
   const spec = getCharacter(characterId);
-  const [walk, pack] = await Promise.all([
+  const action = energyRun
+    ? loadOptionalVideo(spec.tired, false)
+    : needJump
+      ? loadGameClip(spec.jump, false)
+      : loadGameClip(spec.duck, false);
+  const bird = !energyRun && !needJump ? loadGameClip("/game/bird.mp4", true) : Promise.resolve(null);
+  const [walk, pack, actionClip, birdClip] = await Promise.all([
     loadGameClip(spec.walk, true),
     loadSeasonPlayable(season, needJump),
+    action,
+    bird,
   ]);
   return {
     characterId: spec.id,
     walk,
-    jump: null,
-    duck: null,
-    tired: null,
-    bird: null,
+    jump: needJump ? actionClip : null,
+    duck: !needJump && !energyRun ? actionClip : null,
+    tired: energyRun ? actionClip : null,
+    bird: birdClip,
     flag: null,
     ...pack,
   };
@@ -453,6 +462,49 @@ export async function tryPlay(video: HTMLVideoElement) {
     await video.play();
   } catch {
     /* autoplay may wait for a gesture */
+  }
+}
+
+const playFromToken = new WeakMap<HTMLVideoElement, number>();
+
+/** Seek once, then play — WebKit drops currentTime if play() happens in the same turn. */
+export function playFrom(video: HTMLVideoElement, time: number, rate = 1) {
+  video.playbackRate = rate;
+  const token = (playFromToken.get(video) ?? 0) + 1;
+  playFromToken.set(video, token);
+  const start = () => {
+    if (playFromToken.get(video) !== token) return;
+    void tryPlay(video);
+  };
+  const target = Math.max(0, time);
+  if (video.readyState >= 2 && Math.abs((video.currentTime || 0) - target) < 0.1) {
+    start();
+    return;
+  }
+  const onSeeked = () => {
+    video.removeEventListener("seeked", onSeeked);
+    start();
+  };
+  video.addEventListener("seeked", onSeeked);
+  try {
+    video.currentTime = target;
+  } catch {
+    video.removeEventListener("seeked", onSeeked);
+    start();
+    return;
+  }
+  window.setTimeout(() => {
+    video.removeEventListener("seeked", onSeeked);
+    start();
+  }, 360);
+}
+
+export function seekAndPause(video: HTMLVideoElement, time: number) {
+  video.pause();
+  try {
+    video.currentTime = Math.max(0, time);
+  } catch {
+    /* WebKit may still be opening the decoder */
   }
 }
 
