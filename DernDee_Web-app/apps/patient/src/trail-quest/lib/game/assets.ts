@@ -277,3 +277,20 @@ export async function tryPlay(video: HTMLVideoElement) {
     /* autoplay may wait for a gesture */
   }
 }
+
+function disposeVideo(video: HTMLVideoElement) {
+  video.pause();
+  video.removeAttribute("src");
+  video.src = "";
+  video.load();
+}
+
+/** Drop decoded clips/scenes so Free Walk and the rest of the app can breathe. */
+export function releaseGameMedia() {
+  for (const pending of videoCache.values()) {
+    void pending.then(disposeVideo).catch(() => {});
+  }
+  videoCache.clear();
+  sharedPromise = null;
+  seasonCache.clear();
+}

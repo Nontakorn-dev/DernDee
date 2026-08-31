@@ -5,13 +5,15 @@ export function registerDernDeePwa() {
     return () => {}
   }
 
-  return registerSW({
+  const updateSW = registerSW({
     immediate: true,
     onOfflineReady() {
       console.info('DernDee is ready for offline use.')
     },
     onNeedRefresh() {
-      console.info('A new DernDee version is available. Reload to update.')
+      void updateSW(true)
     },
   })
+
+  return updateSW
 }

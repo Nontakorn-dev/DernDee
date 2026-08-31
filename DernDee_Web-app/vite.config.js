@@ -350,7 +350,9 @@ export default defineConfig(({ mode }) => {
           'audio/*.m4a',
         ],
         injectManifest: {
-          globIgnores: ['**/node_modules/**', '**/game/**'],
+          globPatterns: ['**/*.{js,css,html,ico,webmanifest}'],
+          globIgnores: ['**/node_modules/**', '**/game/**', '**/Avatar/**'],
+          maximumFileSizeToCacheInBytes: 2 * 1024 * 1024,
         },
         manifest: {
           name: 'DernDee',

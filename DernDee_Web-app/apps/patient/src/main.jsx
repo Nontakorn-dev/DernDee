@@ -1,4 +1,4 @@
-import React from 'react'
+import React, { lazy, Suspense } from 'react'
 import ReactDOM from 'react-dom/client'
 import Login from '@patient/components/Login.jsx'
 import Register from '@patient/components/Register.jsx'
@@ -9,20 +9,9 @@ import Settings from '@patient/components/Settings.jsx'
 import Calibration from '@patient/components/Calibration.jsx'
 import FreeWalkSession from '@patient/components/walk/FreeWalkSession.jsx'
 import WalkSummary from '@patient/components/WalkSummary.jsx'
-import AnalysisResult from '@patient/components/AnalysisResult.jsx'
 import DeviceConnection from '@patient/components/DeviceConnection.jsx'
-import Telemedicine from '@patient/components/Telemedicine.jsx'
-import History from '@patient/components/History.jsx'
 import TherapySelect from '@patient/components/TherapySelect.jsx'
-import GaitDashboard from '@patient/components/GaitDashboard.jsx'
 import PatientLiveGaitMirror from '@patient/components/PatientLiveGaitMirror.jsx'
-import GameClearance from '@patient/components/games/GameClearance.jsx'
-import GameBalance from '@patient/components/games/GameBalance.jsx'
-import GameRhythm from '@patient/components/games/GameRhythm.jsx'
-import GameSteppingStones from '@patient/components/games/GameSteppingStones.jsx'
-import GameKneeFlexion from '@patient/components/games/GameKneeFlexion.jsx'
-import { JourneyMap } from '@trail/components/journey/JourneyMap'
-import { PlayClient } from '@trail/components/game/PlayClient'
 import ProtectedRoute from '@shared/auth/ProtectedRoute.jsx'
 import { registerDernDeePwa } from '@shared/pwa/registerPwa.js'
 
@@ -33,6 +22,26 @@ import {
   Navigate,
   RouterProvider,
 } from "react-router-dom";
+
+const AnalysisResult = lazy(() => import('@patient/components/AnalysisResult.jsx'))
+const Telemedicine = lazy(() => import('@patient/components/Telemedicine.jsx'))
+const History = lazy(() => import('@patient/components/History.jsx'))
+const GaitDashboard = lazy(() => import('@patient/components/GaitDashboard.jsx'))
+const GameClearance = lazy(() => import('@patient/components/games/GameClearance.jsx'))
+const GameBalance = lazy(() => import('@patient/components/games/GameBalance.jsx'))
+const GameRhythm = lazy(() => import('@patient/components/games/GameRhythm.jsx'))
+const GameSteppingStones = lazy(() => import('@patient/components/games/GameSteppingStones.jsx'))
+const GameKneeFlexion = lazy(() => import('@patient/components/games/GameKneeFlexion.jsx'))
+const JourneyMap = lazy(() =>
+  import('@trail/components/journey/JourneyMap').then((module) => ({ default: module.JourneyMap })),
+)
+const PlayClient = lazy(() =>
+  import('@trail/components/game/PlayClient').then((module) => ({ default: module.PlayClient })),
+)
+
+function PageFallback() {
+  return <div className="min-h-screen bg-[#D7E6F2]" />
+}
 
 const router = createBrowserRouter([
   {
@@ -147,7 +156,9 @@ ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode>
     <UserAuthContextProvider>
       <PatientLiveGaitMirror />
-      <RouterProvider router={router} />
+      <Suspense fallback={<PageFallback />}>
+        <RouterProvider router={router} />
+      </Suspense>
     </UserAuthContextProvider>
   </React.StrictMode>,
 )
