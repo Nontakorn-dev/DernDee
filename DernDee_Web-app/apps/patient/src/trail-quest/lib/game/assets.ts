@@ -29,8 +29,8 @@ export function sceneSeasonForStage(stageId: number): SceneSeason {
 export type CharacterClips = {
   characterId: CharacterId;
   walk: HTMLVideoElement;
-  jump: HTMLVideoElement;
-  duck: HTMLVideoElement;
+  jump: HTMLVideoElement | null;
+  duck: HTMLVideoElement | null;
   tired: HTMLVideoElement | null;
 };
 
@@ -39,8 +39,8 @@ export type WorldAssets = {
   scenesDuck: HTMLImageElement[];
   jumpStrip: HTMLImageElement | null;
   duckStrip: HTMLImageElement | null;
-  bird: HTMLVideoElement;
-  flag: HTMLVideoElement;
+  bird: HTMLVideoElement | null;
+  flag: HTMLVideoElement | null;
 };
 
 export type GameAssets = WorldAssets & CharacterClips;
@@ -170,14 +170,7 @@ function loadVideo(src: string, loop: boolean) {
       settled = true;
       video.removeEventListener("loadeddata", onReady);
       video.removeEventListener("canplay", onReady);
-      video.removeEventListener("canplaythrough", onReady);
       video.removeEventListener("error", onErr);
-      video.pause();
-      try {
-        video.currentTime = 0;
-      } catch {
-        /* WebKit may still be opening the decoder */
-      }
       resolve(video);
     };
     const onErr = () => {
@@ -186,7 +179,6 @@ function loadVideo(src: string, loop: boolean) {
     };
     video.addEventListener("loadeddata", onReady);
     video.addEventListener("canplay", onReady);
-    video.addEventListener("canplaythrough", onReady);
     video.addEventListener("error", onErr);
     video.load();
   });
@@ -244,7 +236,7 @@ function seasonUrls(season: SceneSeason) {
     };
   }
   return {
-    jumpStrip: ["/game/scenes/sence-strip.png", "/game/scenes/sence-strip.jpg"],
+    jumpStrip: ["/game/scenes/sence-strip.jpg", "/game/scenes/sence-strip.png"],
     duckStrip: ["/game/scenes/dorsi/sence-strip.jpg"],
     jump: (i: number) => `/game/scenes/sence${i}.png`,
     duck: (i: number) => `/game/scenes/dorsi/sence${i}.jpg`,
@@ -327,16 +319,73 @@ export async function loadCharacterClips(characterId: CharacterId): Promise<Char
   return { characterId: spec.id, walk, jump, duck, tired };
 }
 
+/** Walk + season art only — enough to start moving on iPad. */
+export async function loadPlayableAssets(
+  characterId: CharacterId,
+  season: SceneSeason = "summer",
+  needJump = true,
+): Promise<GameAssets> {
+  const spec = getCharacter(characterId);
+  const [walk, pack] = await Promise.all([
+    loadGameClip(spec.walk, true),
+    loadSeasonPack(season, needJump),
+  ]);
+  return {
+    characterId: spec.id,
+    walk,
+    jump: null,
+    duck: null,
+    tired: null,
+    bird: null,
+    flag: null,
+    ...pack,
+  };
+}
+
+/** Fill jump/duck/bird/flag on the same object the engine already holds. */
+export async function hydrateGameAssets(assets: GameAssets, _needJump = true) {
+  const spec = getCharacter(assets.characterId);
+  const jobs: Promise<void>[] = [];
+  if (!assets.jump) {
+    jobs.push(
+      loadGameClip(spec.jump, false).then((video) => {
+        assets.jump = video;
+      }),
+    );
+  }
+  if (!assets.duck) {
+    jobs.push(
+      loadGameClip(spec.duck, false).then((video) => {
+        assets.duck = video;
+      }),
+    );
+  }
+  if (!assets.tired && spec.tired) {
+    jobs.push(
+      loadOptionalVideo(spec.tired, false).then((video) => {
+        assets.tired = video;
+      }),
+    );
+  }
+  if (!assets.bird || !assets.flag) {
+    jobs.push(
+      loadSharedWorld().then(({ bird, flag }) => {
+        assets.bird = bird;
+        assets.flag = flag;
+      }),
+    );
+  }
+  await Promise.all(jobs);
+}
+
 export async function loadGameAssets(
   characterId: CharacterId,
   season: SceneSeason = "summer",
   needJump = true,
 ): Promise<GameAssets> {
-  const [world, clips] = await Promise.all([
-    loadWorldAssets(season, needJump),
-    loadCharacterClips(characterId),
-  ]);
-  return { ...world, ...clips };
+  const assets = await loadPlayableAssets(characterId, season, needJump);
+  await hydrateGameAssets(assets, needJump);
+  return assets;
 }
 
 export async function tryPlay(video: HTMLVideoElement) {

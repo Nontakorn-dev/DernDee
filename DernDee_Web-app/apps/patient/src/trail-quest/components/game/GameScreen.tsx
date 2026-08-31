@@ -2,8 +2,9 @@ import { GameHeader, HeaderIconButton } from "@trail/components/game/GameHeader"
 import { GameHud } from "@trail/components/game/Hud";
 import { SettingsButton, SettingsModal } from "@trail/components/game/SettingsModal";
 import {
+  hydrateGameAssets,
   loadCharacterClips,
-  loadGameAssets,
+  loadPlayableAssets,
   preloadWorldAssets,
   sceneSeasonForStage,
   type GameAssets,
@@ -143,9 +144,13 @@ export function GameScreen({
 
     const season = sceneSeasonForStage(stageId);
     const needJump = chapterNeedsJump(chapterId);
-    void loadGameAssets(settings.character, season, needJump)
-      .catch(() => loadGameAssets("dino", season, needJump))
-      .then((assets) => startEngine(assets))
+    void loadPlayableAssets(settings.character, season, needJump)
+      .catch(() => loadPlayableAssets("dino", season, needJump))
+      .then((assets) => {
+        if (cancelled) return;
+        startEngine(assets);
+        void hydrateGameAssets(assets, needJump).catch(() => {});
+      })
       .catch(() => startEngine());
 
     let cleanup = () => {
