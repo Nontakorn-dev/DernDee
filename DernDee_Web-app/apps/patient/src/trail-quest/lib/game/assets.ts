@@ -1,4 +1,5 @@
 import { getCharacter, type CharacterId } from "@trail/lib/game/characters";
+import { isConstrainedWebKit } from "@trail/lib/game/runtime";
 
 export const SCENE_SRC_W = 1792;
 export const SCENE_SRC_H = 1008;
@@ -129,27 +130,28 @@ function clipHost(root?: HTMLElement | null) {
   return host;
 }
 
-function mountClip(video: HTMLVideoElement, root?: HTMLElement | null) {
-  video.width = CLIP_DECODE_PX;
-  video.height = CLIP_DECODE_PX;
-  video.style.cssText = `width:${CLIP_DECODE_PX}px;height:${CLIP_DECODE_PX}px;display:block;position:absolute;left:0;top:0`;
+function mountClip(video: HTMLVideoElement, packed = false, root?: HTMLElement | null) {
+  const w = packed ? CLIP_DECODE_PX * 2 : CLIP_DECODE_PX;
+  const h = CLIP_DECODE_PX;
+  video.width = w;
+  video.height = h;
+  video.style.cssText = `width:${w}px;height:${h}px;display:block;position:absolute;left:0;top:0`;
   const host = clipHost(root);
   if (video.parentElement !== host) host.appendChild(video);
 }
 
-/** Keep clips in the visible game tree so WebKit/Bluefy actually decode frames. */
-export function attachGameClips(root?: HTMLElement | null) {
-  const host = clipHost(root);
-  for (const pending of videoCache.values()) {
-    void pending.then((video) => {
-      if (video.parentElement !== host) host.appendChild(video);
-    });
-  }
+function isPackedSrc(src: string) {
+  return /\.ios\.mp4(?:$|\?)/i.test(src);
+}
+
+function packedSrc(src: string) {
+  return src.replace(/\.mp4$/i, ".ios.mp4");
 }
 
 function loadVideo(src: string, loop: boolean) {
   const cached = videoCache.get(src);
   if (cached) return cached;
+  const packed = isPackedSrc(src);
   const pending = new Promise<HTMLVideoElement>((resolve, reject) => {
     const video = document.createElement("video");
     video.muted = true;
@@ -160,7 +162,7 @@ function loadVideo(src: string, loop: boolean) {
     video.setAttribute("playsinline", "true");
     video.setAttribute("webkit-playsinline", "true");
     video.crossOrigin = "anonymous";
-    mountClip(video);
+    mountClip(video, packed);
     video.src = src;
     let settled = false;
     const onReady = () => {
@@ -190,6 +192,27 @@ function loadVideo(src: string, loop: boolean) {
   });
   videoCache.set(src, pending);
   return pending;
+}
+
+async function loadGameClip(src: string, loop: boolean) {
+  if (isConstrainedWebKit()) {
+    try {
+      return await loadVideo(packedSrc(src), loop);
+    } catch {
+      return loadVideo(src, loop);
+    }
+  }
+  return loadVideo(src, loop);
+}
+
+/** Keep clips in the visible game tree so WebKit/Bluefy actually decode frames. */
+export function attachGameClips(root?: HTMLElement | null) {
+  const host = clipHost(root);
+  for (const pending of videoCache.values()) {
+    void pending.then((video) => {
+      if (video.parentElement !== host) host.appendChild(video);
+    });
+  }
 }
 
 let sharedPromise: Promise<{ bird: HTMLVideoElement; flag: HTMLVideoElement }> | null = null;
@@ -231,8 +254,8 @@ function seasonUrls(season: SceneSeason) {
 function loadSharedWorld() {
   if (!sharedPromise) {
     sharedPromise = Promise.all([
-      loadVideo("/game/bird.mp4", true),
-      loadVideo("/game/flag.mp4", true),
+      loadGameClip("/game/bird.mp4", true),
+      loadGameClip("/game/flag.mp4", true),
     ]).then(([bird, flag]) => ({ bird, flag }));
     sharedPromise.catch(() => {
       sharedPromise = null;
@@ -287,7 +310,7 @@ export function preloadWorldAssets(season: SceneSeason, needJump = true) {
 async function loadOptionalVideo(src: string | undefined, loop: boolean) {
   if (!src) return null;
   try {
-    return await loadVideo(src, loop);
+    return await loadGameClip(src, loop);
   } catch {
     return null;
   }
@@ -296,9 +319,9 @@ async function loadOptionalVideo(src: string | undefined, loop: boolean) {
 export async function loadCharacterClips(characterId: CharacterId): Promise<CharacterClips> {
   const spec = getCharacter(characterId);
   const [walk, jump, duck, tired] = await Promise.all([
-    loadVideo(spec.walk, true),
-    loadVideo(spec.jump, false),
-    loadVideo(spec.duck, false),
+    loadGameClip(spec.walk, true),
+    loadGameClip(spec.jump, false),
+    loadGameClip(spec.duck, false),
     loadOptionalVideo(spec.tired, false),
   ]);
   return { characterId: spec.id, walk, jump, duck, tired };

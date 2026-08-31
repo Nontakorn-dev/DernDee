@@ -5,7 +5,7 @@ import {
   getAvatarVideoSrc,
 } from './avatarClips.js';
 
-const MAX_PACKED_WIDTH = 960;
+const MAX_PACKED_WIDTH = 1600;
 const AVATAR_FRAME_W = 1280;
 const AVATAR_FRAME_H = 704;
 const MEDIA_SHOW = 'absolute inset-0 z-10 h-full w-full bg-transparent object-contain object-center';

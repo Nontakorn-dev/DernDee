@@ -14,8 +14,16 @@ const FRAG = `
 precision mediump float;
 varying vec2 v_uv;
 uniform sampler2D u_image;
+uniform float u_packed;
 void main() {
-  vec4 c = texture2D(u_image, v_uv);
+  vec4 full = texture2D(u_image, v_uv);
+  vec3 packedColor = texture2D(u_image, vec2(v_uv.x * 0.5, v_uv.y)).rgb;
+  float packedAlpha = texture2D(u_image, vec2(0.5 + v_uv.x * 0.5, v_uv.y)).r;
+  if (u_packed > 0.5) {
+    gl_FragColor = vec4(packedColor, packedAlpha);
+    return;
+  }
+  vec4 c = full;
   float r = c.r * 255.0;
   float g = c.g * 255.0;
   float b = c.b * 255.0;
@@ -51,7 +59,7 @@ type GlBlit = {
   gl: WebGLRenderingContext;
   tex: WebGLTexture;
   size: number;
-  draw: (source: TexImageSource) => boolean;
+  draw: (source: TexImageSource, packed: boolean) => boolean;
   dispose: () => void;
 };
 
@@ -69,7 +77,7 @@ function compile(gl: WebGLRenderingContext, type: number, src: string) {
 
 function createGlBlit(): GlBlit | null {
   const canvas = document.createElement("canvas");
-  const size = isConstrainedWebKit() ? 480 : 640;
+  const size = isConstrainedWebKit() ? 640 : 720;
   canvas.width = size;
   canvas.height = size;
   const gl = canvas.getContext("webgl", {
@@ -107,6 +115,7 @@ function createGlBlit(): GlBlit | null {
   gl.enableVertexAttribArray(aUv);
   gl.vertexAttribPointer(aUv, 2, gl.FLOAT, false, 16, 8);
   gl.uniform1i(gl.getUniformLocation(program, "u_image"), 0);
+  const uPacked = gl.getUniformLocation(program, "u_packed");
 
   const tex = gl.createTexture();
   if (!tex) return null;
@@ -137,9 +146,10 @@ function createGlBlit(): GlBlit | null {
     gl,
     tex,
     size,
-    draw(source) {
+    draw(source, packed) {
       if (!alive || gl.isContextLost()) return false;
       try {
+        gl.uniform1f(uPacked, packed ? 1 : 0);
         gl.bindTexture(gl.TEXTURE_2D, tex);
         gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, source);
         gl.viewport(0, 0, size, size);
@@ -155,6 +165,16 @@ function createGlBlit(): GlBlit | null {
       gl.getExtension("WEBGL_lose_context")?.loseContext();
     },
   };
+}
+
+export function isPackedSource(source: CanvasImageSource) {
+  if (source instanceof HTMLVideoElement) {
+    return source.videoWidth >= source.videoHeight * 1.55;
+  }
+  if (source instanceof HTMLImageElement) {
+    return source.naturalWidth >= source.naturalHeight * 1.55;
+  }
+  return false;
 }
 
 function sourceReady(source: CanvasImageSource) {
@@ -177,13 +197,13 @@ export class ChromaBlit {
   constructor() {
     this.gl = createGlBlit();
     this.buf = document.createElement("canvas");
-    this.cpuSize = isConstrainedWebKit() ? 360 : 640;
+    this.cpuSize = isConstrainedWebKit() ? 480 : 720;
     this.buf.width = this.cpuSize;
     this.buf.height = this.cpuSize;
     const ctx = this.buf.getContext("2d", { willReadFrequently: true, alpha: true });
     if (!ctx) throw new Error("chroma canvas");
     this.ctx = ctx;
-    this.smooth = isConstrainedWebKit() ? "low" : "medium";
+    this.smooth = "medium";
   }
 
   draw(
@@ -197,18 +217,64 @@ export class ChromaBlit {
     if (!sourceReady(source)) return;
     dest.imageSmoothingEnabled = true;
     dest.imageSmoothingQuality = this.smooth;
+    const packed = isPackedSource(source);
 
-    if (this.gl?.draw(source as TexImageSource)) {
+    if (this.gl?.draw(source as TexImageSource, packed)) {
       dest.drawImage(this.gl.canvas, dx, dy, dw, dh);
       return;
     }
 
+    if (packed) {
+      this.drawPackedCpu(dest, source, dx, dy, dw, dh);
+      return;
+    }
     this.drawCpu(dest, source, dx, dy, dw, dh);
   }
 
   dispose() {
     this.gl?.dispose();
     this.gl = null;
+  }
+
+  private drawPackedCpu(
+    dest: CanvasRenderingContext2D,
+    source: CanvasImageSource,
+    dx: number,
+    dy: number,
+    dw: number,
+    dh: number,
+  ) {
+    const size = this.cpuSize;
+    const packedW = size * 2;
+    const { ctx, buf } = this;
+    if (buf.width !== packedW || buf.height !== size) {
+      buf.width = packedW;
+      buf.height = size;
+    }
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = this.smooth;
+    ctx.clearRect(0, 0, packedW, size);
+    ctx.drawImage(source, 0, 0, packedW, size);
+    const packed = ctx.getImageData(0, 0, packedW, size);
+    const out = new ImageData(size, size);
+    const src = packed.data;
+    const dst = out.data;
+    for (let y = 0; y < size; y += 1) {
+      const row = y * packedW;
+      for (let x = 0; x < size; x += 1) {
+        const colorOffset = (row + x) * 4;
+        const maskOffset = (row + x + size) * 4;
+        const destOffset = (y * size + x) * 4;
+        dst[destOffset] = src[colorOffset];
+        dst[destOffset + 1] = src[colorOffset + 1];
+        dst[destOffset + 2] = src[colorOffset + 2];
+        dst[destOffset + 3] = src[maskOffset];
+      }
+    }
+    buf.width = size;
+    buf.height = size;
+    ctx.putImageData(out, 0, 0);
+    dest.drawImage(buf, dx, dy, dw, dh);
   }
 
   private drawCpu(
@@ -221,6 +287,10 @@ export class ChromaBlit {
   ) {
     const size = this.cpuSize;
     const { ctx, buf } = this;
+    if (buf.width !== size || buf.height !== size) {
+      buf.width = size;
+      buf.height = size;
+    }
     ctx.imageSmoothingEnabled = true;
     ctx.imageSmoothingQuality = this.smooth;
     ctx.clearRect(0, 0, size, size);
