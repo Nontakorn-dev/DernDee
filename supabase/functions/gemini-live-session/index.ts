@@ -3,7 +3,8 @@ import { GoogleGenAI } from 'https://esm.sh/@google/genai@2.8.0'
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type, x-supabase-api-version, x-region',
+  'Access-Control-Allow-Methods': 'POST, OPTIONS',
 }
 
 function getSupabaseAnonKey() {

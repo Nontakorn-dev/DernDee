@@ -25,7 +25,7 @@ import {
 import { normalizeRealtimeSensorSample } from '@shared/gateway/realtimeSensorUtils.js';
 import { persistSessionFromFrontend } from '@shared/services/sessionService.js';
 import { COACH_MODES, getFreeWalkCoachMode, shouldUseBrowserSpeechRecognition } from '@shared/coach/coachConfig.js';
-import { fetchCoachSessionRecap } from '@shared/coach/geminiCoachApi.js';
+import { describeCoachConnectError, fetchCoachSessionRecap } from '@shared/coach/geminiCoachApi.js';
 import { GeminiLiveClient, COACH_CONNECTION_STATES } from '@shared/coach/geminiLiveClient.js';
 import { GaitCoachOrchestrator } from '@shared/coach/gaitCoachOrchestrator.js';
 import { LegacyWalkCoach } from '@shared/coach/legacyCoach.js';
@@ -492,7 +492,7 @@ const FreeWalkSession = () => {
       coachClientRef.current?.disconnect();
       coachClientRef.current = null;
       setCoachState(COACH_CONNECTION_STATES.ERROR);
-      setCoachSubtitle('โค้ชยังเชื่อมต่อไม่ติด กด Ask อีกครั้งนะครับ');
+      setCoachSubtitle(describeCoachConnectError(error));
     } finally {
       coachConnectingRef.current = false;
     }
