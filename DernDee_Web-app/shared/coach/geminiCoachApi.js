@@ -1,5 +1,8 @@
 import { getSupabaseClient, isSupabaseConfigured } from '../supabase/client.js';
 
+const LIVE_COACH_TOKEN_PATH = '/api/live-coach-token';
+const WALK_COACH_RECAP_PATH = '/api/walk-coach-recap';
+
 async function waitForAccessToken() {
   if (!isSupabaseConfigured()) {
     return null;
@@ -15,6 +18,11 @@ async function waitForAccessToken() {
     await new Promise((resolve) => {
       setTimeout(resolve, 150);
     });
+  }
+
+  const { data: userData } = await supabase.auth.getUser();
+  if (!userData?.user) {
+    return null;
   }
 
   const { data } = await supabase.auth.getSession();
@@ -44,10 +52,39 @@ export function describeCoachConnectError(error) {
   return `โค้ชเชื่อมไม่ติด: ${message}`;
 }
 
-async function postCoachFunction(functionName, body = {}) {
+async function parseCoachResponse(response) {
+  const contentType = response.headers.get('content-type') || '';
+  if (!contentType.includes('application/json')) {
+    throw new Error(`Coach API failed (${response.status})`);
+  }
+
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    throw new Error(payload?.error || payload?.detail || `Coach API failed (${response.status})`);
+  }
+
+  return payload;
+}
+
+async function postCoachFunction(functionName, body = {}, sameOriginPath) {
   const accessToken = await waitForAccessToken();
   if (!accessToken) {
     throw new Error('Not authenticated');
+  }
+
+  const payloadBody = JSON.stringify(body ?? {});
+  const authHeaders = {
+    Authorization: `Bearer ${accessToken}`,
+    'Content-Type': 'application/json',
+  };
+
+  if (import.meta.env.PROD && sameOriginPath) {
+    const sameOriginResponse = await fetch(sameOriginPath, {
+      method: 'POST',
+      headers: authHeaders,
+      body: payloadBody,
+    });
+    return parseCoachResponse(sameOriginResponse);
   }
 
   const supabaseUrl = String(import.meta.env.VITE_SUPABASE_URL || '').replace(/\/$/, '');
@@ -59,19 +96,13 @@ async function postCoachFunction(functionName, body = {}) {
   const response = await fetch(`${supabaseUrl}/functions/v1/${functionName}`, {
     method: 'POST',
     headers: {
-      Authorization: `Bearer ${accessToken}`,
+      ...authHeaders,
       apikey: anonKey,
-      'Content-Type': 'application/json',
     },
-    body: JSON.stringify(body ?? {}),
+    body: payloadBody,
   });
 
-  const payload = await response.json().catch(() => ({}));
-  if (!response.ok) {
-    throw new Error(payload?.error || payload?.detail || `Coach API failed (${response.status})`);
-  }
-
-  return payload;
+  return parseCoachResponse(response);
 }
 
 export async function fetchLiveCoachToken() {
@@ -86,7 +117,7 @@ export async function fetchLiveCoachToken() {
     }
   }
 
-  return postCoachFunction('gemini-live-session');
+  return postCoachFunction('gemini-live-session', {}, LIVE_COACH_TOKEN_PATH);
 }
 
 export async function fetchCoachSessionRecap(summary, duration) {
@@ -105,5 +136,5 @@ export async function fetchCoachSessionRecap(summary, duration) {
     }
   }
 
-  return postCoachFunction('gemini-coach-summary', { summary, duration });
+  return postCoachFunction('gemini-coach-summary', { summary, duration }, WALK_COACH_RECAP_PATH);
 }

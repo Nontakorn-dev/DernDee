@@ -9,7 +9,7 @@
       "destination": "/clinic/index.html"
     },
     {
-      "source": "/:path*",
+      "source": "/((?!api/).*)",
       "destination": "/index.html"
     }
   ]

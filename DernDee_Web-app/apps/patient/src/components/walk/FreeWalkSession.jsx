@@ -121,6 +121,7 @@ const FreeWalkSession = () => {
   const askCoachActiveRef = useRef(false);
   const askReplyWatchRef = useRef(null);
   const lastAskPromptRef = useRef('');
+  const lastCoachErrorRef = useRef('');
 
   useEffect(() => {
     showConsentRef.current = showConsent;
@@ -487,12 +488,14 @@ const FreeWalkSession = () => {
       await client.connect();
       coachModeRef.current = COACH_MODES.LIVE;
       setCoachMode(COACH_MODES.LIVE);
+      lastCoachErrorRef.current = '';
     } catch (error) {
       console.warn('Live coach unavailable:', error);
       coachClientRef.current?.disconnect();
       coachClientRef.current = null;
       setCoachState(COACH_CONNECTION_STATES.ERROR);
-      setCoachSubtitle(describeCoachConnectError(error));
+      lastCoachErrorRef.current = describeCoachConnectError(error);
+      setCoachSubtitle(lastCoachErrorRef.current);
     } finally {
       coachConnectingRef.current = false;
     }
@@ -799,7 +802,7 @@ const FreeWalkSession = () => {
     }
 
     if (coachModeRef.current !== COACH_MODES.LIVE || !coachClientRef.current) {
-      setCoachSubtitle('โค้ชยังไม่พร้อม ลองใหม่อีกครั้งนะครับ');
+      setCoachSubtitle(lastCoachErrorRef.current || 'โค้ชยังไม่พร้อม ลองใหม่อีกครั้งนะครับ');
       endAskLipSync(800);
       return;
     }

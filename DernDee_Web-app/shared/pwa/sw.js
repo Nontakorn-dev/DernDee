@@ -21,5 +21,5 @@ registerRoute(new NavigationRoute(() => resolveShell('/apps/clinic/index.html'),
 }))
 
 registerRoute(new NavigationRoute(() => resolveShell('/apps/patient/index.html'), {
-  denylist: [/^\/clinic(?:\/.*)?$/],
+  denylist: [/^\/clinic(?:\/.*)?$/, /^\/api(?:\/.*)?$/],
 }))
