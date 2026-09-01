@@ -1,9 +1,5 @@
 import { proxyCoachRequest } from './_coachProxy.js';
 
-export const config = {
-  runtime: 'edge',
-};
-
-export default async function handler(request) {
-  return proxyCoachRequest(request, 'gemini-live-session');
+export default async function handler(req, res) {
+  return proxyCoachRequest(req, res, 'gemini-live-session');
 }

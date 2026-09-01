@@ -8,6 +8,18 @@ precacheAndRoute(self.__WB_MANIFEST)
 cleanupOutdatedCaches()
 
 async function resolveShell(shellPath) {
+  try {
+    const fresh = await fetch(shellPath, {
+      credentials: 'same-origin',
+      cache: 'no-store',
+    })
+    if (fresh.ok) {
+      return fresh
+    }
+  } catch {
+    // fall through to the precached shell
+  }
+
   const cachedShell = await matchPrecache(shellPath)
   if (cachedShell) {
     return cachedShell
