@@ -17,6 +17,18 @@ function toTrackerSample(sample) {
   };
 }
 
+/** Foot box on the dorsum, printed arrow toward the toes (180° in-plane vs shank). */
+function toFootTrackerSample(sample) {
+  const base = toTrackerSample(sample);
+  return {
+    ...base,
+    ax: -base.ax,
+    ay: -base.ay,
+    gx: -base.gx,
+    gy: -base.gy,
+  };
+}
+
 function vecDot(a, b) {
   return a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
 }
@@ -49,8 +61,8 @@ function alignmentDeg(shankQ, footQ) {
 
 /**
  * Sagittal ankle angle from shank + foot IMUs.
- * Standing alignment is the zero. Toes-up makes the two IMUs more aligned
- * (dorsiflexion). Toes-down makes them less aligned (plantarflexion).
+ * Wear: shank on the shin, printed arrow toward the knee.
+ * Foot on the dorsum, printed arrow toward the toes.
  */
 export class AnkleAngleEstimator {
   constructor(options = {}) {
@@ -104,7 +116,7 @@ export class AnkleAngleEstimator {
   }
 
   updateFoot(sample) {
-    const result = this.footTracker.update(toTrackerSample(sample));
+    const result = this.footTracker.update(toFootTrackerSample(sample));
     this.footQ = result.quaternion;
     this.footPitchDeg = result.pitchDeg;
     this.lastFootAt = Date.now();
@@ -136,8 +148,8 @@ export class AnkleAngleEstimator {
     const alignment = alignmentDeg(this.shankQ, this.footQ);
     if (alignment != null && this.baselineAlignmentDeg != null) {
       const delta = alignment - this.baselineAlignmentDeg;
-      dorsiDeg = clamp(-delta, 0, MAX_ANKLE_DEG);
-      plantarDeg = clamp(delta, 0, MAX_ANKLE_DEG);
+      dorsiDeg = clamp(delta, 0, MAX_ANKLE_DEG);
+      plantarDeg = clamp(-delta, 0, MAX_ANKLE_DEG);
     } else {
       const relative = this.computePitchRelativeDeg();
       if (relative == null) {
