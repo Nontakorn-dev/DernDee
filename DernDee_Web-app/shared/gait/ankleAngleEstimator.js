@@ -1,9 +1,8 @@
 import { OrientationTracker } from '../sensor/orientationTracker.js';
-import { clamp } from './signalUtils.js';
+import { clamp, rad2deg } from './signalUtils.js';
 
 const DEFAULT_MAX_PAIR_GAP_MS = 180;
-const DEFAULT_SMOOTHING = 0.22;
-const POLARITY_LOCK_DEG = 8;
+const DEFAULT_SMOOTHING = 0.28;
 const MAX_ANKLE_DEG = 70;
 
 function toTrackerSample(sample) {
@@ -18,10 +17,40 @@ function toTrackerSample(sample) {
   };
 }
 
+function vecDot(a, b) {
+  return a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+}
+
+function vecNorm(a) {
+  return Math.hypot(a[0], a[1], a[2]) || 1;
+}
+
+function vecNormalize(a) {
+  const n = vecNorm(a);
+  return [a[0] / n, a[1] / n, a[2] / n];
+}
+
+function gravityFromQuat(quaternion) {
+  if (!quaternion || quaternion.length < 4) return null;
+  const [w, x, y, z] = quaternion;
+  return vecNormalize([
+    2 * ((x * z) - (w * y)),
+    2 * ((w * x) + (y * z)),
+    2 * (0.5 - (x * x) - (y * y)),
+  ]);
+}
+
+function alignmentDeg(shankQ, footQ) {
+  const gShank = gravityFromQuat(shankQ);
+  const gFoot = gravityFromQuat(footQ);
+  if (!gShank || !gFoot) return null;
+  return rad2deg(Math.acos(clamp(vecDot(gShank, gFoot), -1, 1)));
+}
+
 /**
  * Sagittal ankle angle from shank + foot IMUs.
- * Relative pitch (foot − shank) minus a standing-flat baseline.
- * Dorsiflexion and plantarflexion are opposite signs of that relative angle.
+ * Standing alignment is the zero. Toes-up makes the two IMUs more aligned
+ * (dorsiflexion). Toes-down makes them less aligned (plantarflexion).
  */
 export class AnkleAngleEstimator {
   constructor(options = {}) {
@@ -35,27 +64,32 @@ export class AnkleAngleEstimator {
   reset() {
     this.shankTracker.reset();
     this.footTracker.reset();
+    this.shankQ = null;
+    this.footQ = null;
     this.shankPitchDeg = null;
     this.footPitchDeg = null;
     this.lastShankAt = 0;
     this.lastFootAt = 0;
+    this.baselineAlignmentDeg = null;
     this.baselineRelativeDeg = 0;
-    this.dorsiSign = 1;
-    this.signLocked = false;
     this.smoothedDorsiDeg = 0;
     this.smoothedPlantarDeg = 0;
     this.ready = false;
   }
 
   calibrateToCurrentPose() {
-    const rawRelativeDeg = this.computeRawRelativeDeg();
-    if (rawRelativeDeg == null) {
+    if (!this.pairIsFresh()) {
       return false;
     }
 
-    this.baselineRelativeDeg = rawRelativeDeg;
-    this.dorsiSign = 1;
-    this.signLocked = false;
+    const alignment = alignmentDeg(this.shankQ, this.footQ);
+    const relative = this.computePitchRelativeDeg();
+    if (alignment == null && relative == null) {
+      return false;
+    }
+
+    this.baselineAlignmentDeg = alignment;
+    this.baselineRelativeDeg = relative ?? 0;
     this.smoothedDorsiDeg = 0;
     this.smoothedPlantarDeg = 0;
     return true;
@@ -63,6 +97,7 @@ export class AnkleAngleEstimator {
 
   updateShank(sample) {
     const result = this.shankTracker.update(toTrackerSample(sample));
+    this.shankQ = result.quaternion;
     this.shankPitchDeg = result.pitchDeg;
     this.lastShankAt = Date.now();
     return this.computeDirected();
@@ -70,57 +105,49 @@ export class AnkleAngleEstimator {
 
   updateFoot(sample) {
     const result = this.footTracker.update(toTrackerSample(sample));
+    this.footQ = result.quaternion;
     this.footPitchDeg = result.pitchDeg;
     this.lastFootAt = Date.now();
     return this.computeDirected();
   }
 
-  computeRawRelativeDeg() {
+  pairIsFresh() {
+    return (
+      this.lastShankAt > 0
+      && this.lastFootAt > 0
+      && Math.abs(this.lastShankAt - this.lastFootAt) <= this.maxPairGapMs
+    );
+  }
+
+  computePitchRelativeDeg() {
     if (!Number.isFinite(this.shankPitchDeg) || !Number.isFinite(this.footPitchDeg)) {
       return null;
     }
-
-    if (Math.abs(this.lastShankAt - this.lastFootAt) > this.maxPairGapMs) {
-      return null;
-    }
-
     return clamp(this.footPitchDeg - this.shankPitchDeg, -80, 80);
   }
 
-  learnSign(direction) {
-    if (this.signLocked || !direction) {
-      return;
-    }
-
-    const rawRelativeDeg = this.computeRawRelativeDeg();
-    if (rawRelativeDeg == null) {
-      return;
-    }
-
-    const signed = rawRelativeDeg - this.baselineRelativeDeg;
-    if (Math.abs(signed) < POLARITY_LOCK_DEG) {
-      return;
-    }
-
-    if (direction === 'plantarflexion') {
-      this.dorsiSign = signed <= 0 ? 1 : -1;
-    } else {
-      this.dorsiSign = signed >= 0 ? 1 : -1;
-    }
-    this.signLocked = true;
-    this.smoothedDorsiDeg = clamp(this.dorsiSign * signed, 0, MAX_ANKLE_DEG);
-    this.smoothedPlantarDeg = clamp(-this.dorsiSign * signed, 0, MAX_ANKLE_DEG);
-  }
-
   computeDirected() {
-    const rawRelativeDeg = this.computeRawRelativeDeg();
-    if (rawRelativeDeg == null) {
+    if (!this.pairIsFresh()) {
       return null;
     }
 
-    const signed = rawRelativeDeg - this.baselineRelativeDeg;
-    const dorsiDeg = clamp(this.dorsiSign * signed, 0, MAX_ANKLE_DEG);
-    const plantarDeg = clamp(-this.dorsiSign * signed, 0, MAX_ANKLE_DEG);
+    let dorsiDeg = 0;
+    let plantarDeg = 0;
+    const alignment = alignmentDeg(this.shankQ, this.footQ);
+    if (alignment != null && this.baselineAlignmentDeg != null) {
+      const delta = alignment - this.baselineAlignmentDeg;
+      dorsiDeg = clamp(-delta, 0, MAX_ANKLE_DEG);
+      plantarDeg = clamp(delta, 0, MAX_ANKLE_DEG);
+    } else {
+      const relative = this.computePitchRelativeDeg();
+      if (relative == null) {
+        return null;
+      }
+      const signed = relative - this.baselineRelativeDeg;
+      dorsiDeg = clamp(-signed, 0, MAX_ANKLE_DEG);
+      plantarDeg = clamp(signed, 0, MAX_ANKLE_DEG);
+    }
+
     this.smoothedDorsiDeg += (dorsiDeg - this.smoothedDorsiDeg) * this.smoothing;
     this.smoothedPlantarDeg += (plantarDeg - this.smoothedPlantarDeg) * this.smoothing;
     this.ready = true;
@@ -139,7 +166,6 @@ export class AnkleAngleEstimator {
   }
 
   getDirectedDeg(direction) {
-    this.learnSign(direction === 'plantarflexion' ? 'plantarflexion' : 'dorsiflexion');
     if (direction === 'plantarflexion') {
       return this.getPlantarflexionDeg();
     }
