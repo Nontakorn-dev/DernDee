@@ -378,11 +378,24 @@ export function isStageUnlocked(
   return save.completed.includes(stageKey(chapter.id, stage.id - 1));
 }
 
+export function applyLiveScore(save: SaveState, totalScore: number): SaveState {
+  const today = bangkokToday();
+  const base = save.playDate === today ? save : emptySave(today);
+  const nextTotal = Math.max(base.totalScore, Math.max(0, Math.floor(totalScore)));
+  if (nextTotal === base.totalScore) return base;
+  return {
+    ...base,
+    playDate: today,
+    totalScore: nextTotal,
+  };
+}
+
 export function applyStageClear(
   save: SaveState,
   chapter: MovementKind,
   stage: number,
   earned: number,
+  totalScore?: number,
 ): SaveState {
   const today = bangkokToday();
   const base = save.playDate === today ? save : emptySave(today);
@@ -390,14 +403,17 @@ export function applyStageClear(
   const completed = base.completed.includes(key)
     ? base.completed
     : [...base.completed, key];
+  const reportedTotal = typeof totalScore === "number"
+    ? totalScore
+    : base.totalScore + Math.max(0, earned);
   return {
     playDate: today,
-    totalScore: base.totalScore + earned,
+    totalScore: Math.max(base.totalScore, Math.max(0, Math.floor(reportedTotal))),
     completed,
     lastPlayed: { chapter, stage },
     clears: [
       ...base.clears,
-      { chapter, stage, earned, clearedAt: new Date().toISOString() },
+      { chapter, stage, earned: Math.max(0, earned), clearedAt: new Date().toISOString() },
     ],
   };
 }

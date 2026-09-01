@@ -15,6 +15,7 @@ import { createGameSfx, primeGameAudio, type GameSfx } from "@trail/lib/game/sfx
 import type { HudSnapshot } from "@trail/lib/game/types";
 import { loadSettings, writeSettings } from "@trail/lib/settings";
 import {
+  applyLiveScore,
   applyStageClear,
   getChapter,
   getStage,
@@ -74,6 +75,7 @@ export function GameScreen({
   const [switching, setSwitching] = useState(false);
   const [leaving, setLeaving] = useState(false);
   const startScoreRef = useRef(0);
+  const lastPersistedScoreRef = useRef(0);
   const savedRef = useRef(false);
   const sfxRef = useRef<GameSfx | null>(null);
   const mutedRef = useRef(false);
@@ -102,9 +104,16 @@ export function GameScreen({
     setMuted(settings.muted);
     setCharacter(settings.character);
 
+    const persistRunningScore = (totalScore: number) => {
+      if (totalScore <= lastPersistedScoreRef.current) return;
+      lastPersistedScoreRef.current = totalScore;
+      writeSave(applyLiveScore(loadSave(), totalScore));
+    };
+
     const startEngine = (assets: GameAssets | undefined, startScore: number) => {
       if (cancelled) return;
       startScoreRef.current = startScore;
+      lastPersistedScoreRef.current = startScore;
       const sfx = createGameSfx({ energyRun: isEnergyRun(chapterId) });
       sfx.setMuted(mutedRef.current);
       sfxRef.current = sfx;
@@ -121,12 +130,16 @@ export function GameScreen({
       engineRef.current = engine;
       const unsub = engine.subscribe((next) => {
         setHud(next);
+        if (next.score > lastPersistedScoreRef.current) {
+          persistRunningScore(next.score);
+        }
         if (next.cleared && !savedRef.current) {
           savedRef.current = true;
           storyOpenRef.current = true;
           engine.setHolding(false);
           const earned = Math.max(0, next.score - startScoreRef.current);
-          writeSave(applyStageClear(loadSave(), chapterId, stageId, earned));
+          lastPersistedScoreRef.current = Math.max(lastPersistedScoreRef.current, next.score);
+          writeSave(applyStageClear(loadSave(), chapterId, stageId, earned, next.score));
           setStoryOpen(true);
         }
       });
@@ -169,6 +182,11 @@ export function GameScreen({
 
     return () => {
       cancelled = true;
+      const liveScore = engineRef.current?.snapshot()?.score;
+      if (typeof liveScore === "number" && liveScore > lastPersistedScoreRef.current) {
+        lastPersistedScoreRef.current = liveScore;
+        writeSave(applyLiveScore(loadSave(), liveScore));
+      }
       cleanup();
     };
   }, [chapterId, stageId, stage.gaps, stage.runSeconds, stage.targetAngle]);
@@ -271,6 +289,11 @@ export function GameScreen({
     primeGameAudio();
     if (leavingRef.current) return;
     leavingRef.current = true;
+    const liveScore = engineRef.current?.snapshot()?.score;
+    if (typeof liveScore === "number" && liveScore > lastPersistedScoreRef.current) {
+      lastPersistedScoreRef.current = liveScore;
+      writeSave(applyLiveScore(loadSave(), liveScore));
+    }
     setHold(false);
     engineRef.current?.stop();
     sfxRef.current?.stop();
