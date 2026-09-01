@@ -230,13 +230,36 @@ export const CHAPTERS: ChapterDef[] = [
   },
 ];
 
+export type StageClearRecord = {
+  chapter: MovementKind;
+  stage: number;
+  earned: number;
+  clearedAt: string;
+};
+
 export type SaveState = {
+  playDate: string;
   totalScore: number;
   completed: string[];
   lastPlayed: { chapter: MovementKind; stage: number } | null;
+  clears: StageClearRecord[];
 };
 
-const SAVE_KEY = "derndee-save-v1";
+const SAVE_KEY = "derndee-save-v2";
+
+export function bangkokToday() {
+  return new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Bangkok" }).format(new Date());
+}
+
+export function emptySave(playDate = bangkokToday()): SaveState {
+  return {
+    playDate,
+    totalScore: 0,
+    completed: [],
+    lastPlayed: null,
+    clears: [],
+  };
+}
 
 export function stageKey(chapter: MovementKind, stage: number) {
   return `${chapter}-${stage}`;
@@ -251,26 +274,91 @@ export function getStage(chapter: MovementKind, stageId: number) {
   return ch.stages.find((s) => s.id === stageId) ?? ch.stages[0];
 }
 
+function normalizeSave(raw: Partial<SaveState> | null | undefined, playDate: string): SaveState {
+  if (!raw || raw.playDate !== playDate) return emptySave(playDate);
+  return {
+    playDate,
+    totalScore: raw.totalScore ?? 0,
+    completed: Array.isArray(raw.completed) ? raw.completed : [],
+    lastPlayed: raw.lastPlayed ?? null,
+    clears: Array.isArray(raw.clears) ? raw.clears : [],
+  };
+}
+
+function writeLocalSave(next: SaveState) {
+  if (typeof window === "undefined") return;
+  localStorage.setItem(SAVE_KEY, JSON.stringify(next));
+}
+
 export function loadSave(): SaveState {
-  if (typeof window === "undefined") {
-    return { totalScore: 0, completed: [], lastPlayed: null };
-  }
+  const today = bangkokToday();
+  if (typeof window === "undefined") return emptySave(today);
   try {
     const raw = localStorage.getItem(SAVE_KEY);
-    if (!raw) return { totalScore: 0, completed: [], lastPlayed: null };
-    const parsed = JSON.parse(raw) as SaveState;
-    return {
-      totalScore: parsed.totalScore ?? 0,
-      completed: parsed.completed ?? [],
-      lastPlayed: parsed.lastPlayed ?? null,
-    };
+    if (!raw) return emptySave(today);
+    return normalizeSave(JSON.parse(raw) as Partial<SaveState>, today);
   } catch {
-    return { totalScore: 0, completed: [], lastPlayed: null };
+    return emptySave(today);
   }
 }
 
+function savesDiffer(a: SaveState, b: SaveState) {
+  return (
+    a.totalScore !== b.totalScore ||
+    a.completed.length !== b.completed.length ||
+    a.completed.join("|") !== b.completed.join("|") ||
+    a.clears.length !== b.clears.length
+  );
+}
+
+export function mergeSaves(a: SaveState, b: SaveState): SaveState {
+  const playDate = bangkokToday();
+  const completed = [...new Set([...a.completed, ...b.completed])];
+  const clearsByKey = new Map<string, StageClearRecord>();
+  for (const record of [...a.clears, ...b.clears]) {
+    const key = `${record.chapter}-${record.stage}-${record.clearedAt}`;
+    if (!clearsByKey.has(key)) clearsByKey.set(key, record);
+  }
+  const clears = [...clearsByKey.values()];
+  const earned = clears.reduce((sum, record) => sum + (record.earned || 0), 0);
+  return {
+    playDate,
+    totalScore: Math.max(a.totalScore, b.totalScore, earned),
+    completed,
+    lastPlayed: a.lastPlayed ?? b.lastPlayed,
+    clears,
+  };
+}
+
 export function writeSave(next: SaveState) {
-  localStorage.setItem(SAVE_KEY, JSON.stringify(next));
+  const today = bangkokToday();
+  const payload = normalizeSave(next, today);
+  writeLocalSave(payload);
+  void import("@trail/lib/trailQuestCloud").then(({ persistTrailQuestDay }) => {
+    void persistTrailQuestDay(payload);
+  });
+}
+
+export async function hydrateSave(): Promise<SaveState> {
+  const local = loadSave();
+  try {
+    const { fetchTrailQuestDay, persistTrailQuestDay } = await import("@trail/lib/trailQuestCloud");
+    const remote = await fetchTrailQuestDay(local.playDate);
+    if (!remote) {
+      if (local.completed.length > 0 || local.totalScore > 0) {
+        void persistTrailQuestDay(local);
+      }
+      return local;
+    }
+    const merged = mergeSaves(local, remote);
+    writeLocalSave(merged);
+    if (savesDiffer(merged, remote)) {
+      void persistTrailQuestDay(merged);
+    }
+    return merged;
+  } catch {
+    return local;
+  }
 }
 
 export function isChapterUnlocked(chapter: ChapterDef, save: SaveState) {
@@ -296,14 +384,21 @@ export function applyStageClear(
   stage: number,
   earned: number,
 ): SaveState {
+  const today = bangkokToday();
+  const base = save.playDate === today ? save : emptySave(today);
   const key = stageKey(chapter, stage);
-  const completed = save.completed.includes(key)
-    ? save.completed
-    : [...save.completed, key];
+  const completed = base.completed.includes(key)
+    ? base.completed
+    : [...base.completed, key];
   return {
-    totalScore: save.totalScore + earned,
+    playDate: today,
+    totalScore: base.totalScore + earned,
     completed,
     lastPlayed: { chapter, stage },
+    clears: [
+      ...base.clears,
+      { chapter, stage, earned, clearedAt: new Date().toISOString() },
+    ],
   };
 }
 

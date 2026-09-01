@@ -18,6 +18,7 @@ import {
   applyStageClear,
   getChapter,
   getStage,
+  hydrateSave,
   loadSave,
   nextDestination,
   chapterNeedsJump,
@@ -96,15 +97,14 @@ export function GameScreen({
     settingsOpenRef.current = false;
     setLoading(true);
     let cancelled = false;
-    const save = loadSave();
     const settings = loadSettings();
-    startScoreRef.current = save.totalScore;
     mutedRef.current = settings.muted;
     setMuted(settings.muted);
     setCharacter(settings.character);
 
-    const startEngine = (assets?: GameAssets) => {
+    const startEngine = (assets: GameAssets | undefined, startScore: number) => {
       if (cancelled) return;
+      startScoreRef.current = startScore;
       const sfx = createGameSfx({ energyRun: isEnergyRun(chapterId) });
       sfx.setMuted(mutedRef.current);
       sfxRef.current = sfx;
@@ -114,7 +114,7 @@ export function GameScreen({
         gaps: stage.gaps,
         targetAngle: stage.targetAngle,
         runSeconds: stage.runSeconds,
-        startScore: save.totalScore,
+        startScore,
         assets,
         sfx,
       });
@@ -144,14 +144,21 @@ export function GameScreen({
 
     const season = sceneSeasonForStage(stageId);
     const needJump = chapterNeedsJump(chapterId);
-    void loadPlayableAssets(settings.character, season, needJump, isEnergyRun(chapterId))
-      .catch(() => loadPlayableAssets("dino", season, needJump, isEnergyRun(chapterId)))
-      .then((assets) => {
+    void Promise.all([
+      loadPlayableAssets(settings.character, season, needJump, isEnergyRun(chapterId)).catch(() =>
+        loadPlayableAssets("dino", season, needJump, isEnergyRun(chapterId)),
+      ),
+      hydrateSave(),
+    ])
+      .then(([assets, daySave]) => {
         if (cancelled) return;
-        startEngine(assets);
+        startEngine(assets, daySave.totalScore);
         void hydrateGameAssets(assets, season, needJump).catch(() => {});
       })
-      .catch(() => startEngine());
+      .catch(() => {
+        if (cancelled) return;
+        startEngine(undefined, loadSave().totalScore);
+      });
 
     let cleanup = () => {
       engineRef.current?.stop();

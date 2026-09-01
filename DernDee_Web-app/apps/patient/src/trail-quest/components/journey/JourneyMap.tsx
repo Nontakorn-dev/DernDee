@@ -4,6 +4,8 @@ import type { CharacterId } from "@trail/lib/game/characters";
 import { primeGameAudio } from "@trail/lib/game/sfx";
 import {
   CHAPTERS,
+  emptySave,
+  hydrateSave,
   isChapterUnlocked,
   isStageUnlocked,
   loadSave,
@@ -23,17 +25,14 @@ const GAME_ICONS: Record<MovementKind, { src: string; alt: string }> = {
 };
 
 export function JourneyMap() {
-  const [save, setSave] = useState(() => ({
-    totalScore: 0,
-    completed: [] as string[],
-    lastPlayed: null as { chapter: MovementKind; stage: number } | null,
-  }));
+  const [save, setSave] = useState(() => emptySave());
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [muted, setMuted] = useState(false);
   const [character, setCharacter] = useState<CharacterId>("boy");
 
   useEffect(() => {
     setSave(loadSave());
+    void hydrateSave().then(setSave);
     const settings = loadSettings();
     setMuted(settings.muted);
     setCharacter(settings.character);
@@ -60,14 +59,14 @@ export function JourneyMap() {
             เส้นทางเดินดี
           </h1>
           <p className="mt-2 max-w-xl text-[15px] leading-relaxed text-slate-500">
-            ก้มหลบนก พุ่งสุดแรง กระโดดข้ามเหว แล้วปลดล็อกด่านต่อไป
+            ก้มหลบนก พุ่งสุดแรง กระโดดข้ามเหว แล้วปลดล็อกด่านต่อไป ความคืบหน้าวันนี้เก็บไว้จนเที่ยงคืน แล้วเริ่มใหม่ทั้งด่าน
           </p>
           <div className="mt-4 inline-flex items-center gap-2 rounded-full bg-white px-4 py-2 shadow-lg">
             <span className="text-lg" aria-hidden>
               ⭐
             </span>
             <span className="text-lg font-bold text-slate-800">{save.totalScore}</span>
-            <span className="text-sm text-gray-400">คะแนนสะสม</span>
+            <span className="text-sm text-gray-400">คะแนนวันนี้</span>
           </div>
         </header>
 
