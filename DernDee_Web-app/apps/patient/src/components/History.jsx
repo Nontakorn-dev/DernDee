@@ -2,6 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useUserAuth } from '@shared/context/UserAuthContext.jsx';
 import { fetchPatientHistorySessions } from '@shared/services/sessionService.js';
+import { fetchTrailQuestDays } from '@trail/lib/trailQuestCloud';
+import { DailyScoreBoard } from '@patient/components/history/DailyScoreBoard.jsx';
 import {
     ArrowLeft,
     Search,
@@ -52,6 +54,7 @@ const History = () => {
     const [showFilterModal, setShowFilterModal] = useState(false);
     const [sortBy, setSortBy] = useState('Date');
     const [historyData, setHistoryData] = useState([]);
+    const [dailyDays, setDailyDays] = useState([]);
     const [filteredData, setFilteredData] = useState([]);
     const [loading, setLoading] = useState(true);
 
@@ -69,13 +72,18 @@ const History = () => {
             }
 
             try {
-                const sessions = await fetchPatientHistorySessions(user.uid);
+                const [sessions, trailDays] = await Promise.all([
+                    fetchPatientHistorySessions(user.uid),
+                    fetchTrailQuestDays().catch(() => []),
+                ]);
                 setHistoryData(sessions);
                 setFilteredData(sessions);
+                setDailyDays(trailDays);
             } catch (error) {
                 console.error("Error fetching history:", error);
                 setHistoryData([]);
                 setFilteredData([]);
+                setDailyDays([]);
             } finally {
                 setLoading(false);
             }
@@ -214,7 +222,7 @@ const History = () => {
 
     if (loading) {
         return (
-            <div className="min-h-screen bg-gradient-to-b from-blue-50 via-blue-100 to-blue-200 flex items-center justify-center">
+            <div className="min-h-screen bg-gradient-to-b from-blue-50 via-blue-100 to-blue-200 flex items-center justify-center" style={{ fontFamily: "'Prompt', 'Noto Sans Thai', sans-serif" }}>
                 <div className="text-center">
                     <div className="w-16 h-16 border-4 border-blue-600 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
                     <p className="text-gray-700 text-lg font-semibold">Loading history...</p>
@@ -224,7 +232,7 @@ const History = () => {
     }
 
     return (
-        <div className="min-h-screen bg-gradient-to-b from-blue-50 via-blue-100 to-blue-200">
+        <div className="min-h-screen bg-gradient-to-b from-blue-50 via-blue-100 to-blue-200" style={{ fontFamily: "'Prompt', 'Noto Sans Thai', sans-serif" }}>
             {/* Header */}
             {/* Header */}
             <header className="bg-white shadow-xl px-4 sm:px-6 py-3 sm:py-4 flex items-center justify-between">
@@ -243,13 +251,9 @@ const History = () => {
             <main className="p-3 sm:p-4 lg:p-6 pb-6 max-w-7xl mx-auto">
                 {/* Title Section */}
                 <div className="mb-4 sm:mb-6">
-                    <div className="flex items-center gap-2 sm:gap-3 mb-4">
-                        {/* <button
-                            onClick={() => navigate('/home')}
-                            className="p-2 hover:bg-gray-100 rounded-full transition-colors flex-shrink-0"
-                        >
-                            <ArrowLeft className="w-5 h-5 sm:w-6 sm:h-6 text-gray-700" />
-                        </button> */}
+                    <DailyScoreBoard days={dailyDays} />
+
+                    <div className="mb-4 mt-1">
                         <h1 className="text-lg sm:text-2xl md:text-3xl lg:text-4xl font-extrabold text-gray-900 break-words">
                             Therapy Measurement History
                         </h1>

@@ -66,6 +66,30 @@ export async function fetchTrailQuestDay(playDate: string): Promise<SaveState | 
   return rowToSave(data as TrailQuestDayRow, playDate);
 }
 
+export type TrailQuestDaySummary = {
+  playDate: string;
+  score: number;
+  completedCount: number;
+};
+
+export async function fetchTrailQuestDays(limit = 42): Promise<TrailQuestDaySummary[]> {
+  const patientId = await getPatientId();
+  if (!patientId) return [];
+  const supabase = getSupabaseClient();
+  const { data, error } = await supabase
+    .from("trail_quest_days")
+    .select("play_date, score, completed")
+    .eq("patient_id", patientId)
+    .order("play_date", { ascending: false })
+    .limit(limit);
+  if (error || !data) return [];
+  return data.map((row) => ({
+    playDate: row.play_date,
+    score: row.score ?? 0,
+    completedCount: Array.isArray(row.completed) ? row.completed.length : 0,
+  }));
+}
+
 export async function persistTrailQuestDay(save: SaveState) {
   const patientId = await getPatientId();
   if (!patientId) return;
