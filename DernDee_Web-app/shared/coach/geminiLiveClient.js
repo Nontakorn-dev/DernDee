@@ -1,4 +1,4 @@
-import { GoogleGenAI, Modality } from '@google/genai';
+import { GoogleGenAI, Modality } from '@google/genai/web';
 import { PcmAudioPlayer } from './audioPlayback.js';
 import { LIVE_MODEL } from './coachConfig.js';
 import { buildCoachLiveSessionConfig } from './coachSystemInstruction.js';

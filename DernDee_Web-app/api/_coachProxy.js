@@ -1,39 +1,45 @@
-export async function proxyToSupabaseFunction(req, res, functionName) {
-  res.setHeader('Cache-Control', 'no-store');
+const CORS_HEADERS = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Methods': 'POST, OPTIONS',
+  'Access-Control-Allow-Headers': 'authorization, content-type, apikey',
+  'Cache-Control': 'no-store',
+};
 
-  if (req.method === 'OPTIONS') {
-    res.setHeader('Access-Control-Allow-Origin', '*');
-    res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
-    res.setHeader('Access-Control-Allow-Headers', 'authorization, content-type, apikey');
-    res.status(200).end();
-    return;
+function jsonResponse(payload, status = 200) {
+  return new Response(JSON.stringify(payload), {
+    status,
+    headers: {
+      ...CORS_HEADERS,
+      'Content-Type': 'application/json',
+    },
+  });
+}
+
+export async function proxyCoachRequest(request, functionName) {
+  if (request.method === 'OPTIONS') {
+    return new Response('ok', { status: 200, headers: CORS_HEADERS });
   }
 
-  if (req.method !== 'POST') {
-    res.status(405).json({ error: 'Method not allowed' });
-    return;
+  if (request.method !== 'POST') {
+    return jsonResponse({ error: 'Method not allowed' }, 405);
   }
 
-  const auth = req.headers.authorization;
+  const auth = request.headers.get('authorization');
   if (!auth) {
-    res.status(401).json({ error: 'Not authenticated' });
-    return;
+    return jsonResponse({ error: 'Not authenticated' }, 401);
   }
 
   const supabaseUrl = String(process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL || '').replace(/\/$/, '');
   const anonKey = process.env.VITE_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY;
   if (!supabaseUrl || !anonKey) {
-    res.status(500).json({ error: 'Supabase URL is not configured' });
-    return;
+    return jsonResponse({ error: 'Supabase URL is not configured' }, 500);
   }
 
-  let body = req.body;
-  if (typeof body === 'string') {
-    try {
-      body = JSON.parse(body || '{}');
-    } catch {
-      body = {};
-    }
+  let body = {};
+  try {
+    body = await request.json();
+  } catch {
+    body = {};
   }
 
   const upstream = await fetch(`${supabaseUrl}/functions/v1/${functionName}`, {
@@ -47,5 +53,5 @@ export async function proxyToSupabaseFunction(req, res, functionName) {
   });
 
   const payload = await upstream.json().catch(() => ({}));
-  res.status(upstream.status).json(payload);
+  return jsonResponse(payload, upstream.status);
 }

@@ -60,7 +60,11 @@ async function parseCoachResponse(response) {
 
   const payload = await response.json().catch(() => ({}));
   if (!response.ok) {
-    throw new Error(payload?.error || payload?.detail || `Coach API failed (${response.status})`);
+    const error = payload?.error;
+    const message = typeof error === 'string'
+      ? error
+      : error?.message || payload?.detail || `Coach API failed (${response.status})`;
+    throw new Error(message);
   }
 
   return payload;

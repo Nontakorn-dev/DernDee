@@ -389,12 +389,22 @@ export default defineConfig(({ mode }) => {
       }),
     ],
     resolve: {
-      alias: {
-        '@shared': path.resolve(__dirname, 'shared'),
-        '@patient': path.resolve(__dirname, 'apps/patient/src'),
-        '@clinic': path.resolve(__dirname, 'apps/clinic/src'),
-        '@trail': path.resolve(__dirname, 'apps/patient/src/trail-quest'),
-      },
+      alias: [
+        { find: '@shared', replacement: path.resolve(__dirname, 'shared') },
+        { find: '@patient', replacement: path.resolve(__dirname, 'apps/patient/src') },
+        { find: '@clinic', replacement: path.resolve(__dirname, 'apps/clinic/src') },
+        { find: '@trail', replacement: path.resolve(__dirname, 'apps/patient/src/trail-quest') },
+        // Live.connect() needs BrowserWebSocket.connect(). The Node build of
+        // @google/genai returns a native WebSocket, which throws
+        // "X is not a function" after minify (seen as "FI is not a function").
+        {
+          find: /^@google\/genai(\/web)?$/,
+          replacement: path.resolve(__dirname, 'node_modules/@google/genai/dist/web/index.mjs'),
+        },
+      ],
+    },
+    optimizeDeps: {
+      include: ['@google/genai', '@google/genai/web'],
     },
     build: {
       rollupOptions: {
