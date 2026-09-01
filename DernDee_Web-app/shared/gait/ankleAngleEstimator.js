@@ -148,8 +148,8 @@ export class AnkleAngleEstimator {
     const alignment = alignmentDeg(this.shankQ, this.footQ);
     if (alignment != null && this.baselineAlignmentDeg != null) {
       const delta = alignment - this.baselineAlignmentDeg;
-      dorsiDeg = clamp(delta, 0, MAX_ANKLE_DEG);
-      plantarDeg = clamp(-delta, 0, MAX_ANKLE_DEG);
+      dorsiDeg = clamp(-delta, 0, MAX_ANKLE_DEG);
+      plantarDeg = clamp(delta, 0, MAX_ANKLE_DEG);
     } else {
       const relative = this.computePitchRelativeDeg();
       if (relative == null) {
