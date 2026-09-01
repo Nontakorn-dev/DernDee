@@ -12,7 +12,7 @@ export type GamePhase =
   | "running"
   | "clear";
 
-export type HazardKind = "jump" | "duck";
+export type HazardKind = "jump" | "duck" | "boost";
 
 export type Platform = {
   x: number;
@@ -45,6 +45,7 @@ export type EngineConfig = {
   targetAngle: number;
   runSeconds: number;
   startScore: number;
+  kit?: "ankle" | "full";
   freeWalk?: boolean;
   assets?: GameAssets;
   sfx?: GameSfx;

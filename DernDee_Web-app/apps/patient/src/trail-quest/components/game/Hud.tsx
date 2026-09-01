@@ -16,14 +16,23 @@ export function GameHud({ hud }: { hud: HudSnapshot }) {
   const ratio = Math.min(1, hud.angle / Math.max(1, hud.targetAngle));
   const progressPct = Math.round(hud.progress * 100);
   const jumpNow = hud.hazardKind === "jump";
+  const boostNow = hud.hazardKind === "boost";
   const metricLabel =
-    hud.chapter === "combined" ? (jumpNow ? "พลังกระโดด" : "พลังก้ม") : chapter.metricLabel;
+    hud.chapter === "combined"
+      ? jumpNow
+        ? "พลังกระโดด"
+        : boostNow
+          ? "พลังพุ่ง"
+          : "พลังก้ม"
+      : chapter.metricLabel;
   const metricEn = "Power";
   const tipLines: [string, string] =
     hud.chapter === "combined"
       ? jumpNow
-        ? ["กระโดดขึ้น ค้างไว้", "ข้ามเหวให้พ้น"]
-        : ["ก้มตัวลง ค้างไว้", "หลบนกที่บินผ่าน"]
+        ? ["ยกเข่าขึ้น ค้างไว้", "ข้ามเหวให้พ้น"]
+        : boostNow
+          ? ["กดปลายเท้าลง ค้างไว้", "เติมพลังแล้วพุ่งต่อ"]
+          : ["กระดกข้อเท้าขึ้น ค้างไว้", "หลบนกที่บินผ่าน"]
       : chapter.tipLines;
 
   return (

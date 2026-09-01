@@ -20,6 +20,7 @@ export class KneeAngleEstimator {
   constructor(options = {}) {
     this.maxPairGapMs = options.maxPairGapMs ?? DEFAULT_MAX_PAIR_GAP_MS;
     this.smoothing = options.smoothing ?? DEFAULT_SMOOTHING;
+    this.autoPolarity = Boolean(options.autoPolarity);
     this.thighTracker = new OrientationTracker(options);
     this.shankTracker = new OrientationTracker(options);
     this.reset();
@@ -33,6 +34,8 @@ export class KneeAngleEstimator {
     this.lastThighAt = 0;
     this.lastShankAt = 0;
     this.baselineFlexionDeg = 0;
+    this.polarity = 1;
+    this.polarityLocked = false;
     this.smoothedFlexionDeg = 0;
     this.ready = false;
   }
@@ -44,6 +47,9 @@ export class KneeAngleEstimator {
     }
 
     this.baselineFlexionDeg = rawFlexionDeg;
+    this.polarity = 1;
+    this.polarityLocked = false;
+    this.smoothedFlexionDeg = 0;
     return true;
   }
 
@@ -70,7 +76,7 @@ export class KneeAngleEstimator {
       return null;
     }
 
-    return clamp(this.shankPitchDeg - this.thighPitchDeg, -15, 150);
+    return clamp(this.shankPitchDeg - this.thighPitchDeg, -150, 150);
   }
 
   computeFlexionDeg() {
@@ -79,7 +85,13 @@ export class KneeAngleEstimator {
       return null;
     }
 
-    const flexionDeg = clamp(rawFlexionDeg - this.baselineFlexionDeg, 0, 150);
+    const delta = rawFlexionDeg - this.baselineFlexionDeg;
+    if (this.autoPolarity && !this.polarityLocked && Math.abs(delta) >= 10) {
+      this.polarity = delta >= 0 ? 1 : -1;
+      this.polarityLocked = true;
+    }
+
+    const flexionDeg = clamp(this.polarity * delta, 0, 150);
     this.smoothedFlexionDeg += (flexionDeg - this.smoothedFlexionDeg) * this.smoothing;
     this.ready = true;
     return this.smoothedFlexionDeg;

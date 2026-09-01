@@ -35,6 +35,7 @@ import {
   BIRD_SPEED,
   CHARGE_RATE,
   DECAY_RATE,
+  LIVE_HOLD_DEG,
   DUCK_DURATION,
   DUCK_SHUFFLE,
   FINISH_TILES,
@@ -61,6 +62,8 @@ type InternalState = {
   angle: number;
   phase: GamePhase;
   holding: boolean;
+  angleInput: "hold" | "live";
+  liveAngle: number | null;
   paused: boolean;
   elapsed: number;
   score: number;
@@ -92,12 +95,13 @@ function hudFrom(state: InternalState, config: EngineConfig): HudSnapshot {
   const end = worldEnd(state.platforms);
   const hazard = currentHazard(state);
   const energy = isEnergyRun(config.chapter);
+  const actionKind = energy ? "boost" : hazard?.kind ?? null;
   return {
     elapsed: state.elapsed,
     score: state.score,
     stage: config.stage,
     chapter: config.chapter,
-    progress: Math.min(1, Math.max(0, state.playerX / end)),
+    progress: Math.min(1, state.playerX / end),
     angle: state.angle,
     targetAngle: config.targetAngle,
     phase: state.phase,
@@ -107,8 +111,8 @@ function hudFrom(state: InternalState, config: EngineConfig): HudSnapshot {
     jumpsDone: state.jumpsDone,
     jumpsTotal: energy ? config.gaps : state.encounters.length,
     cleared: state.cleared,
-    hazardKind: energy ? null : hazard?.kind ?? null,
-    hazardLabel: hazardLabelFor(config.chapter, hazard?.kind ?? null),
+    hazardKind: energy ? "boost" : hazard?.kind ?? null,
+    hazardLabel: hazardLabelFor(config.chapter, actionKind),
   };
 }
 
@@ -122,7 +126,8 @@ export function createEngine(canvas: HTMLCanvasElement, config: EngineConfig) {
   attachGameClips(canvas.parentElement);
 
   const freeWalk = Boolean(config.freeWalk);
-  const { platforms, encounters } = buildWorld(config.chapter, config.gaps, freeWalk);
+  const kit = config.kit ?? "full";
+  const { platforms, encounters } = buildWorld(config.chapter, config.gaps, freeWalk, kit);
   const firstWait = encounters[0]?.waitX ?? 280;
 
   const state: InternalState = {
@@ -133,6 +138,8 @@ export function createEngine(canvas: HTMLCanvasElement, config: EngineConfig) {
     angle: IDLE_ANGLE,
     phase: freeWalk ? "walking" : isEnergyRun(config.chapter) ? "running" : "walking",
     holding: false,
+    angleInput: "hold",
+    liveAngle: null,
     paused: false,
     elapsed: 0,
     score: config.startScore,
@@ -317,7 +324,8 @@ export function createEngine(canvas: HTMLCanvasElement, config: EngineConfig) {
       }
     } else if (
       !isEnergyRun(config.chapter) &&
-      (state.phase === "waiting" || state.phase === "charging")
+      (state.phase === "waiting" || state.phase === "charging") &&
+      state.encounters[state.jumpsDone]?.kind !== "boost"
     ) {
       jump?.pause();
       duck?.pause();
@@ -331,7 +339,7 @@ export function createEngine(canvas: HTMLCanvasElement, config: EngineConfig) {
     } else if (
       (state.phase === "tired" || state.phase === "charging") &&
       tired &&
-      isEnergyRun(config.chapter)
+      (isEnergyRun(config.chapter) || state.encounters[state.jumpsDone]?.kind === "boost")
     ) {
       jump?.pause();
       duck?.pause();
@@ -417,7 +425,7 @@ export function createEngine(canvas: HTMLCanvasElement, config: EngineConfig) {
     state.airY = 0;
     state.phase = "running";
     state.runRemaining = config.runSeconds;
-    state.angle = Math.max(IDLE_ANGLE, config.targetAngle * 0.45);
+    state.angle = state.angleInput === "live" ? 0 : Math.max(IDLE_ANGLE, config.targetAngle * 0.45);
   };
 
   const finishAction = () => {
@@ -425,14 +433,57 @@ export function createEngine(canvas: HTMLCanvasElement, config: EngineConfig) {
     state.phase = "running";
     state.runRemaining = config.runSeconds;
     state.holding = false;
-    state.angle = Math.max(IDLE_ANGLE, config.targetAngle * 0.45);
+    state.angle = state.angleInput === "live" ? 0 : Math.max(IDLE_ANGLE, config.targetAngle * 0.45);
   };
 
   const stopAtUpcoming = (upcoming: Encounter) => {
     state.playerX = upcoming.waitX;
     state.runRemaining = 0;
-    state.phase = "waiting";
+    state.phase = upcoming.kind === "boost" ? "tired" : "waiting";
     state.bonusThisHold = 0;
+  };
+
+  const fireCharge = (idlePhase: "waiting" | "tired") => {
+    const enc = state.encounters[state.jumpsDone];
+    if (idlePhase === "tired" || enc?.kind === "boost") startBoost();
+    else if (enc) startHazard(enc);
+  };
+
+  const applyCharge = (dt: number, idlePhase: "waiting" | "tired") => {
+    const chargeable = state.phase === idlePhase || state.phase === "charging";
+    if (!chargeable) return;
+
+    if (state.angleInput === "live") {
+      const liveDeg = Number.isFinite(state.liveAngle) ? (state.liveAngle as number) : null;
+      if (liveDeg == null) {
+        state.holding = false;
+        if (state.phase === "charging") state.phase = idlePhase;
+        state.angle = Math.max(0, state.angle - DECAY_RATE * dt);
+        return;
+      }
+      state.angle = Math.max(0, Math.min(config.targetAngle + 12, liveDeg));
+      const holdingNow = liveDeg >= LIVE_HOLD_DEG;
+      if (holdingNow) {
+        if (!state.holding) state.bonusThisHold = 0;
+        state.holding = true;
+        state.phase = "charging";
+        state.bonusThisHold += dt;
+        if (state.angle >= config.targetAngle) fireCharge(idlePhase);
+      } else {
+        state.holding = false;
+        if (state.phase === "charging") state.phase = idlePhase;
+      }
+      return;
+    }
+
+    if (state.holding) {
+      state.phase = "charging";
+      state.angle = Math.min(config.targetAngle + 10, state.angle + CHARGE_RATE * dt);
+      state.bonusThisHold += dt;
+      if (state.angle >= config.targetAngle) fireCharge(idlePhase);
+    } else if (state.phase === "charging") {
+      state.phase = idlePhase;
+    }
   };
 
   const update = (dt: number) => {
@@ -452,16 +503,9 @@ export function createEngine(canvas: HTMLCanvasElement, config: EngineConfig) {
     }
 
     if (isEnergyRun(config.chapter)) {
-      if (state.holding && (state.phase === "tired" || state.phase === "charging")) {
-        state.phase = "charging";
-        state.angle = Math.min(config.targetAngle + 10, state.angle + CHARGE_RATE * dt);
-        state.bonusThisHold += dt;
-        if (state.angle >= config.targetAngle) startBoost();
-      } else if (state.phase === "charging") {
-        state.phase = "tired";
-      }
+      applyCharge(dt, "tired");
 
-      if (!state.holding) {
+      if (state.angleInput !== "live" && !state.holding) {
         if (state.angle > IDLE_ANGLE) {
           state.angle = Math.max(IDLE_ANGLE, state.angle - DECAY_RATE * dt);
         }
@@ -490,20 +534,35 @@ export function createEngine(canvas: HTMLCanvasElement, config: EngineConfig) {
           }
         }
       }
-    } else if (state.holding && (state.phase === "waiting" || state.phase === "charging")) {
-      state.phase = "charging";
-      state.angle = Math.min(config.targetAngle + 10, state.angle + CHARGE_RATE * dt);
-      state.bonusThisHold += dt;
-      if (state.angle >= config.targetAngle) {
-        const enc = state.encounters[state.jumpsDone];
-        if (enc) startHazard(enc);
+    } else {
+      const upcoming = state.encounters[state.jumpsDone];
+      if (upcoming?.kind === "boost" && state.phase === "waiting") {
+        state.phase = "tired";
       }
-    } else if (state.phase === "charging") {
-      state.phase = "waiting";
+      applyCharge(dt, upcoming?.kind === "boost" ? "tired" : "waiting");
+      if (
+        upcoming?.kind === "boost"
+        && (state.phase === "tired" || state.phase === "charging")
+      ) {
+        state.airY = 3 + Math.sin(state.time * 2.1) * 2;
+      }
+    }
+
+    if (
+      state.angleInput === "live"
+      && Number.isFinite(state.liveAngle)
+      && (state.phase === "walking" || state.phase === "running")
+    ) {
+      state.angle = Math.max(0, Math.min(config.targetAngle + 12, state.liveAngle as number));
     }
 
     if (!isEnergyRun(config.chapter)) {
-      if (!state.holding && state.phase !== "jumping" && state.phase !== "ducking") {
+      if (
+        state.angleInput !== "live"
+        && !state.holding
+        && state.phase !== "jumping"
+        && state.phase !== "ducking"
+      ) {
         if (state.angle > IDLE_ANGLE) {
           state.angle = Math.max(IDLE_ANGLE, state.angle - DECAY_RATE * dt);
         }
@@ -522,7 +581,7 @@ export function createEngine(canvas: HTMLCanvasElement, config: EngineConfig) {
           state.playerX += WALK_SPEED * dt;
         } else {
           state.playerX = upcoming.waitX;
-          state.phase = "waiting";
+          state.phase = upcoming.kind === "boost" ? "tired" : "waiting";
           state.bonusThisHold = 0;
         }
       }
@@ -634,7 +693,7 @@ export function createEngine(canvas: HTMLCanvasElement, config: EngineConfig) {
     if (assets && sceneCount > 0) {
       const tiles: SceneBlit[] = [];
       for (let i = 0; i < sceneCount; i += 1) {
-        const kind = hazardKindFor(config.chapter, i) === "duck" ? "duck" : "jump";
+        const kind = hazardKindFor(config.chapter, i, kit) === "jump" ? "jump" : "duck";
         const tile = sceneTile(assets, kind, i) ?? sceneTile(assets, kind === "duck" ? "jump" : "duck", i);
         if (tile) tiles.push(tile);
       }
@@ -698,7 +757,7 @@ export function createEngine(canvas: HTMLCanvasElement, config: EngineConfig) {
       else if (
         (state.phase === "tired" || state.phase === "charging") &&
         assets.tired &&
-        isEnergyRun(config.chapter)
+        (isEnergyRun(config.chapter) || state.encounters[state.jumpsDone]?.kind === "boost")
       ) {
         clip = assets.tired;
       } else clip = assets.walk;
@@ -806,6 +865,7 @@ export function createEngine(canvas: HTMLCanvasElement, config: EngineConfig) {
       config.sfx?.unlock();
     },
     setHolding(next: boolean) {
+      if (state.angleInput === "live") return;
       if (
         state.paused ||
         state.phase === "clear" ||
@@ -821,6 +881,15 @@ export function createEngine(canvas: HTMLCanvasElement, config: EngineConfig) {
         state.phase = "charging";
         state.bonusThisHold = 0;
       }
+    },
+    setAngleInput(mode: "hold" | "live") {
+      state.angleInput = mode;
+      if (mode === "live") {
+        state.holding = false;
+      }
+    },
+    setLiveAngle(deg: number | null) {
+      state.liveAngle = Number.isFinite(deg) ? deg : null;
     },
     setPaused(next: boolean) {
       state.paused = next;

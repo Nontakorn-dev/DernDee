@@ -1,6 +1,7 @@
 import { GameScreen } from "@trail/components/game/GameScreen";
 import { releaseGameMedia } from "@trail/lib/game/assets";
 import { CHAPTERS, getChapter, type MovementKind } from "@trail/lib/progression";
+import { isTouchInputParam, withTouchInput } from "@trail/lib/sensorInput";
 import { useEffect } from "react";
 import { Navigate, useSearchParams } from "react-router-dom";
 
@@ -21,12 +22,20 @@ export function PlayClient() {
   }, [validChapter]);
 
   if (!validChapter) {
-    return <Navigate to="/map" replace />;
+    return <Navigate to={withTouchInput("/map", isTouchInputParam(params))} replace />;
   }
   const chapter = rawChapter;
   const rawStage = Number(params.get("stage") ?? "1");
   const max = getChapter(chapter).stages.length;
   const stage = Number.isFinite(rawStage) ? Math.min(max, Math.max(1, rawStage)) : 1;
+  const allowTouch = isTouchInputParam(params);
 
-  return <GameScreen key={`${chapter}-${stage}`} chapterId={chapter} stageId={stage} />;
+  return (
+    <GameScreen
+      key={`${chapter}-${stage}-${allowTouch ? "touch" : "sensor"}`}
+      chapterId={chapter}
+      stageId={stage}
+      allowTouch={allowTouch}
+    />
+  );
 }

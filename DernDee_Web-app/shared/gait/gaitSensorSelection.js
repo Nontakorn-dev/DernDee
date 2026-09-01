@@ -5,6 +5,7 @@ import {
 } from './gaitRuntimeConfig.js';
 
 export const SHANK_BODY_POSITION_IDS = new Set(['LEFT_SHANK', 'RIGHT_SHANK']);
+export const FOOT_BODY_POSITION_IDS = new Set(['LEFT_FOOT', 'RIGHT_FOOT']);
 
 export function isShankBodyPositionId(positionId) {
   return SHANK_BODY_POSITION_IDS.has(positionId);
@@ -52,6 +53,16 @@ export function resolveVisibleShankSensorKeys(sensorStates = [], options = {}) {
     .map((sensorState) => sensorState.sensorKey);
 }
 
+export function filterActiveFootSensorStates(sensorStates = [], options = {}) {
+  const { staleAfterMs = GAIT_SENSOR_STALE_AFTER_MS } = options;
+  const now = Date.now();
+
+  return sensorStates
+    .filter((sensorState) => now - (sensorState.lastSeenAt || 0) <= staleAfterMs)
+    .filter((sensorState) => sensorState.sensorMount === 'foot')
+    .sort(sortGaitSensorStates);
+}
+
 export function filterActiveThighSensorStates(sensorStates = [], options = {}) {
   const { staleAfterMs = GAIT_SENSOR_STALE_AFTER_MS } = options;
   const now = Date.now();
@@ -87,6 +98,33 @@ export function resolveActiveLegPairs(sensorStates = [], options = {}) {
 
 export function hasActiveLegPairs(sensorStates = [], options = {}) {
   return resolveActiveLegPairs(sensorStates, options).length > 0;
+}
+
+export function resolveActiveAnklePairs(sensorStates = [], options = {}) {
+  const { staleAfterMs = GAIT_SENSOR_STALE_AFTER_MS } = options;
+  const feet = filterActiveFootSensorStates(sensorStates, { staleAfterMs });
+  const shanks = filterActiveShankSensorStates(sensorStates, { staleAfterMs });
+  const pairs = [];
+
+  for (const side of ['L', 'R']) {
+    const foot = feet.find((sensorState) => sensorState.side === side);
+    const shank = shanks.find((sensorState) => sensorState.side === side);
+    if (foot && shank) {
+      pairs.push({
+        side,
+        footKey: foot.sensorKey,
+        shankKey: shank.sensorKey,
+        foot,
+        shank,
+      });
+    }
+  }
+
+  return pairs.sort((left, right) => getRealtimeSensorSideOrder(left.side) - getRealtimeSensorSideOrder(right.side));
+}
+
+export function hasActiveAnklePairs(sensorStates = [], options = {}) {
+  return resolveActiveAnklePairs(sensorStates, options).length > 0;
 }
 
 export function hasStreamingLegPairBleDevices(devices = []) {

@@ -74,6 +74,10 @@ export function getRealtimeSensorMount(payload = {}) {
     || '',
   ).toUpperCase()
 
+  if (text.includes('FOOT')) {
+    return 'foot'
+  }
+
   if (text.includes('SHANK')) {
     return 'shank'
   }
@@ -132,13 +136,33 @@ export function isRealtimeShankSample(sample) {
   return getRealtimeSensorMount(sample) === 'shank'
 }
 
+export function isRealtimeFootSample(sample) {
+  return getRealtimeSensorMount(sample) === 'foot'
+}
+
+function mountNoun(mount) {
+  if (mount === 'foot') {
+    return 'Foot'
+  }
+  if (mount === 'thigh') {
+    return 'Thigh'
+  }
+  if (mount === 'pelvis') {
+    return 'Chest'
+  }
+  return 'Shank'
+}
+
 export function getRealtimeSensorLabel(sample) {
+  const mount = getRealtimeSensorMount(sample)
+  const noun = mountNoun(mount)
+
   if (sample?.side === 'L') {
-    return 'Left Shank'
+    return `Left ${noun}`
   }
 
   if (sample?.side === 'R') {
-    return 'Right Shank'
+    return `Right ${noun}`
   }
 
   return sample?.name || sample?.sensorKey || 'Sensor'

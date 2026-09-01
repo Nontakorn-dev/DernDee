@@ -153,7 +153,7 @@ export function DailyScoreBoard({ days }) {
 
       <button
         type="button"
-        onClick={() => navigate("/map")}
+        onClick={() => navigate("/map?input=touch")}
         className="mt-4 flex h-14 w-full items-center justify-center rounded-2xl bg-blue-600 text-lg font-bold text-white shadow-xl hover:bg-blue-700"
       >
         ไปเก็บแต้มวันนี้

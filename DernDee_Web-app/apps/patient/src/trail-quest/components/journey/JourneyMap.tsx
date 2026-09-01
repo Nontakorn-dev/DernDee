@@ -4,6 +4,7 @@ import type { CharacterId } from "@trail/lib/game/characters";
 import { primeGameAudio } from "@trail/lib/game/sfx";
 import {
   CHAPTERS,
+  chapterLockHint,
   emptySave,
   hydrateSave,
   isChapterUnlocked,
@@ -14,7 +15,13 @@ import {
   type MovementKind,
 } from "@trail/lib/progression";
 import { loadSettings, writeSettings } from "@trail/lib/settings";
-import { Link } from "react-router-dom";
+import { isTouchInputParam, withTouchInput } from "@trail/lib/sensorInput";
+import { kitFromBleDevices, type TrailKit, type TrailKitDetection } from "@trail/lib/trailKit";
+import {
+  getBrowserBleDevicesSnapshot,
+  subscribeToBrowserBleDevices,
+} from "@shared/gateway/realtimeTransport.js";
+import { Link, useSearchParams } from "react-router-dom";
 import { useEffect, useState } from "react";
 
 const GAME_ICONS: Record<MovementKind, { src: string; alt: string }> = {
@@ -25,10 +32,16 @@ const GAME_ICONS: Record<MovementKind, { src: string; alt: string }> = {
 };
 
 export function JourneyMap() {
+  const [params] = useSearchParams();
+  const allowTouch = isTouchInputParam(params);
   const [save, setSave] = useState(() => emptySave());
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [muted, setMuted] = useState(false);
   const [character, setCharacter] = useState<CharacterId>("boy");
+  const [testKit, setTestKit] = useState<TrailKit>(() => loadSettings().testKit);
+  const [detection, setDetection] = useState<TrailKitDetection | "unknown">(() =>
+    allowTouch ? loadSettings().testKit : kitFromBleDevices(getBrowserBleDevicesSnapshot()),
+  );
 
   useEffect(() => {
     setSave(loadSave());
@@ -36,10 +49,23 @@ export function JourneyMap() {
     const settings = loadSettings();
     setMuted(settings.muted);
     setCharacter(settings.character);
+    setTestKit(settings.testKit);
   }, []);
 
-  const next = nextPlayable(save);
-  const continueHref = `/play?chapter=${next.chapter}&stage=${next.stage}`;
+  useEffect(() => {
+    if (allowTouch) {
+      setDetection(testKit);
+      return undefined;
+    }
+    const sync = (devices: Array<{ positionId?: string; status?: string }> = []) => {
+      setDetection(kitFromBleDevices(devices));
+    };
+    sync(getBrowserBleDevicesSnapshot());
+    return subscribeToBrowserBleDevices(sync);
+  }, [allowTouch, testKit]);
+
+  const next = nextPlayable(save, detection);
+  const continueHref = withTouchInput(`/play?chapter=${next.chapter}&stage=${next.stage}`, allowTouch);
 
   return (
     <div
@@ -61,6 +87,12 @@ export function JourneyMap() {
           <p className="mt-2 max-w-xl text-[15px] leading-relaxed text-slate-500">
             ก้มหลบนก พุ่งสุดแรง กระโดดข้ามเหว แล้วปลดล็อกด่านต่อไป ความคืบหน้าวันนี้เก็บไว้จนเที่ยงคืน แล้วเริ่มใหม่ทั้งด่าน
           </p>
+          {allowTouch ? (
+            <p className="mt-2 text-sm font-semibold text-amber-600">
+              โหมดทดสอบระบบ · กดค้างที่จอได้ เข้าเล่นจาก Therapy จะต้องใช้เซนเซอร์จริง
+              เลือกชุดป่าจังหวะได้ในตั้งค่า
+            </p>
+          ) : null}
           <div className="mt-4 inline-flex items-center gap-2 rounded-full bg-white px-4 py-2 shadow-lg">
             <span className="text-lg" aria-hidden>
               ⭐
@@ -74,12 +106,15 @@ export function JourneyMap() {
           <div className="absolute bottom-10 left-[27px] top-4 w-[3px] rounded-full bg-white/80" />
           <div className="flex flex-col gap-5">
             {CHAPTERS.map((chapter, index) => {
-              const unlocked = isChapterUnlocked(chapter, save);
+              const unlocked = isChapterUnlocked(chapter, save, detection);
+              const lockHint = chapterLockHint(chapter, save, detection);
               const done = chapter.stages.every((stage) =>
                 save.completed.includes(`${chapter.id}-${stage.id}`),
               );
-              const playStage = nextPlayableInChapter(chapter, save);
-              const href = unlocked ? `/play?chapter=${chapter.id}&stage=${playStage}` : null;
+              const playStage = nextPlayableInChapter(chapter, save, detection);
+              const href = unlocked
+                ? withTouchInput(`/play?chapter=${chapter.id}&stage=${playStage}`, allowTouch)
+                : null;
               const icon = GAME_ICONS[chapter.id];
 
               return (
@@ -130,13 +165,13 @@ export function JourneyMap() {
 
                   {!unlocked ? (
                     <p className="mt-3 text-sm font-semibold text-amber-600">
-                      🔒 {chapter.unlockHint}
+                      🔒 {lockHint || chapter.unlockHint}
                     </p>
                   ) : (
                     <>
                       <div className="mt-4 flex flex-wrap gap-2">
                         {chapter.stages.map((stage) => {
-                          const open = isStageUnlocked(chapter, stage, save);
+                          const open = isStageUnlocked(chapter, stage, save, detection);
                           const cleared = save.completed.includes(`${chapter.id}-${stage.id}`);
                           const pill =
                             "inline-flex h-11 items-center rounded-full px-4 text-sm font-semibold leading-none";
@@ -153,7 +188,7 @@ export function JourneyMap() {
                           return (
                             <Link
                               key={stage.id}
-                              to={`/play?chapter=${chapter.id}&stage=${stage.id}`}
+                              to={withTouchInput(`/play?chapter=${chapter.id}&stage=${stage.id}`, allowTouch)}
                               onClick={() => primeGameAudio()}
                               className={`${pill} ${
                                 cleared
@@ -204,6 +239,12 @@ export function JourneyMap() {
         onCharacterChange={(id) => {
           setCharacter(id);
           writeSettings({ character: id });
+        }}
+        showTestKit={allowTouch}
+        testKit={testKit}
+        onTestKitChange={(kit) => {
+          setTestKit(kit);
+          writeSettings({ testKit: kit });
         }}
       />
     </div>

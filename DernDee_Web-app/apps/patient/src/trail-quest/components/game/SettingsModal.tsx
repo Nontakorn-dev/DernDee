@@ -1,5 +1,6 @@
 import { HeaderIconButton } from "@trail/components/game/GameHeader";
 import { CHARACTERS, type CharacterId } from "@trail/lib/game/characters";
+import type { TrailKit } from "@trail/lib/trailKit";
 
 export function SettingsButton({ onClick }: { onClick: () => void }) {
   return (
@@ -28,6 +29,9 @@ export function SettingsModal({
   onClose,
   onMutedChange,
   onCharacterChange,
+  showTestKit = false,
+  testKit = "full",
+  onTestKitChange,
 }: {
   open: boolean;
   muted: boolean;
@@ -35,6 +39,9 @@ export function SettingsModal({
   onClose: () => void;
   onMutedChange: (muted: boolean) => void;
   onCharacterChange: (id: CharacterId) => void;
+  showTestKit?: boolean;
+  testKit?: TrailKit;
+  onTestKitChange?: (kit: TrailKit) => void;
 }) {
   if (!open) return null;
 
@@ -125,6 +132,37 @@ export function SettingsModal({
             })}
           </div>
         </section>
+
+        {showTestKit ? (
+          <section className="mt-6">
+            <div className="text-xs font-bold uppercase tracking-wide text-slate-400">โหมดทดสอบ</div>
+            <p className="mt-1 text-sm text-slate-500">
+              เลือกชุดเกมให้เหมือนตอนเล่นจาก Therapy ตามเซนเซอร์ที่ติด
+            </p>
+            <div className="mt-3 grid gap-2">
+              <button
+                type="button"
+                onClick={() => onTestKitChange?.("ankle")}
+                className={`rounded-2xl px-4 py-3 text-left ${
+                  testKit === "ankle" ? "bg-blue-50 ring-2 ring-blue-500" : "bg-slate-50"
+                }`}
+              >
+                <div className="text-[15px] font-bold text-slate-800">นกบินต่ำ + พุ่งสุดแรง</div>
+                <div className="text-sm text-slate-500">เหมือนติดหน้าแข้ง + หลังเท้า</div>
+              </button>
+              <button
+                type="button"
+                onClick={() => onTestKitChange?.("full")}
+                className={`rounded-2xl px-4 py-3 text-left ${
+                  testKit === "full" ? "bg-blue-50 ring-2 ring-blue-500" : "bg-slate-50"
+                }`}
+              >
+                <div className="text-[15px] font-bold text-slate-800">นกบินต่ำ + พุ่งสุดแรง + ข้ามเหว</div>
+                <div className="text-sm text-slate-500">เหมือนติดหน้าแข้ง + หลังเท้า + ต้นขา</div>
+              </button>
+            </div>
+          </section>
+        ) : null}
 
         <button
           type="button"

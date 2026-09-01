@@ -6,6 +6,7 @@ import {
 } from "@trail/lib/game/assets";
 import type { Encounter, HazardKind, Platform } from "@trail/lib/game/types";
 import { isEnergyRun, type MovementKind } from "@trail/lib/progression";
+import type { TrailKit } from "@trail/lib/trailKit";
 
 export const WALK_SPEED = 210;
 export const RUN_SPEED = 290;
@@ -18,6 +19,7 @@ export const DUCK_DURATION = 1.85;
 export const DUCK_SHUFFLE = 42;
 export const BIRD_SPEED = 544;
 export const IDLE_ANGLE = 6;
+export const LIVE_HOLD_DEG = 4;
 export const CHARGE_RATE = 14;
 export const DECAY_RATE = 16;
 export const POINTS_PER_JUMP = 120;
@@ -25,14 +27,20 @@ export const HOLD_BONUS_MAX = 80;
 export const FINISH_TILES = 2;
 export const FLAG_IN_FINISH = 0.38;
 
-export function hazardKindFor(chapter: MovementKind, index: number): HazardKind {
+export function hazardKindFor(
+  chapter: MovementKind,
+  index: number,
+  kit: TrailKit = "full",
+): HazardKind {
   if (chapter === "dorsiflexor" || isEnergyRun(chapter)) return "duck";
   if (chapter === "hip-flexor") return "jump";
-  return index % 2 === 0 ? "duck" : "jump";
+  if (kit === "ankle") return index % 2 === 0 ? "duck" : "boost";
+  const mix: HazardKind[] = ["duck", "boost", "jump"];
+  return mix[index % mix.length];
 }
 
 export function hazardLabelFor(chapter: MovementKind, kind: HazardKind | null) {
-  if (isEnergyRun(chapter)) return "พลัง";
+  if (isEnergyRun(chapter) || kind === "boost") return "พลัง";
   if (chapter === "dorsiflexor") return "นก";
   if (chapter === "hip-flexor") return "เหว";
   if (kind === "duck") return "นก";
@@ -40,7 +48,12 @@ export function hazardLabelFor(chapter: MovementKind, kind: HazardKind | null) {
   return "อุปสรรค";
 }
 
-export function buildWorld(chapter: MovementKind, gaps: number, freeWalk = false) {
+export function buildWorld(
+  chapter: MovementKind,
+  gaps: number,
+  freeWalk = false,
+  kit: TrailKit = "full",
+) {
   const count = Math.min(SCENE_COUNT, Math.max(1, gaps));
   if (freeWalk) {
     return {
@@ -69,7 +82,7 @@ export function buildWorld(chapter: MovementKind, gaps: number, freeWalk = false
     const holeStart = base + SCENE_HOLE_START;
     const holeEnd = base + SCENE_HOLE_END;
     const waitX = holeStart - STAND_BACK;
-    const kind = hazardKindFor(chapter, i);
+    const kind = hazardKindFor(chapter, i, kit);
     const hazardX = (holeStart + holeEnd) / 2;
     if (kind === "jump") {
       closePlatform(holeStart);

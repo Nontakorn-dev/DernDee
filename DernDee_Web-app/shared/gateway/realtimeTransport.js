@@ -12,6 +12,8 @@ const BODY_POSITIONS = [
   { id: 'RIGHT_THIGH', name: 'Right Thigh', order: 3, deviceId: 'DernDee_R_Thigh' },
   { id: 'LEFT_SHANK', name: 'Left Shank', order: 4, deviceId: 'DernDee_L_Shank' },
   { id: 'RIGHT_SHANK', name: 'Right Shank', order: 5, deviceId: 'DernDee_R_Shank' },
+  { id: 'LEFT_FOOT', name: 'Left Foot', order: 6, deviceId: 'DernDee_L_Foot' },
+  { id: 'RIGHT_FOOT', name: 'Right Foot', order: 7, deviceId: 'DernDee_R_Foot' },
 ]
 
 function getStoredMode() {
@@ -101,6 +103,10 @@ function decodePacket(buffer) {
 }
 
 function inferSensorMount(senderName = '', positionId = '') {
+  if (positionId === 'LEFT_FOOT' || positionId === 'RIGHT_FOOT') {
+    return 'foot'
+  }
+
   if (positionId === 'LEFT_SHANK' || positionId === 'RIGHT_SHANK') {
     return 'shank'
   }
@@ -113,7 +119,21 @@ function inferSensorMount(senderName = '', positionId = '') {
     return 'pelvis'
   }
 
-  return senderName.includes('Shank') ? 'shank' : 'foot'
+  const upperName = String(senderName || '').toUpperCase()
+  if (upperName.includes('FOOT')) {
+    return 'foot'
+  }
+  if (upperName.includes('SHANK')) {
+    return 'shank'
+  }
+  if (upperName.includes('THIGH')) {
+    return 'thigh'
+  }
+  if (upperName.includes('CHEST') || upperName.includes('PELVIS')) {
+    return 'pelvis'
+  }
+
+  return 'unknown'
 }
 
 function findPositionIdForBleName(name = '') {
@@ -143,12 +163,11 @@ function findPositionIdForBleName(name = '') {
   if (upperName.includes('R_SHANK') || (upperName.includes('RIGHT') && upperName.includes('SHANK'))) {
     return 'RIGHT_SHANK'
   }
-  // Legacy firmware names still map to shank slots.
   if (upperName.includes('L_FOOT') || (upperName.includes('LEFT') && upperName.includes('FOOT'))) {
-    return 'LEFT_SHANK'
+    return 'LEFT_FOOT'
   }
   if (upperName.includes('R_FOOT') || (upperName.includes('RIGHT') && upperName.includes('FOOT'))) {
-    return 'RIGHT_SHANK'
+    return 'RIGHT_FOOT'
   }
 
   return null

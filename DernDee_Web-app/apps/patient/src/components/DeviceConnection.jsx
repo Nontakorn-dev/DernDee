@@ -216,6 +216,10 @@ const DeviceConnection = () => {
                 return <Footprints className="w-8 h-8 text-purple-500 rotate-12" strokeWidth={2} />;
             case 'RIGHT_SHANK':
                 return <Footprints className="w-8 h-8 text-purple-500 -rotate-12" strokeWidth={2} />;
+            case 'LEFT_FOOT':
+                return <Footprints className="w-8 h-8 text-amber-500 rotate-12" strokeWidth={2} />;
+            case 'RIGHT_FOOT':
+                return <Footprints className="w-8 h-8 text-amber-500 -rotate-12" strokeWidth={2} />;
             default:
                 return <Activity className="w-8 h-8 text-gray-500" strokeWidth={2} />;
         }
@@ -254,7 +258,10 @@ const DeviceConnection = () => {
                                     )}
                                 </p>
                                 <p className="text-xs sm:text-sm font-medium text-gray-500 mt-1">
-                                    Sensors auto-match by BLE name (e.g. DernDee_R_Shank)
+                                    Sensors auto-match by BLE name (e.g. DernDee_R_Shank, DernDee_R_Foot)
+                                </p>
+                                <p className="text-xs sm:text-sm font-medium text-gray-500 mt-1">
+                                    Trail Quest: ankle games need shank + foot. Jump game needs shank + thigh.
                                 </p>
                             </div>
                             <div className="flex flex-col sm:flex-row gap-2 sm:gap-3 w-full sm:w-auto">

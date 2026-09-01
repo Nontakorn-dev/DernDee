@@ -1,8 +1,10 @@
 import { isCharacterId, type CharacterId } from "@trail/lib/game/characters";
+import { isTrailKit, type TrailKit } from "@trail/lib/trailKit";
 
 export type AppSettings = {
   muted: boolean;
   character: CharacterId;
+  testKit: TrailKit;
 };
 
 const SETTINGS_KEY = "derndee-settings-v1";
@@ -10,6 +12,7 @@ const SETTINGS_KEY = "derndee-settings-v1";
 export const DEFAULT_SETTINGS: AppSettings = {
   muted: false,
   character: "boy",
+  testKit: "full",
 };
 
 export function loadSettings(): AppSettings {
@@ -21,6 +24,7 @@ export function loadSettings(): AppSettings {
     return {
       muted: Boolean(parsed.muted),
       character: isCharacterId(parsed.character) ? parsed.character : DEFAULT_SETTINGS.character,
+      testKit: isTrailKit(parsed.testKit) ? parsed.testKit : DEFAULT_SETTINGS.testKit,
     };
   } catch {
     return DEFAULT_SETTINGS;

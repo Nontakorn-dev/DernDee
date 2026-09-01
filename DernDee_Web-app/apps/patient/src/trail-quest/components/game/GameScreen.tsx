@@ -29,6 +29,10 @@ import {
 } from "@trail/lib/progression";
 import { useNavigate } from "react-router-dom";
 import { useEffect, useRef, useState, type MouseEvent, type PointerEvent } from "react";
+import { SensorGate } from "@trail/components/game/SensorGate";
+import { useTrailQuestSensors } from "@trail/hooks/useTrailQuestSensors";
+import { withTouchInput } from "@trail/lib/sensorInput";
+import type { TrailKit } from "@trail/lib/trailKit";
 
 const INITIAL: HudSnapshot = {
   elapsed: 0,
@@ -52,9 +56,11 @@ const INITIAL: HudSnapshot = {
 export function GameScreen({
   chapterId,
   stageId,
+  allowTouch = false,
 }: {
   chapterId: MovementKind;
   stageId: number;
+  allowTouch?: boolean;
 }) {
   const navigate = useNavigate();
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -74,6 +80,8 @@ export function GameScreen({
   const [loading, setLoading] = useState(true);
   const [switching, setSwitching] = useState(false);
   const [leaving, setLeaving] = useState(false);
+  const [testKit, setTestKit] = useState<TrailKit>(() => loadSettings().testKit);
+  const [sensorKit, setSensorKit] = useState<TrailKit | null>(null);
   const startScoreRef = useRef(0);
   const lastPersistedScoreRef = useRef(0);
   const savedRef = useRef(false);
@@ -83,9 +91,33 @@ export function GameScreen({
   const settingsOpenRef = useRef(false);
   const leavingRef = useRef(false);
   const storyOpenRef = useRef(false);
+  const allowTouchRef = useRef(allowTouch);
+  allowTouchRef.current = allowTouch;
 
   const chapter = getChapter(chapterId);
   const stage = getStage(chapterId, stageId);
+  const mapHref = withTouchInput("/map", allowTouch);
+  const worldKit: TrailKit | null = allowTouch
+    ? testKit
+    : chapterId === "combined"
+      ? sensorKit
+      : "full";
+  const mixedRun = isEnergyRun(chapterId) || chapterId === "combined";
+
+  const sensors = useTrailQuestSensors({
+    enabled: !allowTouch,
+    chapter: chapterId,
+    hazardKind: hud.hazardKind,
+    onAngle: (deg) => engineRef.current?.setLiveAngle(deg),
+  });
+  const destKit = allowTouch ? testKit : sensors.detection;
+  const sensorGateOpen = !allowTouch && !sensors.ready;
+  const sensorGateRef = useRef(sensorGateOpen);
+  sensorGateRef.current = sensorGateOpen;
+
+  useEffect(() => {
+    if (sensors.status === "blocked") setLoading(false);
+  }, [sensors.status]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -110,11 +142,24 @@ export function GameScreen({
       writeSave(applyLiveScore(loadSave(), totalScore));
     };
 
+    const season = sceneSeasonForStage(stageId);
+    const kit = worldKit;
+    const needJump = chapterNeedsJump(chapterId, kit ?? "full");
+    const bootJump = chapterId === "combined" ? false : needJump;
+    const bootEnergy = isEnergyRun(chapterId);
+
+    if (!kit) {
+      void loadPlayableAssets(settings.character, season, bootJump, mixedRun).catch(() => {});
+      return () => {
+        cancelled = true;
+      };
+    }
+
     const startEngine = (assets: GameAssets | undefined, startScore: number) => {
       if (cancelled) return;
       startScoreRef.current = startScore;
       lastPersistedScoreRef.current = startScore;
-      const sfx = createGameSfx({ energyRun: isEnergyRun(chapterId) });
+      const sfx = createGameSfx({ energyRun: mixedRun });
       sfx.setMuted(mutedRef.current);
       sfxRef.current = sfx;
       const engine = createEngine(canvas, {
@@ -124,6 +169,7 @@ export function GameScreen({
         targetAngle: stage.targetAngle,
         runSeconds: stage.runSeconds,
         startScore,
+        kit,
         assets,
         sfx,
       });
@@ -144,7 +190,8 @@ export function GameScreen({
         }
       });
       engine.start();
-      engine.setPaused(pausedRef.current || settingsOpenRef.current);
+      engine.setAngleInput(allowTouch ? "hold" : "live");
+      engine.setPaused(pausedRef.current || settingsOpenRef.current || sensorGateRef.current);
       setLoading(false);
       cleanup = () => {
         unsub();
@@ -155,11 +202,9 @@ export function GameScreen({
       };
     };
 
-    const season = sceneSeasonForStage(stageId);
-    const needJump = chapterNeedsJump(chapterId);
     void Promise.all([
-      loadPlayableAssets(settings.character, season, needJump, isEnergyRun(chapterId)).catch(() =>
-        loadPlayableAssets("dino", season, needJump, isEnergyRun(chapterId)),
+      loadPlayableAssets(settings.character, season, bootJump, bootEnergy).catch(() =>
+        loadPlayableAssets("dino", season, bootJump, bootEnergy),
       ),
       hydrateSave(),
     ])
@@ -189,10 +234,13 @@ export function GameScreen({
       }
       cleanup();
     };
-  }, [chapterId, stageId, stage.gaps, stage.runSeconds, stage.targetAngle]);
+  }, [allowTouch, chapterId, mixedRun, stageId, stage.gaps, stage.runSeconds, stage.targetAngle, worldKit]);
 
   useEffect(() => {
-    const release = () => engineRef.current?.setHolding(false);
+    const release = () => {
+      if (!allowTouchRef.current) return;
+      engineRef.current?.setHolding(false);
+    };
     const unlockAudio = () => {
       primeGameAudio();
       engineRef.current?.unlock();
@@ -209,22 +257,30 @@ export function GameScreen({
     };
   }, []);
 
-  const dest = nextDestination(chapterId, stageId);
+  const dest = nextDestination(chapterId, stageId, destKit);
+  const destNeedsJump = chapterNeedsJump(dest.chapter, destKit === "ankle" ? "ankle" : "full");
 
   useEffect(() => {
     if (!storyOpen) return;
     if (dest.kind === "stage") {
-      preloadWorldAssets(sceneSeasonForStage(dest.stage), chapterNeedsJump(dest.chapter));
+      preloadWorldAssets(sceneSeasonForStage(dest.stage), destNeedsJump);
     } else if (dest.kind === "chapter") {
-      preloadWorldAssets(sceneSeasonForStage(1), chapterNeedsJump(dest.chapter));
+      preloadWorldAssets(sceneSeasonForStage(1), destNeedsJump);
     }
-  }, [storyOpen, dest.kind, dest.chapter, dest.stage]);
+  }, [storyOpen, dest.kind, dest.chapter, dest.stage, destNeedsJump]);
 
-  const setHold = (next: boolean) => engineRef.current?.setHolding(next);
+  const setHold = (next: boolean) => {
+    if (!allowTouchRef.current) return;
+    engineRef.current?.setHolding(next);
+  };
 
   const syncEnginePause = () => {
-    engineRef.current?.setPaused(pausedRef.current || settingsOpenRef.current);
+    engineRef.current?.setPaused(pausedRef.current || settingsOpenRef.current || sensorGateRef.current);
   };
+
+  useEffect(() => {
+    syncEnginePause();
+  }, [sensorGateOpen]);
 
   const togglePause = (next: boolean) => {
     pausedRef.current = next;
@@ -269,6 +325,11 @@ export function GameScreen({
       .finally(() => setSwitching(false));
   };
 
+  const setTestKitPref = (kit: TrailKit) => {
+    setTestKit(kit);
+    writeSettings({ testKit: kit });
+  };
+
   const lastUiTap = useRef(0);
   const uiAction = (fn: () => void) => ({
     onPointerDown: (e: PointerEvent) => {
@@ -301,13 +362,13 @@ export function GameScreen({
     navigate(href);
   };
 
-  const modalOpen = storyOpen || paused || settingsOpen;
+  const modalOpen = storyOpen || paused || settingsOpen || sensorGateOpen;
   const nextHref =
     dest.kind === "stage"
-      ? `/play?chapter=${dest.chapter}&stage=${dest.stage}`
+      ? withTouchInput(`/play?chapter=${dest.chapter}&stage=${dest.stage}`, allowTouch)
       : dest.kind === "chapter"
-        ? `/play?chapter=${dest.chapter}&stage=1`
-        : "/map";
+        ? withTouchInput(`/play?chapter=${dest.chapter}&stage=1`, allowTouch)
+        : mapHref;
 
   return (
     <div
@@ -315,8 +376,8 @@ export function GameScreen({
       style={{ fontFamily: "'Prompt', 'Noto Sans Thai', sans-serif" }}
     >
       <GameHeader
-        backHref="/map"
-        homeHref="/map"
+        backHref={mapHref}
+        homeHref={mapHref}
         onNavigate={goTo}
         actions={
           <>
@@ -343,7 +404,7 @@ export function GameScreen({
             onPointerDown={() => {
               if (storyOpenRef.current || pausedRef.current || settingsOpenRef.current) return;
               engineRef.current?.unlock();
-              setHold(true);
+              if (allowTouchRef.current) setHold(true);
             }}
             onContextMenu={(e) => e.preventDefault()}
           />
@@ -353,6 +414,19 @@ export function GameScreen({
             </div>
           ) : null}
           <GameHud hud={hud} />
+          {allowTouch ? (
+            <div className="pointer-events-none absolute left-1/2 top-14 z-20 -translate-x-1/2 rounded-full bg-amber-50 px-3 py-1 text-[11px] font-bold text-amber-700 shadow landscape:top-[5.5rem]">
+              {chapterId === "combined"
+                ? testKit === "full"
+                  ? "โหมดทดสอบ · นกบินต่ำ + พุ่งสุดแรง + ข้ามเหว"
+                  : "โหมดทดสอบ · นกบินต่ำ + พุ่งสุดแรง"
+                : "โหมดทดสอบระบบ · กดค้างที่จอได้"}
+            </div>
+          ) : sensors.ready ? (
+            <div className="pointer-events-none absolute left-1/2 top-14 z-20 -translate-x-1/2 rounded-full bg-white/90 px-3 py-1 text-[11px] font-bold text-slate-600 shadow landscape:top-[5.5rem]">
+              {sensors.jointLabel} · {sensors.sideLabel}
+            </div>
+          ) : null}
         </section>
       </main>
 
@@ -363,6 +437,9 @@ export function GameScreen({
         onClose={closeSettings}
         onMutedChange={setMutedPref}
         onCharacterChange={setCharacterPref}
+        showTestKit={allowTouch}
+        testKit={testKit}
+        onTestKitChange={setTestKitPref}
       />
 
       {paused ? (
@@ -383,7 +460,7 @@ export function GameScreen({
             <button
               type="button"
               className="mt-3 flex min-h-12 w-full items-center justify-center rounded-xl bg-gray-100 py-3 text-base font-bold text-gray-700 hover:bg-gray-200"
-              {...uiAction(() => goTo("/map"))}
+              {...uiAction(() => goTo(mapHref))}
             >
               เลือกเกม
             </button>
@@ -429,7 +506,7 @@ export function GameScreen({
                 type="button"
                 disabled={leaving}
                 className="mt-5 flex min-h-12 w-full items-center justify-center rounded-xl bg-blue-600 py-3 text-base font-bold text-white hover:bg-blue-700 disabled:opacity-80"
-                {...uiAction(() => goTo("/map"))}
+                {...uiAction(() => goTo(mapHref))}
               >
                 {leaving ? "กำลังไป…" : "เลือกเกม"}
               </button>
@@ -437,13 +514,39 @@ export function GameScreen({
             <button
               type="button"
               className="mt-3 flex min-h-11 w-full items-center justify-center text-sm font-medium text-gray-400"
-              {...uiAction(() => goTo("/map"))}
+              {...uiAction(() => goTo(mapHref))}
             >
               กลับไปเลือกเกม
             </button>
           </div>
         </div>
       ) : null}
+
+      <SensorGate
+        title={sensors.copy.title}
+        body={sensors.copy.body}
+        missing={sensors.copy.missing}
+        status={allowTouch ? "live" : sensors.status}
+        error={sensors.calibrateError}
+        blockedHref={
+          sensors.status === "blocked"
+            ? withTouchInput("/play?chapter=hip-flexor&stage=1", allowTouch)
+            : mapHref
+        }
+        blockedCta={sensors.status === "blocked" ? "ไปเล่นข้ามเหว" : "กลับไปเลือกเกม"}
+        onCalibrate={() => {
+          primeGameAudio();
+          engineRef.current?.unlock();
+          const result = sensors.calibrate();
+          if (
+            chapterId === "combined"
+            && result.ok
+            && (result.detection === "ankle" || result.detection === "full")
+          ) {
+            setSensorKit(result.detection);
+          }
+        }}
+      />
 
       {leaving ? (
         <div className="fixed inset-0 z-[70] flex items-center justify-center bg-[#b7e4f6]/90 text-base font-semibold text-[#4a7c9b]">

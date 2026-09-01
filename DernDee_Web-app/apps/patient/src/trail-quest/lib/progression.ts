@@ -1,7 +1,10 @@
+import type { TrailKit, TrailKitDetection } from "@trail/lib/trailKit";
+import { canPlayChapterWithKit } from "@trail/lib/trailKit";
+
 export type MovementKind = "dorsiflexor" | "plantarflexor" | "hip-flexor" | "combined";
 
-export function chapterNeedsJump(chapter: MovementKind) {
-  return chapter === "hip-flexor" || chapter === "combined";
+export function chapterNeedsJump(chapter: MovementKind, kit: TrailKit = "full") {
+  return chapter === "hip-flexor" || (chapter === "combined" && kit === "full");
 }
 
 export function isEnergyRun(chapter: MovementKind) {
@@ -45,7 +48,7 @@ export const CHAPTERS: ChapterDef[] = [
     metricLabel: "พลัง",
     metricEn: "Power",
     tipTitle: "เคล็ดลับ",
-    tipLines: ["ก้มตัวลง ค้างไว้", "หลบนกที่บินผ่าน"],
+    tipLines: ["กระดกข้อเท้าขึ้น ค้างไว้", "หลบนกที่บินผ่าน"],
     unlockScore: 0,
     unlockHint: "",
     stages: [
@@ -93,7 +96,7 @@ export const CHAPTERS: ChapterDef[] = [
     metricLabel: "พลัง",
     metricEn: "Power",
     tipTitle: "เคล็ดลับ",
-    tipLines: ["กดลง ค้างไว้", "เติมพลังแล้วพุ่งต่อ"],
+    tipLines: ["กดปลายเท้าลง ค้างไว้", "เติมพลังแล้วพุ่งต่อ"],
     unlockScore: 0,
     unlockHint: "ผ่านด่านฝูงนกหิมะของนกบินต่ำก่อน",
     stages: [
@@ -141,7 +144,7 @@ export const CHAPTERS: ChapterDef[] = [
     metricLabel: "พลัง",
     metricEn: "Power",
     tipTitle: "เคล็ดลับ",
-    tipLines: ["กระโดดขึ้น ค้างไว้", "ข้ามเหวให้พ้น"],
+    tipLines: ["ยกเข่าขึ้น ค้างไว้", "ข้ามเหวให้พ้น"],
     unlockScore: 0,
     unlockHint: "ผ่านด่านลานขาวสุดขอบของพุ่งสุดแรงก่อน",
     stages: [
@@ -185,13 +188,13 @@ export const CHAPTERS: ChapterDef[] = [
     order: 4,
     title: "ป่าจังหวะ",
     titleEn: "Wild Trail",
-    blurb: "หลบนกสลับกระโดดเหว ให้ถึงธง",
+    blurb: "หลบนกใช้ข้อเท้า พุ่งใช้ปลายเท้า ถ้ามีต้นขาด้วยจะข้ามเหวได้ด้วย",
     metricLabel: "พลัง",
     metricEn: "Power",
     tipTitle: "เคล็ดลับ",
-    tipLines: ["หลบนกสลับกระโดดเหว", "เดินให้ถึงธง"],
+    tipLines: ["ทำตามจังหวะที่ขึ้นบนจอ", "เดินให้ถึงธง"],
     unlockScore: 0,
-    unlockHint: "ผ่านด่านเหวน้ำแข็งของข้ามเหวก่อน",
+    unlockHint: "ผ่านด่านลานขาวสุดขอบของพุ่งสุดแรงก่อน",
     stages: [
       {
         id: 1,
@@ -201,7 +204,7 @@ export const CHAPTERS: ChapterDef[] = [
         runSeconds: 5,
         story: {
           title: "สองจังหวะหนึ่งทาง",
-          body: "หลบแล้วกระโดดกลายเป็นก้าวเดียว ไดโนน้อยกำลังเดินทางจริง ๆ",
+          body: "หลบนก พุ่งแรง หรือข้ามเหว ตามเซนเซอร์ที่ติด ไดโนน้อยกำลังเดินทางจริง ๆ",
         },
       },
       {
@@ -212,7 +215,7 @@ export const CHAPTERS: ChapterDef[] = [
         runSeconds: 5,
         story: {
           title: "ก้าวในใบไม้",
-          body: "ก้มแล้วกระโดดสลับกันในทุ่งส้ม ธงยังอยู่ไกล แต่จังหวะเริ่มนิ่ง",
+          body: "จังหวะสลับกันในทุ่งส้ม ธงยังอยู่ไกล แต่ก้าวเริ่มนิ่ง",
         },
       },
       {
@@ -361,19 +364,46 @@ export async function hydrateSave(): Promise<SaveState> {
   }
 }
 
-export function isChapterUnlocked(chapter: ChapterDef, save: SaveState) {
+export function isChapterUnlocked(
+  chapter: ChapterDef,
+  save: SaveState,
+  detection: TrailKitDetection | "unknown" = "unknown",
+) {
+  if (!canPlayChapterWithKit(chapter.id, detection)) return false;
   if (chapter.id === "dorsiflexor") return true;
   if (chapter.id === "plantarflexor") return save.completed.includes(stageKey("dorsiflexor", 3));
-  if (chapter.id === "hip-flexor") return save.completed.includes(stageKey("plantarflexor", 3));
-  return save.completed.includes(stageKey("hip-flexor", 3));
+  if (chapter.id === "hip-flexor") {
+    if (detection === "knee") return true;
+    return save.completed.includes(stageKey("plantarflexor", 3));
+  }
+  return save.completed.includes(stageKey("plantarflexor", 3));
+}
+
+export function chapterLockHint(
+  chapter: ChapterDef,
+  save: SaveState,
+  detection: TrailKitDetection | "unknown" = "unknown",
+) {
+  if (!canPlayChapterWithKit(chapter.id, detection)) {
+    if (chapter.id === "combined") {
+      return "ป่าจังหวะต้องมีหน้าแข้ง + หลังเท้า ถ้าติดแค่ต้นขา + หน้าแข้ง ให้เล่นข้ามเหว";
+    }
+    if (chapter.id === "hip-flexor") {
+      return "ข้ามเหวต้องมีต้นขา + หน้าแข้ง ถ้ามีแค่หน้าแข้ง + หลังเท้า ให้เล่นป่าจังหวะ";
+    }
+    return "เกมนี้ต้องมีหน้าแข้ง + หลังเท้า";
+  }
+  if (isChapterUnlocked(chapter, save, detection)) return "";
+  return chapter.unlockHint;
 }
 
 export function isStageUnlocked(
   chapter: ChapterDef,
   stage: StageDef,
   save: SaveState,
+  detection: TrailKitDetection | "unknown" = "unknown",
 ) {
-  if (!isChapterUnlocked(chapter, save)) return false;
+  if (!isChapterUnlocked(chapter, save, detection)) return false;
   if (stage.id === 1) return true;
   return save.completed.includes(stageKey(chapter.id, stage.id - 1));
 }
@@ -418,11 +448,14 @@ export function applyStageClear(
   };
 }
 
-export function nextPlayable(save: SaveState): { chapter: MovementKind; stage: number } {
+export function nextPlayable(
+  save: SaveState,
+  detection: TrailKitDetection | "unknown" = "unknown",
+): { chapter: MovementKind; stage: number } {
   for (const ch of CHAPTERS) {
-    if (!isChapterUnlocked(ch, save)) continue;
+    if (!isChapterUnlocked(ch, save, detection)) continue;
     for (const st of ch.stages) {
-      if (!save.completed.includes(stageKey(ch.id, st.id)) && isStageUnlocked(ch, st, save)) {
+      if (!save.completed.includes(stageKey(ch.id, st.id)) && isStageUnlocked(ch, st, save, detection)) {
         return { chapter: ch.id, stage: st.id };
       }
     }
@@ -431,24 +464,44 @@ export function nextPlayable(save: SaveState): { chapter: MovementKind; stage: n
   return { chapter: "dorsiflexor", stage: 1 };
 }
 
-export function nextPlayableInChapter(chapter: ChapterDef, save: SaveState) {
+export function nextPlayableInChapter(
+  chapter: ChapterDef,
+  save: SaveState,
+  detection: TrailKitDetection | "unknown" = "unknown",
+) {
   for (const st of chapter.stages) {
-    if (!save.completed.includes(stageKey(chapter.id, st.id)) && isStageUnlocked(chapter, st, save)) {
+    if (!save.completed.includes(stageKey(chapter.id, st.id)) && isStageUnlocked(chapter, st, save, detection)) {
       return st.id;
     }
   }
   return chapter.stages[0]?.id ?? 1;
 }
 
-export function nextDestination(chapter: MovementKind, stage: number) {
+export function nextDestination(
+  chapter: MovementKind,
+  stage: number,
+  kit: TrailKit | TrailKitDetection | "unknown" = "unknown",
+) {
   const ch = getChapter(chapter);
   const idx = ch.stages.findIndex((s) => s.id === stage);
   if (idx >= 0 && idx < ch.stages.length - 1) {
     return { chapter, stage: ch.stages[idx + 1].id, kind: "stage" as const };
   }
-  const nextChapter = CHAPTERS.find((c) => c.order === ch.order + 1);
-  if (nextChapter) {
+  const detection: TrailKitDetection | "unknown" =
+    kit === "unknown" || kit === "none" || kit === "knee" || kit === "ankle" || kit === "full"
+      ? kit
+      : "unknown";
+  const nextChapter = CHAPTERS.find((item) => item.order === ch.order + 1);
+  if (nextChapter && canPlayChapterWithKit(nextChapter.id, detection)) {
     return { chapter: nextChapter.id, stage: 1, kind: "chapter" as const };
+  }
+  if (nextChapter) {
+    const skipTo = CHAPTERS.find(
+      (item) => item.order > nextChapter.order && canPlayChapterWithKit(item.id, detection),
+    );
+    if (skipTo) {
+      return { chapter: skipTo.id, stage: 1, kind: "chapter" as const };
+    }
   }
   return { chapter, stage, kind: "complete" as const };
 }
