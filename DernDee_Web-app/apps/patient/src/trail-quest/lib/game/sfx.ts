@@ -1,28 +1,20 @@
+import { unlockGameAudio } from "@shared/audio/unlockGameAudio.js";
 import type { GamePhase, HazardKind } from "@trail/lib/game/types";
 
 function makeClip(src: string, loop = false) {
   const audio = new Audio(src);
   audio.preload = "auto";
   audio.loop = loop;
+  audio.playsInline = true;
+  audio.setAttribute("playsinline", "true");
+  audio.setAttribute("webkit-playsinline", "true");
   return audio;
 }
 
-let audioPrimed = false;
-
-/** Call from a click/tap so walk SFX can start without a later game action. */
+/** Call from a tap so Web Audio / iOS autoplay is armed. Does not unlock Trail Quest clips. */
 export function primeGameAudio() {
-  if (audioPrimed || typeof window === "undefined") return;
-  const probe = new Audio("/game/sfx/walk.wav");
-  probe.volume = 0;
-  void probe
-    .play()
-    .then(() => {
-      audioPrimed = true;
-      probe.pause();
-      probe.removeAttribute("src");
-      probe.load();
-    })
-    .catch(() => {});
+  if (typeof window === "undefined") return;
+  unlockGameAudio();
 }
 
 export function createGameSfx(opts?: { energyRun?: boolean }) {
@@ -42,9 +34,10 @@ export function createGameSfx(opts?: { energyRun?: boolean }) {
   duck.volume = 0.42;
 
   const all = [walk, tired, cliff, jump, success, bird, duck];
+  const armed = new WeakSet<HTMLAudioElement>();
 
   let muted = false;
-  let unlocked = audioPrimed;
+  let unlocked = false;
   let paused = false;
   let phase: GamePhase = "walking";
   let pending: HTMLAudioElement | null = null;
@@ -52,11 +45,11 @@ export function createGameSfx(opts?: { energyRun?: boolean }) {
   const canPlay = () => unlocked && !muted && !paused;
 
   const restart = (clip: HTMLAudioElement) => {
+    clip.muted = false;
     try {
-      clip.pause();
-      clip.currentTime = 0;
+      if (clip.currentTime > 0.04) clip.currentTime = 0;
     } catch {
-      /* not ready */
+      /* iOS may still be buffering */
     }
     void clip.play().catch(() => {});
   };
@@ -85,44 +78,45 @@ export function createGameSfx(opts?: { energyRun?: boolean }) {
       if (!walk.paused) walk.pause();
     } else {
       walk.playbackRate = phase === "running" ? 1.15 : 1;
+      walk.muted = false;
       if (walk.paused) void walk.play().catch(() => {});
     }
     if (!canPlay() || !resting) {
       if (!tired.paused) tired.pause();
     } else if (tired.paused) {
+      tired.muted = false;
       void tired.play().catch(() => {});
     }
   };
 
+  const armClip = (clip: HTMLAudioElement) => {
+    if (armed.has(clip)) return;
+    clip.muted = true;
+    void clip
+      .play()
+      .then(() => {
+        armed.add(clip);
+        if (clip.muted) {
+          clip.pause();
+          try {
+            clip.currentTime = 0;
+          } catch {
+            /* iOS may still be buffering */
+          }
+          clip.muted = false;
+        }
+        if (clip === walk || clip === tired) syncLoops();
+      })
+      .catch(() => {
+        clip.muted = false;
+      });
+  };
+
   return {
     unlock() {
-      const first = !unlocked;
       unlocked = true;
-      audioPrimed = true;
-      if (first) {
-        for (const clip of all) {
-          const vol = clip.volume;
-          clip.volume = 0;
-          void clip
-            .play()
-            .then(() => {
-              clip.volume = vol;
-              if (clip === walk || clip === tired) {
-                syncLoops();
-                return;
-              }
-              clip.pause();
-              try {
-                clip.currentTime = 0;
-              } catch {
-                /* iOS may still be buffering */
-              }
-            })
-            .catch(() => {
-              clip.volume = vol;
-            });
-        }
-      }
+      unlockGameAudio();
+      for (const clip of all) armClip(clip);
       flushPending();
       syncLoops();
     },
