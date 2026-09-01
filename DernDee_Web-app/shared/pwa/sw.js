@@ -7,17 +7,21 @@ clientsClaim()
 precacheAndRoute(self.__WB_MANIFEST)
 cleanupOutdatedCaches()
 
+const PATIENT_SHELL_NETWORK_FIRST = true
+
 async function resolveShell(shellPath) {
-  try {
-    const fresh = await fetch(shellPath, {
-      credentials: 'same-origin',
-      cache: 'no-store',
-    })
-    if (fresh.ok) {
-      return fresh
+  if (PATIENT_SHELL_NETWORK_FIRST) {
+    try {
+      const fresh = await fetch(shellPath, {
+        credentials: 'same-origin',
+        cache: 'no-store',
+      })
+      if (fresh.ok) {
+        return fresh
+      }
+    } catch {
+      // fall through to the precached shell
     }
-  } catch {
-    // fall through to the precached shell
   }
 
   const cachedShell = await matchPrecache(shellPath)

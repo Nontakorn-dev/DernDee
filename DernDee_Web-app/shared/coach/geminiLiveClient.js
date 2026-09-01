@@ -1,9 +1,9 @@
-import { GoogleGenAI, Modality } from '@google/genai/web';
 import { PcmAudioPlayer } from './audioPlayback.js';
 import { LIVE_MODEL } from './coachConfig.js';
 import { buildCoachLiveSessionConfig } from './coachSystemInstruction.js';
 import { fetchLiveCoachToken } from './geminiCoachApi.js';
 import { isCoachGreetingSpeech } from './gaitCoachContext.js';
+import { connectCoachLiveSession } from './geminiLiveSocket.js';
 
 export const COACH_CONNECTION_STATES = {
   IDLE: 'idle',
@@ -96,15 +96,11 @@ export class GeminiLiveClient {
         this.setState(speaking ? COACH_CONNECTION_STATES.SPEAKING : COACH_CONNECTION_STATES.READY);
       });
 
-      const ai = new GoogleGenAI({
-        apiKey: token,
-        httpOptions: { apiVersion: 'v1alpha' },
-      });
-
-      this.session = await ai.live.connect({
+      this.session = await connectCoachLiveSession({
+        token,
         model,
         config: buildCoachLiveSessionConfig({
-          responseModalities: [Modality.AUDIO],
+          responseModalities: ['AUDIO'],
         }),
         callbacks: {
           onopen: () => {
@@ -502,6 +498,11 @@ export class GeminiLiveClient {
     this.outputArmed = false;
     this.greetingRetryUsed = false;
     this.awaitingNonGreeting = true;
+    try {
+      this.session?.close?.();
+    } catch {
+      // already closed
+    }
     this.session = null;
     this.setState(COACH_CONNECTION_STATES.CLOSED);
   }
