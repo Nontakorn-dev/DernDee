@@ -4,7 +4,7 @@ const LIVE_COACH_TOKEN_PATH = '/api/live-coach-token';
 const WALK_COACH_RECAP_PATH = '/api/walk-coach-recap';
 
 async function waitForAccessToken() {
-  if (!isSupabaseConfigured()) {
+  if (!isSupabaseConfigured) {
     return null;
   }
 
