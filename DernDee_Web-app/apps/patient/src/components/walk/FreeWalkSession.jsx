@@ -24,7 +24,7 @@ import {
 } from '@shared/gateway/realtimeTransport.js';
 import { normalizeRealtimeSensorSample } from '@shared/gateway/realtimeSensorUtils.js';
 import { persistSessionFromFrontend } from '@shared/services/sessionService.js';
-import { COACH_MODES, getFreeWalkCoachMode } from '@shared/coach/coachConfig.js';
+import { COACH_MODES, getFreeWalkCoachMode, shouldUseBrowserSpeechRecognition } from '@shared/coach/coachConfig.js';
 import { fetchCoachSessionRecap } from '@shared/coach/geminiCoachApi.js';
 import { GeminiLiveClient, COACH_CONNECTION_STATES } from '@shared/coach/geminiLiveClient.js';
 import { GaitCoachOrchestrator } from '@shared/coach/gaitCoachOrchestrator.js';
@@ -91,6 +91,7 @@ const FreeWalkSession = () => {
   const activeSensorKeysRef = useRef([]);
   const latestParamsRef = useRef(null);
   const coachClientRef = useRef(null);
+  const coachConnectingRef = useRef(false);
   const orchestratorRef = useRef(null);
   const legacyCoachRef = useRef(null);
   const speechRecognitionRef = useRef(null);
@@ -372,7 +373,7 @@ const FreeWalkSession = () => {
   }, [dispatchCoachLine]);
 
   const initializeCoach = useCallback(async () => {
-    if (coachMode === COACH_MODES.LEGACY) {
+    if (getFreeWalkCoachMode() === COACH_MODES.LEGACY) {
       legacyCoachRef.current = new LegacyWalkCoach({
         onFeedback: (feedback) => {
           if (feedback?.text) {
@@ -383,9 +384,18 @@ const FreeWalkSession = () => {
           }
         },
       });
+      coachModeRef.current = COACH_MODES.LEGACY;
+      setCoachMode(COACH_MODES.LEGACY);
       setCoachState(COACH_CONNECTION_STATES.READY);
       return;
     }
+
+    if (!user?.uid || coachClientRef.current || coachConnectingRef.current) {
+      return;
+    }
+
+    coachConnectingRef.current = true;
+    setCoachState(COACH_CONNECTION_STATES.CONNECTING);
 
     try {
       const client = new GeminiLiveClient({
@@ -475,25 +485,18 @@ const FreeWalkSession = () => {
       });
       coachClientRef.current = client;
       await client.connect();
+      coachModeRef.current = COACH_MODES.LIVE;
+      setCoachMode(COACH_MODES.LIVE);
     } catch (error) {
-      console.warn('Live coach unavailable, falling back to legacy coach:', error);
+      console.warn('Live coach unavailable:', error);
       coachClientRef.current?.disconnect();
       coachClientRef.current = null;
-      coachModeRef.current = COACH_MODES.LEGACY;
-      setCoachMode(COACH_MODES.LEGACY);
-      legacyCoachRef.current = new LegacyWalkCoach({
-        onFeedback: (feedback) => {
-          if (feedback?.text) {
-            setCoachSubtitle(feedback.text);
-          }
-          if (feedback?.should_speak) {
-            legacyCoachRef.current?.speakWithWebSpeech(feedback.voice_text || feedback.text);
-          }
-        },
-      });
-      setCoachState(COACH_CONNECTION_STATES.READY);
+      setCoachState(COACH_CONNECTION_STATES.ERROR);
+      setCoachSubtitle('โค้ชยังเชื่อมต่อไม่ติด กด Ask อีกครั้งนะครับ');
+    } finally {
+      coachConnectingRef.current = false;
     }
-  }, [beginAskLipSync, coachMode, endAskLipSync]);
+  }, [beginAskLipSync, endAskLipSync, user?.uid]);
 
   const createSensorRuntime = useCallback((sample) => {
     const processor = createCalibratedGaitProcessorClient(sample.sensorKey);
@@ -776,8 +779,28 @@ const FreeWalkSession = () => {
     return true;
   };
 
-  const handleAskCoachStart = () => {
+  const handleAskCoachStart = async () => {
     if (askCoachActiveRef.current) {
+      return;
+    }
+
+    if (getFreeWalkCoachMode() === COACH_MODES.LIVE && !coachClientRef.current) {
+      setCoachSubtitle('กำลังเชื่อมต่อโค้ชนะครับ');
+      if (coachConnectingRef.current) {
+        const deadline = Date.now() + 8000;
+        while (coachConnectingRef.current && Date.now() < deadline) {
+          await new Promise((resolve) => {
+            setTimeout(resolve, 150);
+          });
+        }
+      } else {
+        await initializeCoach();
+      }
+    }
+
+    if (coachModeRef.current !== COACH_MODES.LIVE || !coachClientRef.current) {
+      setCoachSubtitle('โค้ชยังไม่พร้อม ลองใหม่อีกครั้งนะครับ');
+      endAskLipSync(800);
       return;
     }
 
@@ -788,16 +811,8 @@ const FreeWalkSession = () => {
     setAskCoachActive(true);
     setCoachSubtitle('พูดได้เลยครับ');
 
-    if (coachMode !== COACH_MODES.LIVE || !coachClientRef.current) {
-      setCoachSubtitle('โค้ชยังไม่พร้อม ลองใหม่อีกครั้งนะครับ');
-      endAskLipSync(800);
-      askCoachActiveRef.current = false;
-      setAskCoachActive(false);
-      return;
-    }
-
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-    if (!SpeechRecognition) {
+    if (!shouldUseBrowserSpeechRecognition() || !SpeechRecognition) {
       void coachClientRef.current.startPushToTalk();
       return;
     }
@@ -1062,7 +1077,7 @@ const FreeWalkSession = () => {
           <div className="mx-auto grid max-w-5xl grid-cols-3 gap-2 sm:gap-4">
             <WalkMicButton
               active={askCoachActive}
-              disabled={coachState === COACH_CONNECTION_STATES.ERROR || coachState === COACH_CONNECTION_STATES.CONNECTING}
+              disabled={coachState === COACH_CONNECTION_STATES.CONNECTING}
               onPressStart={handleAskCoachStart}
               onPressEnd={handleAskCoachEnd}
             />

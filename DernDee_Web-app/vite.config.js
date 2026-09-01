@@ -13,6 +13,15 @@ function isLoopbackAddress(remoteAddress = '') {
     || remoteAddress === '::ffff:127.0.0.1'
 }
 
+function isPrivateLanAddress(remoteAddress = '') {
+  const ipv4 = String(remoteAddress).replace('::ffff:', '')
+  return /^(10\.|192\.168\.|172\.(1[6-9]|2\d|3[0-1])\.)/.test(ipv4)
+}
+
+function isTrustedDevAddress(remoteAddress = '') {
+  return isLoopbackAddress(remoteAddress) || isPrivateLanAddress(remoteAddress)
+}
+
 async function readJsonBody(req) {
   const chunks = []
 
@@ -187,10 +196,10 @@ function localDevGeminiCoach(env) {
           return
         }
 
-        if (!isLoopbackAddress(req.socket.remoteAddress)) {
+        if (!isTrustedDevAddress(req.socket.remoteAddress)) {
           res.statusCode = 403
           res.setHeader('Content-Type', 'application/json')
-          res.end(JSON.stringify({ error: 'Gemini dev helper is restricted to loopback requests.' }))
+          res.end(JSON.stringify({ error: 'Gemini dev helper is restricted to local requests.' }))
           return
         }
 
@@ -230,10 +239,10 @@ function localDevGeminiCoach(env) {
           return
         }
 
-        if (!isLoopbackAddress(req.socket.remoteAddress)) {
+        if (!isTrustedDevAddress(req.socket.remoteAddress)) {
           res.statusCode = 403
           res.setHeader('Content-Type', 'application/json')
-          res.end(JSON.stringify({ error: 'Gemini dev helper is restricted to loopback requests.' }))
+          res.end(JSON.stringify({ error: 'Gemini dev helper is restricted to local requests.' }))
           return
         }
 

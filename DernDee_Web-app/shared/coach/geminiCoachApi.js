@@ -1,49 +1,60 @@
 import { getSupabaseClient, isSupabaseConfigured } from '../supabase/client.js';
 
-function getFunctionsBaseUrl() {
-  const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-  if (!supabaseUrl) {
-    return null;
-  }
-  return `${supabaseUrl.replace(/\/$/, '')}/functions/v1`;
-}
-
-async function getAccessToken() {
+async function waitForAccessToken() {
   if (!isSupabaseConfigured()) {
     return null;
   }
 
   const supabase = getSupabaseClient();
+  for (let attempt = 0; attempt < 10; attempt += 1) {
+    const { data } = await supabase.auth.getSession();
+    const accessToken = data?.session?.access_token;
+    if (accessToken) {
+      return accessToken;
+    }
+    await new Promise((resolve) => {
+      setTimeout(resolve, 150);
+    });
+  }
+
   const { data } = await supabase.auth.getSession();
   return data?.session?.access_token ?? null;
 }
 
-async function postCoachFunction(functionName, body = {}) {
-  const accessToken = await getAccessToken();
+async function readFunctionError(error) {
+  const fallback = error?.message || 'Coach API failed';
+  const response = error?.context;
+  if (!response || typeof response.json !== 'function') {
+    return fallback;
+  }
+
+  try {
+    const payload = await response.json();
+    return payload?.error || payload?.detail || fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+async function invokeCoachFunction(functionName, body = {}) {
+  const accessToken = await waitForAccessToken();
   if (!accessToken) {
     throw new Error('Not authenticated');
   }
 
-  const baseUrl = getFunctionsBaseUrl();
-  if (!baseUrl) {
-    throw new Error('Supabase URL is not configured');
-  }
-
-  const response = await fetch(`${baseUrl}/${functionName}`, {
-    method: 'POST',
+  const supabase = getSupabaseClient();
+  const { data, error } = await supabase.functions.invoke(functionName, {
+    body,
     headers: {
       Authorization: `Bearer ${accessToken}`,
-      'Content-Type': 'application/json',
     },
-    body: JSON.stringify(body),
   });
 
-  const payload = await response.json().catch(() => ({}));
-  if (!response.ok) {
-    throw new Error(payload?.error || payload?.detail || `Coach API failed (${response.status})`);
+  if (error) {
+    throw new Error(await readFunctionError(error));
   }
 
-  return payload;
+  return data;
 }
 
 export async function fetchLiveCoachToken() {
@@ -58,7 +69,7 @@ export async function fetchLiveCoachToken() {
     }
   }
 
-  return postCoachFunction('gemini-live-session');
+  return invokeCoachFunction('gemini-live-session');
 }
 
 export async function fetchCoachSessionRecap(summary, duration) {
@@ -77,5 +88,5 @@ export async function fetchCoachSessionRecap(summary, duration) {
     }
   }
 
-  return postCoachFunction('gemini-coach-summary', { summary, duration });
+  return invokeCoachFunction('gemini-coach-summary', { summary, duration });
 }

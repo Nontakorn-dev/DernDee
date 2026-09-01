@@ -13,6 +13,19 @@ export function getFreeWalkCoachMode() {
   return COACH_MODES.LIVE;
 }
 
+/** iPad / Bluefy SpeechRecognition often never returns Thai text. Prefer Gemini Live mic. */
+export function shouldUseBrowserSpeechRecognition() {
+  if (typeof navigator === 'undefined') {
+    return false;
+  }
+
+  const userAgent = navigator.userAgent || '';
+  const isIos = /iPad|iPhone|iPod/i.test(userAgent)
+    || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+  const isBluefy = /Bluefy/i.test(userAgent);
+  return !isIos && !isBluefy;
+}
+
 export const COACH_PROACTIVE_COOLDOWN_MS = 15_000;
 export const COACH_PERIODIC_INTERVAL_MS = 60_000;
 export const COACH_ENCOURAGEMENT_CYCLES = 3;

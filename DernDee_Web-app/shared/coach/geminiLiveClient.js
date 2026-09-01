@@ -399,6 +399,12 @@ export class GeminiLiveClient {
       return;
     }
 
+    if (!this.micActive) {
+      this.mediaStream.getTracks().forEach((track) => track.stop());
+      this.mediaStream = null;
+      return;
+    }
+
     try {
       this.micAudioContext = new AudioContext();
       if (this.micAudioContext.state === 'suspended') {

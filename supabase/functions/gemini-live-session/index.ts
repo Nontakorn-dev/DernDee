@@ -6,6 +6,38 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 }
 
+function getSupabaseAnonKey() {
+  const anon = Deno.env.get('SUPABASE_ANON_KEY')
+  if (anon) {
+    return anon
+  }
+
+  const publishable = Deno.env.get('SUPABASE_PUBLISHABLE_KEY')
+  if (publishable) {
+    return publishable
+  }
+
+  const keys = Deno.env.get('SUPABASE_PUBLISHABLE_KEYS')
+  if (!keys) {
+    return ''
+  }
+
+  try {
+    const parsed = JSON.parse(keys)
+    if (Array.isArray(parsed) && parsed[0]) {
+      return String(parsed[0])
+    }
+    if (parsed && typeof parsed === 'object') {
+      const first = Object.values(parsed)[0]
+      return first ? String(first) : ''
+    }
+  } catch {
+    return keys
+  }
+
+  return ''
+}
+
 const LIVE_MODEL = 'gemini-3.1-flash-live-preview'
 
 const SYSTEM_INSTRUCTION = `คุณเป็นเดินดีบัดดี้ เพื่อนโค้ชฝึกเดินในแอป DernDee ไม่ใช่ผู้ช่วยของ Google
@@ -62,7 +94,7 @@ Deno.serve(async (req) => {
     }
 
     const supabaseUrl = Deno.env.get('SUPABASE_URL') ?? ''
-    const supabaseAnonKey = Deno.env.get('SUPABASE_ANON_KEY') ?? ''
+    const supabaseAnonKey = getSupabaseAnonKey()
     const supabase = createClient(supabaseUrl, supabaseAnonKey, {
       global: { headers: { Authorization: authHeader } },
     })
