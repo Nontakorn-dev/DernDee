@@ -13,7 +13,6 @@ import {
     WifiOff,
     AlertCircle,
     Loader2,
-    Heart,
     Footprints,
     Activity,
     Bluetooth,
@@ -206,8 +205,6 @@ const DeviceConnection = () => {
 
     const getPositionIcon = (positionId) => {
         switch (positionId) {
-            case 'PELVIS':
-                return <Heart className="w-8 h-8 text-red-500" strokeWidth={2} />;
             case 'LEFT_THIGH':
                 return <Footprints className="w-8 h-8 text-blue-500 rotate-12" strokeWidth={2} />;
             case 'RIGHT_THIGH':

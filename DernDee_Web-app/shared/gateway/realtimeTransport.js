@@ -7,13 +7,12 @@ const BLE_DEVICE_PREFIX = 'DernDee'
 const CALIBRATION_DELAY_MS = 3000
 
 const BODY_POSITIONS = [
-  { id: 'PELVIS', name: 'Chest', order: 1, deviceId: 'DernDee_Chest' },
-  { id: 'LEFT_THIGH', name: 'Left Thigh', order: 2, deviceId: 'DernDee_L_Thigh' },
-  { id: 'RIGHT_THIGH', name: 'Right Thigh', order: 3, deviceId: 'DernDee_R_Thigh' },
-  { id: 'LEFT_SHANK', name: 'Left Shank', order: 4, deviceId: 'DernDee_L_Shank' },
-  { id: 'RIGHT_SHANK', name: 'Right Shank', order: 5, deviceId: 'DernDee_R_Shank' },
-  { id: 'LEFT_FOOT', name: 'Left Foot', order: 6, deviceId: 'DernDee_L_Foot' },
-  { id: 'RIGHT_FOOT', name: 'Right Foot', order: 7, deviceId: 'DernDee_R_Foot' },
+  { id: 'LEFT_THIGH', name: 'Left Thigh', order: 1, deviceId: 'DernDee_L_Thigh' },
+  { id: 'RIGHT_THIGH', name: 'Right Thigh', order: 2, deviceId: 'DernDee_R_Thigh' },
+  { id: 'LEFT_SHANK', name: 'Left Shank', order: 3, deviceId: 'DernDee_L_Shank' },
+  { id: 'RIGHT_SHANK', name: 'Right Shank', order: 4, deviceId: 'DernDee_R_Shank' },
+  { id: 'LEFT_FOOT', name: 'Left Foot', order: 5, deviceId: 'DernDee_L_Foot' },
+  { id: 'RIGHT_FOOT', name: 'Right Foot', order: 6, deviceId: 'DernDee_R_Foot' },
 ]
 
 function getStoredMode() {
@@ -148,9 +147,6 @@ function findPositionIdForBleName(name = '') {
   }
 
   const upperName = normalizedName.toUpperCase()
-  if (upperName.includes('CHEST') || upperName.includes('PELVIS')) {
-    return 'PELVIS'
-  }
   if (upperName.includes('L_THIGH') || (upperName.includes('LEFT') && upperName.includes('THIGH'))) {
     return 'LEFT_THIGH'
   }
