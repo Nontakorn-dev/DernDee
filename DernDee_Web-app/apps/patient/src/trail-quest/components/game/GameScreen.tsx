@@ -136,10 +136,14 @@ export function GameScreen({
     setMuted(settings.muted);
     setCharacter(settings.character);
 
+    let persistTimer = 0;
     const persistRunningScore = (totalScore: number) => {
-      if (totalScore <= lastPersistedScoreRef.current) return;
-      lastPersistedScoreRef.current = totalScore;
-      writeSave(applyLiveScore(loadSave(), totalScore));
+      window.clearTimeout(persistTimer);
+      persistTimer = window.setTimeout(() => {
+        if (totalScore <= lastPersistedScoreRef.current) return;
+        lastPersistedScoreRef.current = totalScore;
+        writeSave(applyLiveScore(loadSave(), totalScore));
+      }, 1200);
     };
 
     const season = sceneSeasonForStage(stageId);
@@ -227,6 +231,7 @@ export function GameScreen({
 
     return () => {
       cancelled = true;
+      window.clearTimeout(persistTimer);
       const liveScore = engineRef.current?.snapshot()?.score;
       if (typeof liveScore === "number" && liveScore > lastPersistedScoreRef.current) {
         lastPersistedScoreRef.current = liveScore;

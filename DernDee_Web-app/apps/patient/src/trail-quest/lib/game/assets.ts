@@ -1,15 +1,19 @@
 import { getCharacter, type CharacterId } from "@trail/lib/game/characters";
-import { isConstrainedWebKit } from "@trail/lib/game/runtime";
+import {
+  bumpSpriteMediaEpoch,
+  loadSpriteClip,
+  loadSpriteClipOptional,
+  type SpriteClip,
+} from "@trail/lib/game/sprites";
 
 export const SCENE_SRC_W = 1792;
 export const SCENE_SRC_H = 1008;
 /** Walkable surface. Lower = feet lower on screen. */
 export const SCENE_GRASS_FRAC = 0.70;
-export const DINO_FEET_IN_CLIP = 0.8;
+export const DINO_FEET_IN_CLIP = 0.82;
 export const FLAG_DRAW_FRAC = 0.36;
 export const FLAG_BASE_IN_CLIP = 0.87;
 export const FLAG_POLE_X = 0.36;
-export const FLAG_RATE = 1.55;
 export const SCENE_HOLE_START = 806;
 export const SCENE_HOLE_END = 992;
 export const SCENE_COUNT = 10;
@@ -28,10 +32,11 @@ export function sceneSeasonForStage(stageId: number): SceneSeason {
 
 export type CharacterClips = {
   characterId: CharacterId;
-  walk: HTMLVideoElement;
-  jump: HTMLVideoElement | null;
-  duck: HTMLVideoElement | null;
-  tired: HTMLVideoElement | null;
+  idle: SpriteClip;
+  walk: SpriteClip;
+  jump: SpriteClip | null;
+  duck: SpriteClip | null;
+  tired: SpriteClip | null;
 };
 
 export type WorldAssets = {
@@ -39,8 +44,8 @@ export type WorldAssets = {
   scenesDuck: HTMLImageElement[];
   jumpStrip: HTMLImageElement | null;
   duckStrip: HTMLImageElement | null;
-  bird: HTMLVideoElement | null;
-  flag: HTMLVideoElement | null;
+  bird: SpriteClip | null;
+  flag: SpriteClip | null;
 };
 
 export type GameAssets = WorldAssets & CharacterClips;
@@ -105,117 +110,7 @@ export function sceneTile(
   return { img: tile, srcX: 0 };
 }
 
-const videoCache = new Map<string, Promise<HTMLVideoElement>>();
-const CLIP_DECODE_PX = 288;
-const CLIP_HOST_ID = "trail-clip-host";
-let mediaEpoch = 0;
-
-function clipHost(root?: HTMLElement | null) {
-  let host = document.getElementById(CLIP_HOST_ID) as HTMLDivElement | null;
-  if (!host) {
-    host = document.createElement("div");
-    host.id = CLIP_HOST_ID;
-    host.setAttribute("aria-hidden", "true");
-    host.style.cssText =
-      "position:absolute;left:0;top:0;width:8px;height:8px;overflow:hidden;pointer-events:none;z-index:0;opacity:0.01";
-  }
-  const parent = root ?? document.body;
-  if (host.parentElement !== parent) parent.appendChild(host);
-  return host;
-}
-
-function mountClip(video: HTMLVideoElement, packed = false, root?: HTMLElement | null) {
-  const w = packed ? CLIP_DECODE_PX * 2 : CLIP_DECODE_PX;
-  const h = CLIP_DECODE_PX;
-  video.width = w;
-  video.height = h;
-  video.style.cssText = `width:${w}px;height:${h}px;display:block;position:absolute;left:0;top:0`;
-  const host = clipHost(root);
-  if (video.parentElement !== host) host.appendChild(video);
-}
-
-function isPackedSrc(src: string) {
-  return /\.ios\.mp4(?:$|\?)/i.test(src);
-}
-
-function packedSrc(src: string) {
-  return src.replace(/\.mp4$/i, ".ios.mp4");
-}
-
-function loadVideo(src: string, loop: boolean) {
-  const cached = videoCache.get(src);
-  if (cached) return cached;
-  const packed = isPackedSrc(src);
-  const epoch = mediaEpoch;
-  const pending = new Promise<HTMLVideoElement>((resolve, reject) => {
-    const video = document.createElement("video");
-    video.muted = true;
-    video.defaultMuted = true;
-    video.loop = loop;
-    video.playsInline = true;
-    video.preload = "auto";
-    video.setAttribute("playsinline", "true");
-    video.setAttribute("webkit-playsinline", "true");
-    video.crossOrigin = "anonymous";
-    mountClip(video, packed);
-    if (epoch !== mediaEpoch) {
-      disposeVideo(video);
-      reject(new Error("released"));
-      return;
-    }
-    video.src = src;
-    let settled = false;
-    const finish = (ok: boolean) => {
-      if (settled) return;
-      settled = true;
-      video.removeEventListener("loadeddata", onReady);
-      video.removeEventListener("canplay", onReady);
-      video.removeEventListener("error", onErr);
-      if (epoch !== mediaEpoch) {
-        disposeVideo(video);
-        videoCache.delete(src);
-        reject(new Error("released"));
-        return;
-      }
-      if (ok) resolve(video);
-      else {
-        videoCache.delete(src);
-        reject(new Error(`load ${src}`));
-      }
-    };
-    const onReady = () => finish(true);
-    const onErr = () => finish(false);
-    video.addEventListener("loadeddata", onReady);
-    video.addEventListener("canplay", onReady);
-    video.addEventListener("error", onErr);
-    video.load();
-  });
-  videoCache.set(src, pending);
-  return pending;
-}
-
-async function loadGameClip(src: string, loop: boolean) {
-  if (isConstrainedWebKit()) {
-    try {
-      return await loadVideo(packedSrc(src), loop);
-    } catch {
-      return loadVideo(src, loop);
-    }
-  }
-  return loadVideo(src, loop);
-}
-
-/** Keep clips in the visible game tree so WebKit/Bluefy actually decode frames. */
-export function attachGameClips(root?: HTMLElement | null) {
-  const host = clipHost(root);
-  for (const pending of videoCache.values()) {
-    void pending.then((video) => {
-      if (video.parentElement !== host) host.appendChild(video);
-    });
-  }
-}
-
-let sharedPromise: Promise<{ bird: HTMLVideoElement; flag: HTMLVideoElement }> | null = null;
+let sharedPromise: Promise<{ bird: SpriteClip; flag: SpriteClip }> | null = null;
 const seasonCache = new Map<
   string,
   Promise<{
@@ -253,10 +148,9 @@ function seasonUrls(season: SceneSeason) {
 
 function loadSharedWorld() {
   if (!sharedPromise) {
-    sharedPromise = Promise.all([
-      loadGameClip("/game/bird.mp4", true),
-      loadGameClip("/game/flag.mp4", true),
-    ]).then(([bird, flag]) => ({ bird, flag }));
+    sharedPromise = Promise.all([loadSpriteClip("bird"), loadSpriteClip("flag")]).then(
+      ([bird, flag]) => ({ bird, flag }),
+    );
     sharedPromise.catch(() => {
       sharedPromise = null;
     });
@@ -348,24 +242,20 @@ export function preloadWorldAssets(season: SceneSeason, needJump = true) {
   void loadWorldAssets(season, needJump);
 }
 
-async function loadOptionalVideo(src: string | undefined, loop: boolean) {
-  if (!src) return null;
-  try {
-    return await loadGameClip(src, loop);
-  } catch {
-    return null;
-  }
+async function loadCharacterPose(id: CharacterId, pose: "idle" | "walk" | "jump" | "duck" | "tired") {
+  return loadSpriteClip(`${id}.${pose}`);
 }
 
 export async function loadCharacterClips(characterId: CharacterId): Promise<CharacterClips> {
   const spec = getCharacter(characterId);
-  const [walk, jump, duck, tired] = await Promise.all([
-    loadGameClip(spec.walk, true),
-    loadGameClip(spec.jump, false),
-    loadGameClip(spec.duck, false),
-    loadOptionalVideo(spec.tired, false),
+  const [idle, walk, jump, duck, tired] = await Promise.all([
+    loadCharacterPose(spec.id, "idle"),
+    loadCharacterPose(spec.id, "walk"),
+    loadSpriteClipOptional(`${spec.id}.jump`),
+    loadSpriteClipOptional(`${spec.id}.duck`),
+    loadSpriteClipOptional(`${spec.id}.tired`),
   ]);
-  return { characterId: spec.id, walk, jump, duck, tired };
+  return { characterId: spec.id, idle, walk, jump, duck, tired };
 }
 
 /** Walk + the clip this chapter needs first, plus season art. */
@@ -376,20 +266,18 @@ export async function loadPlayableAssets(
   energyRun = false,
 ): Promise<GameAssets> {
   const spec = getCharacter(characterId);
-  const action = energyRun
-    ? loadOptionalVideo(spec.tired, false)
-    : needJump
-      ? loadGameClip(spec.jump, false)
-      : loadGameClip(spec.duck, false);
-  const bird = !energyRun && !needJump ? loadGameClip("/game/bird.mp4", true) : Promise.resolve(null);
-  const [walk, pack, actionClip, birdClip] = await Promise.all([
-    loadGameClip(spec.walk, true),
+  const actionKey = energyRun ? "tired" : needJump ? "jump" : "duck";
+  const birdJob = !energyRun && !needJump ? loadSpriteClip("bird") : Promise.resolve(null);
+  const [idle, walk, actionClip, birdClip, pack] = await Promise.all([
+    loadCharacterPose(spec.id, "idle"),
+    loadCharacterPose(spec.id, "walk"),
+    loadSpriteClipOptional(`${spec.id}.${actionKey}`),
+    birdJob,
     loadSeasonPlayable(season, needJump),
-    action,
-    bird,
   ]);
   return {
     characterId: spec.id,
+    idle,
     walk,
     jump: needJump ? actionClip : null,
     duck: !needJump && !energyRun ? actionClip : null,
@@ -406,34 +294,32 @@ export async function hydrateGameAssets(
   season: SceneSeason = "summer",
   needJump = true,
 ) {
-  const spec = getCharacter(assets.characterId);
-  const epoch = mediaEpoch;
+  const id = assets.characterId;
   const jobs: Promise<void>[] = [];
   if (!assets.jump) {
     jobs.push(
-      loadGameClip(spec.jump, false).then((video) => {
-        if (epoch === mediaEpoch) assets.jump = video;
+      loadSpriteClipOptional(`${id}.jump`).then((clip) => {
+        if (clip) assets.jump = clip;
       }),
     );
   }
   if (!assets.duck) {
     jobs.push(
-      loadGameClip(spec.duck, false).then((video) => {
-        if (epoch === mediaEpoch) assets.duck = video;
+      loadSpriteClipOptional(`${id}.duck`).then((clip) => {
+        if (clip) assets.duck = clip;
       }),
     );
   }
-  if (!assets.tired && spec.tired) {
+  if (!assets.tired) {
     jobs.push(
-      loadOptionalVideo(spec.tired, false).then((video) => {
-        if (epoch === mediaEpoch) assets.tired = video;
+      loadSpriteClipOptional(`${id}.tired`).then((clip) => {
+        if (clip) assets.tired = clip;
       }),
     );
   }
   if (!assets.bird || !assets.flag) {
     jobs.push(
       loadSharedWorld().then(({ bird, flag }) => {
-        if (epoch !== mediaEpoch) return;
         assets.bird = bird;
         assets.flag = flag;
       }),
@@ -457,73 +343,9 @@ export async function loadGameAssets(
   return assets;
 }
 
-export async function tryPlay(video: HTMLVideoElement) {
-  try {
-    await video.play();
-  } catch {
-    /* autoplay may wait for a gesture */
-  }
-}
-
-const playFromToken = new WeakMap<HTMLVideoElement, number>();
-
-/** Seek once, then play — WebKit drops currentTime if play() happens in the same turn. */
-export function playFrom(video: HTMLVideoElement, time: number, rate = 1) {
-  video.playbackRate = rate;
-  const token = (playFromToken.get(video) ?? 0) + 1;
-  playFromToken.set(video, token);
-  const start = () => {
-    if (playFromToken.get(video) !== token) return;
-    void tryPlay(video);
-  };
-  const target = Math.max(0, time);
-  if (video.readyState >= 2 && Math.abs((video.currentTime || 0) - target) < 0.1) {
-    start();
-    return;
-  }
-  const onSeeked = () => {
-    video.removeEventListener("seeked", onSeeked);
-    start();
-  };
-  video.addEventListener("seeked", onSeeked);
-  try {
-    video.currentTime = target;
-  } catch {
-    video.removeEventListener("seeked", onSeeked);
-    start();
-    return;
-  }
-  window.setTimeout(() => {
-    video.removeEventListener("seeked", onSeeked);
-    start();
-  }, 360);
-}
-
-export function seekAndPause(video: HTMLVideoElement, time: number) {
-  video.pause();
-  try {
-    video.currentTime = Math.max(0, time);
-  } catch {
-    /* WebKit may still be opening the decoder */
-  }
-}
-
-function disposeVideo(video: HTMLVideoElement) {
-  video.pause();
-  video.removeAttribute("src");
-  video.src = "";
-  video.load();
-  video.remove();
-}
-
-/** Drop decoded clips/scenes so Free Walk and the rest of the app can breathe. */
+/** Drop decoded scenes/atlases so Free Walk and the rest of the app can breathe. */
 export function releaseGameMedia() {
-  mediaEpoch += 1;
-  for (const pending of videoCache.values()) {
-    void pending.then(disposeVideo).catch(() => {});
-  }
-  videoCache.clear();
+  bumpSpriteMediaEpoch();
   sharedPromise = null;
   seasonCache.clear();
-  document.getElementById(CLIP_HOST_ID)?.remove();
 }

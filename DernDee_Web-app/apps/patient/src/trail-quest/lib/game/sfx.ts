@@ -1,129 +1,170 @@
-import { unlockGameAudio } from "@shared/audio/unlockGameAudio.js";
+import { getGameAudioContext, unlockGameAudio } from "@shared/audio/unlockGameAudio.js";
 import type { GamePhase, HazardKind } from "@trail/lib/game/types";
 
-function makeClip(src: string, loop = false) {
-  const audio = new Audio(src);
-  audio.preload = "auto";
-  audio.loop = loop;
-  audio.playsInline = true;
-  audio.setAttribute("playsinline", "true");
-  audio.setAttribute("webkit-playsinline", "true");
-  return audio;
+const SFX_URLS = {
+  walk: "/game/sfx/walk.wav",
+  tired: "/game/sfx/tired.wav",
+  cliff: "/game/sfx/cliff.wav",
+  jump: "/game/sfx/jump.wav",
+  success: "/game/sfx/success.wav",
+  bird: "/game/sfx/bird.wav",
+  duck: "/game/sfx/duck.wav",
+} as const;
+
+type SfxName = keyof typeof SFX_URLS;
+
+let sharedCtx: AudioContext | null = null;
+
+function audioCtx() {
+  sharedCtx = getGameAudioContext(sharedCtx);
+  return sharedCtx;
 }
 
-/** Call from a tap so Web Audio / iOS autoplay is armed. Does not unlock Trail Quest clips. */
+/** Call from a tap so Web Audio / iOS autoplay is armed. */
 export function primeGameAudio() {
   if (typeof window === "undefined") return;
-  unlockGameAudio();
+  sharedCtx = unlockGameAudio(sharedCtx);
 }
 
 export function createGameSfx(opts?: { energyRun?: boolean }) {
-  const walk = makeClip("/game/sfx/walk.wav", true);
-  const tired = makeClip("/game/sfx/tired.wav", true);
-  const cliff = makeClip("/game/sfx/cliff.wav");
-  const jump = makeClip("/game/sfx/jump.wav");
-  const success = makeClip("/game/sfx/success.wav");
-  const bird = makeClip("/game/sfx/bird.wav");
-  const duck = makeClip("/game/sfx/duck.wav");
-  walk.volume = 0.12;
-  tired.volume = 0.11;
-  cliff.volume = 0.5;
-  jump.volume = 0.48;
-  success.volume = 0.52;
-  bird.volume = 0.32;
-  duck.volume = 0.42;
-
-  const all = [walk, tired, cliff, jump, success, bird, duck];
-  const armed = new WeakSet<HTMLAudioElement>();
+  const buffers = new Map<SfxName, AudioBuffer>();
+  const volumes: Record<SfxName, number> = {
+    walk: 0.12,
+    tired: 0.11,
+    cliff: 0.5,
+    jump: 0.48,
+    success: 0.52,
+    bird: 0.32,
+    duck: 0.42,
+  };
 
   let muted = false;
   let unlocked = false;
   let paused = false;
   let phase: GamePhase = "walking";
-  let pending: HTMLAudioElement | null = null;
+  let pending: SfxName | null = null;
+  let walkSrc: AudioBufferSourceNode | null = null;
+  let tiredSrc: AudioBufferSourceNode | null = null;
+  let master: GainNode | null = null;
 
   const canPlay = () => unlocked && !muted && !paused;
 
-  const restart = (clip: HTMLAudioElement) => {
-    clip.muted = false;
-    try {
-      if (clip.currentTime > 0.04) clip.currentTime = 0;
-    } catch {
-      /* iOS may still be buffering */
-    }
-    void clip.play().catch(() => {});
+  const decodeAll = async () => {
+    const ctx = audioCtx();
+    if (!ctx) return;
+    await Promise.all(
+      (Object.keys(SFX_URLS) as SfxName[]).map(async (name) => {
+        if (buffers.has(name)) return;
+        const res = await fetch(SFX_URLS[name]);
+        const raw = await res.arrayBuffer();
+        const buf = await ctx.decodeAudioData(raw.slice(0));
+        buffers.set(name, buf);
+      }),
+    );
   };
 
-  const playOne = (clip: HTMLAudioElement) => {
-    if (!unlocked) {
-      pending = clip;
+  const ensureMaster = () => {
+    const ctx = audioCtx();
+    if (!ctx) return null;
+    if (!master) {
+      master = ctx.createGain();
+      master.connect(ctx.destination);
+    }
+    return ctx;
+  };
+
+  const playOneShot = (name: SfxName) => {
+    if (!canPlay()) {
+      if (!unlocked) pending = name;
       return;
     }
-    if (!canPlay()) return;
-    pending = null;
-    restart(clip);
+    const ctx = ensureMaster();
+    const buf = buffers.get(name);
+    if (!ctx || !buf || !master) return;
+    const src = ctx.createBufferSource();
+    const gain = ctx.createGain();
+    src.buffer = buf;
+    gain.gain.value = volumes[name];
+    src.connect(gain);
+    gain.connect(master);
+    src.start(0);
   };
 
-  const flushPending = () => {
-    if (!pending || !canPlay()) return;
-    const clip = pending;
-    pending = null;
-    restart(clip);
+  const stopLoop = (which: "walk" | "tired") => {
+    if (which === "walk") {
+      try {
+        walkSrc?.stop();
+      } catch {
+        /* already stopped */
+      }
+      walkSrc = null;
+    } else {
+      try {
+        tiredSrc?.stop();
+      } catch {
+        /* already stopped */
+      }
+      tiredSrc = null;
+    }
+  };
+
+  const startLoop = (name: "walk" | "tired", rate = 1) => {
+    const ctx = ensureMaster();
+    const buf = buffers.get(name);
+    if (!ctx || !buf || !master || !canPlay()) return;
+    if (name === "walk" && walkSrc) {
+      walkSrc.playbackRate.value = rate;
+      return;
+    }
+    if (name === "tired" && tiredSrc) return;
+    const src = ctx.createBufferSource();
+    const gain = ctx.createGain();
+    src.buffer = buf;
+    src.loop = true;
+    src.playbackRate.value = rate;
+    gain.gain.value = volumes[name];
+    src.connect(gain);
+    gain.connect(master);
+    src.start(0);
+    if (name === "walk") {
+      walkSrc = src;
+    } else {
+      tiredSrc = src;
+    }
   };
 
   const syncLoops = () => {
     const moving = phase === "walking" || phase === "running";
     const resting = Boolean(opts?.energyRun) && phase === "tired";
-    if (!canPlay() || !moving) {
-      if (!walk.paused) walk.pause();
-    } else {
-      walk.playbackRate = phase === "running" ? 1.15 : 1;
-      walk.muted = false;
-      if (walk.paused) void walk.play().catch(() => {});
-    }
-    if (!canPlay() || !resting) {
-      if (!tired.paused) tired.pause();
-    } else if (tired.paused) {
-      tired.muted = false;
-      void tired.play().catch(() => {});
-    }
+    if (!canPlay() || !moving) stopLoop("walk");
+    else startLoop("walk", phase === "running" ? 1.15 : 1);
+    if (!canPlay() || !resting) stopLoop("tired");
+    else startLoop("tired");
   };
 
-  const armClip = (clip: HTMLAudioElement) => {
-    if (armed.has(clip)) return;
-    clip.muted = true;
-    void clip
-      .play()
-      .then(() => {
-        armed.add(clip);
-        if (clip.muted) {
-          clip.pause();
-          try {
-            clip.currentTime = 0;
-          } catch {
-            /* iOS may still be buffering */
-          }
-          clip.muted = false;
-        }
-        if (clip === walk || clip === tired) syncLoops();
-      })
-      .catch(() => {
-        clip.muted = false;
-      });
+  const flushPending = () => {
+    if (!pending || !canPlay()) return;
+    const name = pending;
+    pending = null;
+    playOneShot(name);
   };
+
+  void decodeAll();
 
   return {
     unlock() {
       unlocked = true;
-      unlockGameAudio();
-      for (const clip of all) armClip(clip);
-      flushPending();
-      syncLoops();
+      primeGameAudio();
+      void decodeAll().then(() => {
+        flushPending();
+        syncLoops();
+      });
     },
     setMuted(next: boolean) {
       muted = next;
       if (muted) {
-        for (const clip of all) clip.pause();
+        stopLoop("walk");
+        stopLoop("tired");
       } else {
         syncLoops();
       }
@@ -131,8 +172,8 @@ export function createGameSfx(opts?: { energyRun?: boolean }) {
     setPaused(next: boolean) {
       paused = next;
       if (paused) {
-        walk.pause();
-        tired.pause();
+        stopLoop("walk");
+        stopLoop("tired");
       } else {
         syncLoops();
       }
@@ -145,33 +186,34 @@ export function createGameSfx(opts?: { energyRun?: boolean }) {
         return;
       }
       if (next === "waiting" && (prev === "walking" || prev === "running")) {
-        walk.pause();
-        playOne(kind === "duck" ? bird : cliff);
+        stopLoop("walk");
+        playOneShot(kind === "duck" ? "bird" : "cliff");
       } else if (next === "tired") {
-        walk.pause();
+        stopLoop("walk");
       } else if (next === "jumping") {
-        walk.pause();
-        tired.pause();
-        playOne(jump);
+        stopLoop("walk");
+        stopLoop("tired");
+        playOneShot("jump");
       } else if (next === "ducking") {
-        walk.pause();
-        tired.pause();
-        playOne(duck);
+        stopLoop("walk");
+        stopLoop("tired");
+        playOneShot("duck");
       } else if (
         next === "running" &&
         (prev === "jumping" || prev === "ducking" || prev === "charging" || prev === "tired")
       ) {
-        tired.pause();
-        playOne(success);
+        stopLoop("tired");
+        playOneShot("success");
       } else if (next === "clear") {
-        walk.pause();
-        tired.pause();
-        playOne(success);
+        stopLoop("walk");
+        stopLoop("tired");
+        playOneShot("success");
       }
       syncLoops();
     },
     stop() {
-      for (const clip of all) clip.pause();
+      stopLoop("walk");
+      stopLoop("tired");
     },
   };
 }
