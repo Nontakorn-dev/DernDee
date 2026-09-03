@@ -27,7 +27,7 @@ TIRED_FPS = 14
 PROP_FPS = 16
 SOURCE_FPS = 24.0
 DIFF_THRESHOLD = 6.5
-CACHE_VER = 5
+CACHE_VER = 6
 
 
 def _ensure_deps():
@@ -69,9 +69,9 @@ CLIPS = [
         "key": "boy.walk",
         "src": "characters/boy/walk.mp4",
         "t0": 0.34,
-        "t1": 0.34 + 2.2,
+        "t1": 0.34 + 2.8,
         "min": 12,
-        "max": 26,
+        "max": 36,
         "loop": True,
         "fps": WALK_FPS,
         "layout": "feet",
@@ -105,14 +105,16 @@ CLIPS = [
     {
         "key": "boy.tired",
         "src": "characters/boy/tired.mp4",
-        "t0": 1.1,
-        "t1": 2.3,
-        "min": 14,
-        "max": 16,
+        "t0": 0.9,
+        "t1": 2.65,
+        "min": 10,
+        "max": 14,
         "loop": True,
-        "fps": TIRED_FPS,
+        "fps": 12,
         "layout": "feet",
         "sample": "even",
+        "pingpong": True,
+        "plant": True,
     },
     {
         "key": "girl.idle",
@@ -129,9 +131,9 @@ CLIPS = [
         "key": "girl.walk",
         "src": "characters/girl/walk.mp4",
         "t0": 0.34,
-        "t1": 0.34 + 2.2,
+        "t1": 0.34 + 2.8,
         "min": 12,
-        "max": 26,
+        "max": 36,
         "loop": True,
         "fps": WALK_FPS,
         "layout": "feet",
@@ -165,14 +167,16 @@ CLIPS = [
     {
         "key": "girl.tired",
         "src": "characters/girl/tired.mp4",
-        "t0": 1.1,
-        "t1": 2.3,
-        "min": 14,
-        "max": 16,
+        "t0": 0.0,
+        "t1": 1.5,
+        "min": 10,
+        "max": 14,
         "loop": True,
-        "fps": TIRED_FPS,
+        "fps": 12,
         "layout": "feet",
         "sample": "even",
+        "pingpong": True,
+        "plant": True,
     },
     {
         "key": "dino.idle",
@@ -189,9 +193,9 @@ CLIPS = [
         "key": "dino.walk",
         "src": "walk.mp4",
         "t0": 0.52,
-        "t1": 0.52 + 2.2,
+        "t1": 0.52 + 2.8,
         "min": 12,
-        "max": 26,
+        "max": 36,
         "loop": True,
         "fps": WALK_FPS,
         "layout": "feet",
@@ -226,13 +230,15 @@ CLIPS = [
         "key": "dino.tired",
         "src": "tired.mp4",
         "t0": 0.0,
-        "t1": 1.2,
-        "min": 14,
-        "max": 16,
+        "t1": 1.35,
+        "min": 10,
+        "max": 14,
         "loop": True,
-        "fps": TIRED_FPS,
+        "fps": 12,
         "layout": "feet",
         "sample": "even",
+        "pingpong": True,
+        "plant": True,
     },
     {
         "key": "bird",
@@ -420,6 +426,15 @@ def layout_frame(rgba: np.ndarray, xform: CharXform, plant: bool, scale: float |
         cx = torso_cx(scaled[:, :, 3], box)
         ox = xform.target_cx - cx
         oy = FRAME_PX * FEET_Y - (box[3] if plant else ref_feet)
+        pad = 6
+        min_ox = pad - box[0]
+        max_ox = FRAME_PX - pad - box[2]
+        if min_ox <= max_ox:
+            ox = min(max(ox, min_ox), max_ox)
+        min_oy = pad - box[1]
+        max_oy = FRAME_PX - pad - box[3]
+        if min_oy <= max_oy:
+            oy = min(max(oy, min_oy), max_oy)
     return paste_scaled(rgba, use_scale, ox, oy)
 
 
@@ -433,22 +448,44 @@ def even_span(start: int, end: int, count: int, endpoint: bool) -> list[int]:
     return list(dict.fromkeys(out))
 
 
-def detect_period(sigs: list[np.ndarray], min_lag: int = 8, max_lag: int = 26) -> int:
+def detect_loop(
+    sigs: list[np.ndarray],
+    heights: list[float],
+    feet: list[float],
+    cxs: list[float] | None = None,
+    min_lag: int = 12,
+    max_lag: int = 40,
+) -> tuple[int, int]:
     n = len(sigs)
-    if n < min_lag * 2:
-        return max(1, n)
-    max_lag = min(max_lag, n // 2, n - 2)
-    if max_lag < min_lag:
-        return max(1, n)
-    s0 = sigs[0]
-    scores = [(frame_diff(s0, sigs[lag]), lag) for lag in range(min_lag, max_lag + 1)]
-    best = min(sc for sc, _lag in scores)
-    near = [lag for sc, lag in scores if sc <= best * 1.12]
-    step = min(near)
-    double = step * 2
-    if double <= max_lag:
-        return double
-    return step
+    if n < min_lag + 2:
+        return 0, max(1, n)
+    if cxs is None:
+        cxs = [0.0] * n
+    best: tuple[float, int, int] | None = None
+    start_lim = min(8, n - min_lag - 2)
+    for start in range(0, max(1, start_lim)):
+        s0 = sigs[start]
+        h0 = heights[start]
+        f0 = feet[start]
+        c0 = cxs[start]
+        lag_lim = min(max_lag, n - start - 2)
+        if lag_lim < min_lag:
+            continue
+        for lag in range(min_lag, lag_lim + 1):
+            d = frame_diff(s0, sigs[start + lag])
+            dh = abs(heights[start + lag] - h0)
+            df = abs(feet[start + lag] - f0)
+            dhl = abs(heights[start + lag - 1] - h0)
+            dfl = abs(feet[start + lag - 1] - f0)
+            dcl = abs(cxs[start + lag - 1] - c0)
+            score = d + 0.55 * dh + 0.25 * df + 0.55 * dhl + 0.4 * dfl + 0.12 * dcl
+            if lag < 18:
+                score += 3.0
+            if best is None or score < best[0]:
+                best = (score, start, lag)
+    if best is None:
+        return 0, max(1, n)
+    return best[1], best[2]
 
 
 def sample_action(heights: list[float], min_n: int, max_n: int) -> list[int]:
@@ -616,15 +653,35 @@ def process_clip(job: dict, rgb_frames: list[np.ndarray], xform: CharXform) -> d
     sigs = [signature(frame) for frame in laid]
     fps = float(job["fps"])
     if sample == "cycle":
-        period = detect_period(sigs)
-        period = max(1, min(period, len(laid)))
-        laid = laid[:period]
-        sigs = sigs[:period]
+        heights = []
+        feet = []
+        cxs = []
+        for frame in laid:
+            box = content_bbox(frame[:, :, 3])
+            if box is None:
+                heights.append(0.0)
+                feet.append(0.0)
+                cxs.append(0.0)
+            else:
+                heights.append(float(box[3] - box[1]))
+                feet.append(float(box[3]))
+                cxs.append((box[0] + box[2]) / 2.0)
+        start, period = detect_loop(sigs, heights, feet, cxs)
+        period = max(1, min(period, len(laid) - start))
+        laid = laid[start : start + period]
+        heights = heights[start : start + period]
+        feet = feet[start : start + period]
         idxs = list(range(period))
         if period > job["max"]:
             idxs = even_span(0, period, job["max"], endpoint=False)
         fps = round(SOURCE_FPS * len(idxs) / max(period, 1), 2)
-        print(f"  cycle period={period} kept={len(idxs)} fps={fps}", flush=True)
+        last_i = idxs[-1]
+        print(
+            f"  cycle start={start} period={period} kept={len(idxs)} fps={fps} "
+            f"dH={heights[last_i] - heights[0]:.0f} dFeet={feet[last_i] - feet[0]:.0f} "
+            f"dCx={cxs[start + last_i] - cxs[start]:.0f}",
+            flush=True,
+        )
     elif sample == "action":
         heights = []
         for rgba in rgba_window:
@@ -664,6 +721,7 @@ def process_clip(job: dict, rgb_frames: list[np.ndarray], xform: CharXform) -> d
         "sourceFrames": len(window),
         "picked": idxs,
         "scale": round(use_scale, 4),
+        "pingpong": bool(job.get("pingpong")),
     }
 
 

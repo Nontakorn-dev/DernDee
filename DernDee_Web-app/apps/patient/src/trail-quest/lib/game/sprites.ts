@@ -6,6 +6,7 @@ export type SpriteClip = {
   frames: number;
   fps: number;
   loop: boolean;
+  pingpong: boolean;
   feetY: number;
 };
 
@@ -17,6 +18,7 @@ export type SpriteMetaClip = {
   frame: number;
   fps: number;
   loop: boolean;
+  pingpong?: boolean;
   feetY: number;
 };
 
@@ -65,7 +67,7 @@ function loadImage(src: string) {
 
 export function loadSpriteMeta() {
   if (!metaPromise) {
-    metaPromise = fetch("/game/sprites/meta.json?v=5")
+    metaPromise = fetch("/game/sprites/meta.json?v=6")
       .then((res) => {
         if (!res.ok) throw new Error("sprite meta");
         return res.json() as Promise<SpriteMetaFile>;
@@ -93,6 +95,7 @@ export async function loadSpriteClip(key: string): Promise<SpriteClip> {
     frames: entry.frames,
     fps: entry.fps,
     loop: entry.loop,
+    pingpong: Boolean(entry.pingpong),
     feetY: entry.feetY,
   };
 }
@@ -107,9 +110,16 @@ export async function loadSpriteClipOptional(key: string) {
 
 export function spriteSource(clip: SpriteClip, index: number) {
   const n = Math.max(1, clip.frames);
-  const i = clip.loop
-    ? ((index % n) + n) % n
-    : Math.max(0, Math.min(n - 1, index));
+  let i = index;
+  if (!clip.loop) {
+    i = Math.max(0, Math.min(n - 1, index));
+  } else if (clip.pingpong && n > 1) {
+    const cycle = (n - 1) * 2;
+    const t = ((index % cycle) + cycle) % cycle;
+    i = t < n ? t : cycle - t;
+  } else {
+    i = ((index % n) + n) % n;
+  }
   const col = i % clip.cols;
   const row = Math.floor(i / clip.cols);
   return {
