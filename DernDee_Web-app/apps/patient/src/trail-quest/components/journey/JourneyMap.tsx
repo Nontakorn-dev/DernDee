@@ -189,6 +189,7 @@ export function JourneyMap() {
                             <Link
                               key={stage.id}
                               to={withTouchInput(`/play?chapter=${chapter.id}&stage=${stage.id}`, allowTouch)}
+                              onPointerDown={() => primeGameAudio()}
                               onClick={() => primeGameAudio()}
                               className={`${pill} ${
                                 cleared
@@ -204,6 +205,7 @@ export function JourneyMap() {
                       {href ? (
                         <Link
                           to={href}
+                          onPointerDown={() => primeGameAudio()}
                           onClick={() => primeGameAudio()}
                           className="mt-3 inline-flex min-h-11 items-center rounded-full bg-emerald-500 px-5 py-2 text-sm font-bold text-white hover:bg-emerald-600"
                         >
@@ -220,6 +222,7 @@ export function JourneyMap() {
 
         <Link
           to={continueHref}
+          onPointerDown={() => primeGameAudio()}
           onClick={() => primeGameAudio()}
           className="mb-8 flex h-14 items-center justify-center rounded-2xl bg-blue-600 text-lg font-bold text-white shadow-xl hover:bg-blue-700"
         >

@@ -11,7 +11,7 @@ import {
 } from "@trail/lib/game/assets";
 import type { CharacterId } from "@trail/lib/game/characters";
 import { createEngine, type GameEngine } from "@trail/lib/game/engine";
-import { createGameSfx, primeGameAudio, type GameSfx } from "@trail/lib/game/sfx";
+import { createGameSfx, isGameAudioPrimed, primeGameAudio, type GameSfx } from "@trail/lib/game/sfx";
 import type { HudSnapshot } from "@trail/lib/game/types";
 import { loadSettings, writeSettings } from "@trail/lib/settings";
 import {
@@ -196,6 +196,7 @@ export function GameScreen({
       engine.start();
       engine.setAngleInput(allowTouch ? "hold" : "live");
       engine.setPaused(pausedRef.current || settingsOpenRef.current || sensorGateRef.current);
+      if (isGameAudioPrimed()) sfx.unlock();
       setLoading(false);
       cleanup = () => {
         unsub();
@@ -253,11 +254,13 @@ export function GameScreen({
     window.addEventListener("pointerup", release);
     window.addEventListener("pointercancel", release);
     window.addEventListener("pointerdown", unlockAudio, { capture: true });
+    window.addEventListener("touchstart", unlockAudio, { capture: true, passive: true });
     window.addEventListener("keydown", unlockAudio, { capture: true });
     return () => {
       window.removeEventListener("pointerup", release);
       window.removeEventListener("pointercancel", release);
       window.removeEventListener("pointerdown", unlockAudio, { capture: true } as EventListenerOptions);
+      window.removeEventListener("touchstart", unlockAudio, { capture: true } as EventListenerOptions);
       window.removeEventListener("keydown", unlockAudio, { capture: true } as EventListenerOptions);
     };
   }, []);
@@ -352,7 +355,6 @@ export function GameScreen({
   });
 
   const goTo = (href: string) => {
-    primeGameAudio();
     if (leavingRef.current) return;
     leavingRef.current = true;
     const liveScore = engineRef.current?.snapshot()?.score;
@@ -408,6 +410,7 @@ export function GameScreen({
             className="absolute inset-0 z-10 h-full w-full touch-none"
             onPointerDown={() => {
               if (storyOpenRef.current || pausedRef.current || settingsOpenRef.current) return;
+              primeGameAudio();
               engineRef.current?.unlock();
               if (allowTouchRef.current) setHold(true);
             }}

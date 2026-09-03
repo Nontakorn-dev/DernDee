@@ -60,6 +60,10 @@ export function SensorGate({
             <button
               type="button"
               className="mt-5 min-h-12 w-full rounded-xl bg-emerald-500 py-3 text-base font-bold text-white hover:bg-emerald-600"
+              onPointerDown={(e) => {
+                e.preventDefault();
+                onCalibrate();
+              }}
               onClick={onCalibrate}
             >
               ตั้งศูนย์แล้วเล่น
