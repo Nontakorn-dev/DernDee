@@ -17,8 +17,8 @@ import subprocess
 import sys
 from pathlib import Path
 
-DECODE_PX = 480
-FRAME_PX = 320
+DECODE_PX = 640
+FRAME_PX = 640
 SIG_PX = 48
 FEET_Y = 0.82
 TORSO_X = 0.50
@@ -27,7 +27,7 @@ TIRED_FPS = 14
 PROP_FPS = 16
 SOURCE_FPS = 24.0
 DIFF_THRESHOLD = 6.5
-CACHE_VER = 6
+CACHE_VER = 7
 
 
 def _ensure_deps():

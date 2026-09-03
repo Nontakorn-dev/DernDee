@@ -184,7 +184,7 @@ export function createEngine(canvas: HTMLCanvasElement, config: EngineConfig) {
     canvas.height = Math.max(1, Math.floor(rect.height * dpr));
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.imageSmoothingEnabled = true;
-    ctx.imageSmoothingQuality = "medium";
+    ctx.imageSmoothingQuality = "high";
   };
 
   const scheduleResize = () => {

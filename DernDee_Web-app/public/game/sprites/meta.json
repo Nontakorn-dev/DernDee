@@ -1,13 +1,13 @@
 {
-  "frameSize": 320,
-  "version": 6,
+  "frameSize": 640,
+  "version": 7,
   "clips": {
     "boy.idle": {
-      "src": "/game/sprites/boy/idle.png?v=5",
+      "src": "/game/sprites/boy/idle.png?v=7",
       "frames": 4,
       "cols": 2,
       "rows": 2,
-      "frame": 320,
+      "frame": 640,
       "fps": 8.0,
       "loop": false,
       "feetY": 0.82,
@@ -18,14 +18,15 @@
         5,
         7
       ],
-      "scale": 0.6667
+      "scale": 1.0,
+      "pingpong": false
     },
     "boy.walk": {
-      "src": "/game/sprites/boy/walk.png?v=6",
+      "src": "/game/sprites/boy/walk.png?v=7",
       "frames": 32,
       "cols": 6,
       "rows": 6,
-      "frame": 320,
+      "frame": 640,
       "fps": 24.0,
       "loop": true,
       "feetY": 0.82,
@@ -64,15 +65,15 @@
         30,
         31
       ],
-      "scale": 0.6667,
+      "scale": 1.0,
       "pingpong": false
     },
     "boy.jump": {
-      "src": "/game/sprites/boy/jump.png?v=5",
+      "src": "/game/sprites/boy/jump.png?v=7",
       "frames": 20,
       "cols": 5,
       "rows": 4,
-      "frame": 320,
+      "frame": 640,
       "fps": 16.0,
       "loop": false,
       "feetY": 0.82,
@@ -99,14 +100,15 @@
         52,
         55
       ],
-      "scale": 0.6667
+      "scale": 1.0,
+      "pingpong": false
     },
     "boy.duck": {
-      "src": "/game/sprites/boy/duck.png?v=5",
+      "src": "/game/sprites/boy/duck.png?v=7",
       "frames": 14,
       "cols": 4,
       "rows": 4,
-      "frame": 320,
+      "frame": 640,
       "fps": 12.0,
       "loop": false,
       "feetY": 0.82,
@@ -114,27 +116,28 @@
       "picked": [
         0,
         10,
-        21,
-        32,
-        42,
+        20,
+        31,
+        41,
+        51,
         52,
-        53,
-        63,
-        74,
+        62,
+        73,
         84,
         95,
         106,
         116,
         127
       ],
-      "scale": 0.6462
+      "scale": 1.0,
+      "pingpong": false
     },
     "boy.tired": {
-      "src": "/game/sprites/boy/tired.png?v=6",
+      "src": "/game/sprites/boy/tired.png?v=7",
       "frames": 14,
       "cols": 4,
       "rows": 4,
-      "frame": 320,
+      "frame": 640,
       "fps": 12.0,
       "loop": true,
       "feetY": 0.82,
@@ -155,15 +158,15 @@
         36,
         39
       ],
-      "scale": 0.6667,
+      "scale": 1.0,
       "pingpong": true
     },
     "girl.idle": {
-      "src": "/game/sprites/girl/idle.png?v=5",
+      "src": "/game/sprites/girl/idle.png?v=7",
       "frames": 4,
       "cols": 2,
       "rows": 2,
-      "frame": 320,
+      "frame": 640,
       "fps": 8.0,
       "loop": false,
       "feetY": 0.82,
@@ -174,14 +177,15 @@
         5,
         7
       ],
-      "scale": 0.6667
+      "scale": 1.0,
+      "pingpong": false
     },
     "girl.walk": {
-      "src": "/game/sprites/girl/walk.png?v=6",
+      "src": "/game/sprites/girl/walk.png?v=7",
       "frames": 28,
       "cols": 6,
       "rows": 5,
-      "frame": 320,
+      "frame": 640,
       "fps": 24.0,
       "loop": true,
       "feetY": 0.82,
@@ -216,15 +220,15 @@
         26,
         27
       ],
-      "scale": 0.6667,
+      "scale": 1.0,
       "pingpong": false
     },
     "girl.jump": {
-      "src": "/game/sprites/girl/jump.png?v=5",
+      "src": "/game/sprites/girl/jump.png?v=7",
       "frames": 20,
       "cols": 5,
       "rows": 4,
-      "frame": 320,
+      "frame": 640,
       "fps": 16.0,
       "loop": false,
       "feetY": 0.82,
@@ -251,41 +255,43 @@
         54,
         57
       ],
-      "scale": 0.6667
+      "scale": 1.0,
+      "pingpong": false
     },
     "girl.duck": {
-      "src": "/game/sprites/girl/duck.png?v=5",
+      "src": "/game/sprites/girl/duck.png?v=7",
       "frames": 13,
       "cols": 4,
       "rows": 4,
-      "frame": 320,
+      "frame": 640,
       "fps": 12.0,
       "loop": false,
       "feetY": 0.82,
       "sourceFrames": 127,
       "picked": [
         0,
-        10,
-        20,
-        29,
-        39,
-        50,
-        61,
-        72,
+        9,
+        18,
+        28,
+        37,
+        48,
+        59,
+        70,
         82,
         93,
         104,
         115,
         126
       ],
-      "scale": 0.6285
+      "scale": 0.9458,
+      "pingpong": false
     },
     "girl.tired": {
-      "src": "/game/sprites/girl/tired.png?v=6",
+      "src": "/game/sprites/girl/tired.png?v=7",
       "frames": 14,
       "cols": 4,
       "rows": 4,
-      "frame": 320,
+      "frame": 640,
       "fps": 12.0,
       "loop": true,
       "feetY": 0.82,
@@ -306,15 +312,15 @@
         31,
         33
       ],
-      "scale": 0.6667,
+      "scale": 1.0,
       "pingpong": true
     },
     "dino.idle": {
-      "src": "/game/sprites/dino/idle.png?v=5",
+      "src": "/game/sprites/dino/idle.png?v=7",
       "frames": 4,
       "cols": 2,
       "rows": 2,
-      "frame": 320,
+      "frame": 640,
       "fps": 8.0,
       "loop": false,
       "feetY": 0.82,
@@ -325,14 +331,15 @@
         7,
         11
       ],
-      "scale": 0.6667
+      "scale": 1.0,
+      "pingpong": false
     },
     "dino.walk": {
-      "src": "/game/sprites/dino/walk.png?v=6",
+      "src": "/game/sprites/dino/walk.png?v=7",
       "frames": 33,
       "cols": 6,
       "rows": 6,
-      "frame": 320,
+      "frame": 640,
       "fps": 24.0,
       "loop": true,
       "feetY": 0.82,
@@ -372,15 +379,15 @@
         31,
         32
       ],
-      "scale": 0.6667,
+      "scale": 1.0,
       "pingpong": false
     },
     "dino.jump": {
-      "src": "/game/sprites/dino/jump.png?v=5",
+      "src": "/game/sprites/dino/jump.png?v=7",
       "frames": 20,
       "cols": 5,
       "rows": 4,
-      "frame": 320,
+      "frame": 640,
       "fps": 16.0,
       "loop": false,
       "feetY": 0.82,
@@ -407,14 +414,15 @@
         34,
         36
       ],
-      "scale": 0.6667
+      "scale": 1.0,
+      "pingpong": false
     },
     "dino.duck": {
-      "src": "/game/sprites/dino/duck.png?v=5",
+      "src": "/game/sprites/dino/duck.png?v=7",
       "frames": 13,
       "cols": 4,
       "rows": 4,
-      "frame": 320,
+      "frame": 640,
       "fps": 12.0,
       "loop": false,
       "feetY": 0.82,
@@ -434,14 +442,15 @@
         121,
         123
       ],
-      "scale": 0.6667
+      "scale": 1.0,
+      "pingpong": false
     },
     "dino.tired": {
-      "src": "/game/sprites/dino/tired.png?v=6",
+      "src": "/game/sprites/dino/tired.png?v=7",
       "frames": 14,
       "cols": 4,
       "rows": 4,
-      "frame": 320,
+      "frame": 640,
       "fps": 12.0,
       "loop": true,
       "feetY": 0.82,
@@ -462,15 +471,15 @@
         27,
         30
       ],
-      "scale": 0.6667,
+      "scale": 1.0,
       "pingpong": true
     },
     "bird": {
-      "src": "/game/sprites/bird.png?v=3",
+      "src": "/game/sprites/bird.png?v=7",
       "frames": 16,
       "cols": 4,
       "rows": 4,
-      "frame": 320,
+      "frame": 640,
       "fps": 16.0,
       "loop": true,
       "feetY": 0.87,
@@ -493,14 +502,15 @@
         26,
         28
       ],
-      "scale": 0.6667
+      "scale": 1.0,
+      "pingpong": false
     },
     "flag": {
-      "src": "/game/sprites/flag.png?v=3",
+      "src": "/game/sprites/flag.png?v=7",
       "frames": 16,
       "cols": 4,
       "rows": 4,
-      "frame": 320,
+      "frame": 640,
       "fps": 16.0,
       "loop": true,
       "feetY": 0.87,
@@ -523,7 +533,8 @@
         26,
         28
       ],
-      "scale": 0.6667
+      "scale": 1.0,
+      "pingpong": false
     }
   }
 }

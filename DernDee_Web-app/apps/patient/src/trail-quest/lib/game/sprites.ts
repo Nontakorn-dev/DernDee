@@ -67,7 +67,7 @@ function loadImage(src: string) {
 
 export function loadSpriteMeta() {
   if (!metaPromise) {
-    metaPromise = fetch("/game/sprites/meta.json?v=6")
+    metaPromise = fetch("/game/sprites/meta.json?v=7")
       .then((res) => {
         if (!res.ok) throw new Error("sprite meta");
         return res.json() as Promise<SpriteMetaFile>;
@@ -141,7 +141,9 @@ export function drawSprite(
 ) {
   if (!clip.image.naturalWidth) return;
   const s = spriteSource(clip, index);
-  ctx.drawImage(clip.image, s.sx, s.sy, s.sw, s.sh, dx, dy, dw, dh);
+  const dpr = ctx.getTransform().a || 1;
+  const snap = (v: number) => Math.round(v * dpr) / dpr;
+  ctx.drawImage(clip.image, s.sx, s.sy, s.sw, s.sh, snap(dx), snap(dy), snap(dw), snap(dh));
 }
 
 export function loopFrame(clip: SpriteClip, timeSec: number, rate = 1) {
