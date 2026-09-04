@@ -11,7 +11,7 @@ import {
     AlertCircle,
     MessageCircle
 } from 'lucide-react';
-import derndeeLogo from '@shared/assets/images/derndee-logo.png';
+import stepdeeLogo from '@shared/assets/images/stepdee-logo.png';
 
 const SESSION_TONE_STYLES = {
     blue: {
@@ -101,8 +101,8 @@ const DoctorPatientDetail = () => {
             <header className="bg-white shadow-xl px-4 sm:px-6 lg:px-8 py-5 sm:py-6 md:py-7 flex items-center justify-start h-20 sm:h-24 md:h-28">
                 <div className="w-40 h-24 sm:w-32 sm:h-32 md:w-36 md:h-36 flex items-center justify-center">
                     <img 
-                        src={derndeeLogo} 
-                        alt="Derndee Logo" 
+                        src={stepdeeLogo} 
+                        alt="StepDee Logo" 
                         className="w-full h-full object-contain"
                     />
                 </div>

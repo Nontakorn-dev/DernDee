@@ -29,7 +29,7 @@ import { describeCoachConnectError, fetchCoachSessionRecap } from '@shared/coach
 import { GeminiLiveClient, COACH_CONNECTION_STATES } from '@shared/coach/geminiLiveClient.js';
 import { GaitCoachOrchestrator } from '@shared/coach/gaitCoachOrchestrator.js';
 import { LegacyWalkCoach } from '@shared/coach/legacyCoach.js';
-import derndeeLogo from '@shared/assets/images/derndee-logo.png';
+import stepdeeLogo from '@shared/assets/images/stepdee-logo.png';
 import WalkConnectionPills from './WalkConnectionPills.jsx';
 import WalkSessionHud from './WalkSessionHud.jsx';
 import WalkAvatarStage from './WalkAvatarStage.jsx';
@@ -1016,7 +1016,7 @@ const FreeWalkSession = () => {
           >
             <ArrowLeft className="h-5 w-5" />
           </button>
-          <img src={derndeeLogo} alt="DernDee" className="h-9 object-contain sm:h-10" />
+          <img src={stepdeeLogo} alt="StepDee" className="h-9 object-contain sm:h-10" />
         </div>
         <WalkConnectionPills
           coachState={lipSyncActive || avatarClipId !== 'idle' ? COACH_CONNECTION_STATES.SPEAKING : coachState}

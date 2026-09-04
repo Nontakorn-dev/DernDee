@@ -43,7 +43,7 @@ const toDisplayName = (authUser, profileRow) => {
     || authUser?.user_metadata?.full_name
     || authUser?.user_metadata?.name
     || authUser?.email?.split('@')[0]
-    || 'DernDee User'
+    || 'StepDee User'
 }
 
 export function normalizeAuthenticatedUser(authUser, profileRow) {

@@ -8,7 +8,7 @@ import {
     applyUserPreferences,
     normalizeUserPreferences,
 } from '@shared/services/userPreferences.js';
-import derndeeLogo from '@shared/assets/images/derndee-logo.png';
+import stepdeeLogo from '@shared/assets/images/stepdee-logo.png';
 
 const Settings = () => {
     const navigate = useNavigate();
@@ -201,7 +201,7 @@ const Settings = () => {
             dataSharing: 'Share data with my doctor',
             dataSharingHelp: 'Required to attach session results in telemedicine chat',
             analytics: 'Usage analytics',
-            analyticsHelp: 'Allow DernDee to keep anonymous product improvement data',
+            analyticsHelp: 'Allow StepDee to keep anonymous product improvement data',
             data: 'Your data',
             exportData: 'Export data',
             exportHelp: 'Download your profile and session history as JSON',
@@ -250,7 +250,7 @@ const Settings = () => {
                     >
                         <ArrowLeft className="w-5 h-5 sm:w-6 sm:h-6" />
                     </button>
-                    <img src={derndeeLogo} alt="DernDee" className="h-8 sm:h-10 md:h-12 object-contain" />
+                    <img src={stepdeeLogo} alt="StepDee" className="h-8 sm:h-10 md:h-12 object-contain" />
                 </div>
             </header>
 

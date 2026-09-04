@@ -6,7 +6,7 @@ import { fetchCoachSessionRecap } from '@shared/coach/geminiCoachApi.js';
 import { fetchLatestPatientSession, fetchPatientSessionById } from '@shared/services/sessionService.js';
 import { formatAppDate, normalizeUserPreferences } from '@shared/services/userPreferences.js';
 import { Footprints, Gauge, TrendingUp, Clock, Zap, MessageCircle, Inbox, Calendar } from 'lucide-react';
-import derndeeLogo from '@shared/assets/images/derndee-logo.png';
+import stepdeeLogo from '@shared/assets/images/stepdee-logo.png';
 
 function hasLiveSummaryState(state) {
     return Boolean(
@@ -172,7 +172,7 @@ const WalkSummary = () => {
         <div className="min-h-screen bg-gradient-to-b from-blue-50 via-blue-100 to-blue-200">
             <header className="bg-white shadow-xl px-4 sm:px-6 py-3 sm:py-4 flex items-center justify-between">
                 <div className="flex items-center gap-3">
-                    <img src={derndeeLogo} alt="DernDee" className="h-10 sm:h-12 object-contain" />
+                    <img src={stepdeeLogo} alt="StepDee" className="h-10 sm:h-12 object-contain" />
                 </div>
                 <div className="w-10"></div>
             </header>

@@ -1,6 +1,6 @@
 import React, { useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import derndeeLogo from '@shared/assets/images/derndee-logo.png';
+import stepdeeLogo from '@shared/assets/images/stepdee-logo.png';
 import { createGaitLabDashboardApp } from '@shared/gait-dashboard/app.js';
 import dashboardCssText from '@shared/gait-dashboard/styles/main.css?inline';
 
@@ -35,8 +35,8 @@ const GaitDashboard = () => {
             <header className="header">
                 <div className="header-brand" style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
                     <img
-                        src={derndeeLogo}
-                        alt="DernDee Logo"
+                        src={stepdeeLogo}
+                        alt="StepDee Logo"
                         style={{ height: '44px', objectFit: 'contain', filter: 'drop-shadow(0 4px 6px rgba(0,0,0,0.1))' }}
                     />
                     <div style={{ height: '32px', width: '2px', background: '#e2e8f0', borderRadius: '4px' }}></div>

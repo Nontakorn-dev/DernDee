@@ -5,7 +5,7 @@ import { mapAuthError } from '@shared/auth/mapAuthError.js';
 import { getSupabaseClient } from '@shared/supabase/client.js';
 import AuthBrandPanel from '@patient/components/AuthBrandPanel.jsx';
 import EmailOtpPanel from '@patient/components/EmailOtpPanel.jsx';
-import derndeeLogo from '@shared/assets/images/derndee-logo.png';
+import stepdeeLogo from '@shared/assets/images/stepdee-logo.png';
 
 const tapClass =
     'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400 focus-visible:ring-offset-2';
@@ -178,7 +178,7 @@ function ResetPassword() {
                     />
 
                     <section className="flex flex-col justify-center rounded-[32px] border-2 border-sky-200 bg-white p-6 shadow-[0_8px_28px_rgba(14,165,233,0.10)] sm:p-8 md:portrait:min-h-[40rem] md:portrait:px-10 md:portrait:py-14 lg:landscape:min-h-0 lg:landscape:rounded-none lg:landscape:border-0 lg:landscape:shadow-none lg:landscape:px-10 lg:landscape:py-9">
-                        <img src={derndeeLogo} alt="DernDee" className="mb-6 h-10 object-contain lg:landscape:hidden" />
+                        <img src={stepdeeLogo} alt="StepDee" className="mb-6 h-10 object-contain lg:landscape:hidden" />
                         <h2 className="text-[28px] font-bold tracking-tight text-sky-950">ตั้งรหัสผ่านใหม่</h2>
                         <p className="mb-6 mt-1 text-sky-800/70">ยืนยันด้วยรหัส 6 หลักจากอีเมล แล้วตั้งรหัสผ่านใหม่</p>
 

@@ -35,7 +35,7 @@ import {
     VolumeX,
     X,
 } from 'lucide-react';
-import derndeeLogo from '@shared/assets/images/derndee-logo.png';
+import stepdeeLogo from '@shared/assets/images/stepdee-logo.png';
 
 import './GameSteppingStones.css';
 
@@ -923,7 +923,7 @@ const GameSteppingStones = () => {
                     >
                         <ArrowLeft className="w-5 h-5" />
                     </button>
-                    <img src={derndeeLogo} alt="DernDee" className="h-10 sm:h-12 object-contain" />
+                    <img src={stepdeeLogo} alt="StepDee" className="h-10 sm:h-12 object-contain" />
                 </div>
 
                 <div className="flex items-center gap-3">

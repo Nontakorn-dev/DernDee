@@ -1,4 +1,4 @@
-import derndeeLogo from '@shared/assets/images/derndee-logo.png';
+import stepdeeLogo from '@shared/assets/images/stepdee-logo.png';
 import { Activity, Footprints, Heart, Plus, Shield } from 'lucide-react';
 
 const LOGIN_AVATAR_SRC = '/login-avatar.png';
@@ -18,7 +18,7 @@ const AuthBrandPanel = ({ description }) => (
 
         <div className="relative z-10 flex h-full w-full flex-col px-8 pt-8 lg:landscape:px-10 lg:landscape:pt-10">
             <div className="w-fit rounded-full bg-white px-4 py-2 shadow-sm">
-                <img src={derndeeLogo} alt="DernDee" className="h-8 object-contain" />
+                <img src={stepdeeLogo} alt="StepDee" className="h-8 object-contain" />
             </div>
             <div className="mt-8 max-w-[280px]">
                 <h1 className="text-[52px] font-extrabold leading-[0.95] tracking-tight text-white">Therapy</h1>

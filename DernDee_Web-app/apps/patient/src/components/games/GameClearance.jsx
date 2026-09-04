@@ -12,7 +12,7 @@ import { resolveVisibleShankSensorKeys, sortGaitSensorStates } from '@shared/gai
 import { getGameAudioContext, unlockGameAudio } from '@shared/audio/unlockGameAudio.js';
 import { playGameHtmlSfx, shouldUseHtmlGameSfx } from '@shared/audio/playGameHtmlSfx.js';
 import { ArrowLeft, ArrowRight, Settings, Pause, Play, Square, X, Volume2, VolumeX, Vibrate } from 'lucide-react';
-import derndeeLogo from '@shared/assets/images/derndee-logo.png';
+import stepdeeLogo from '@shared/assets/images/stepdee-logo.png';
 
 // === CONSTANTS ===
 const MAX_SCALE_HEIGHT = 30; // Max display height in cm
@@ -702,7 +702,7 @@ const GameClearance = () => {
                     >
                         <ArrowLeft className="w-5 h-5" />
                     </button>
-                    <img src={derndeeLogo} alt="DernDee" className="h-10 sm:h-12 object-contain" />
+                    <img src={stepdeeLogo} alt="StepDee" className="h-10 sm:h-12 object-contain" />
                 </div>
 
                 <div className="text-center">

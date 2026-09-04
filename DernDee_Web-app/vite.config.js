@@ -354,6 +354,7 @@ export default defineConfig(({ mode }) => {
         injectRegister: false,
         registerType: 'autoUpdate',
         includeAssets: [
+          'StepDee_logo.png',
           'DernDee_logo.png',
           'vite.svg',
           'audio/*.m4a',
@@ -364,8 +365,8 @@ export default defineConfig(({ mode }) => {
           maximumFileSizeToCacheInBytes: 2 * 1024 * 1024,
         },
         manifest: {
-          name: 'DernDee',
-          short_name: 'DernDee',
+          name: 'StepDee',
+          short_name: 'StepDee',
           description: 'Real-time gait rehabilitation platform with offline-first therapy sessions.',
           theme_color: '#2563eb',
           background_color: '#eff6ff',
@@ -374,12 +375,12 @@ export default defineConfig(({ mode }) => {
           start_url: '/',
           icons: [
             {
-              src: '/DernDee_logo.png',
+              src: '/StepDee_logo.png',
               sizes: '192x192',
               type: 'image/png',
             },
             {
-              src: '/DernDee_logo.png',
+              src: '/StepDee_logo.png',
               sizes: '512x512',
               type: 'image/png',
               purpose: 'any maskable',

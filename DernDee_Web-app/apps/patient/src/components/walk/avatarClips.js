@@ -9,9 +9,9 @@ function withDeviceSources(clip) {
 export const AVATAR_CLIPS = {
   greeting: {
     id: 'greeting',
-    src: '/Avatar/video/1_IDLE_PROFESSIONAL.webm',
+    src: '/Avatar/video/1_IDLE_PROFESSIONAL.webm?v=stepdee1',
     loop: false,
-    line: 'สวัสดีครับ ผมเดินดีบัดดี้ ผู้ช่วยของคุณ',
+    line: 'สวัสดีครับ ผมสเต็ปดี ผู้ช่วยของคุณ',
   },
   caution: {
     id: 'caution',

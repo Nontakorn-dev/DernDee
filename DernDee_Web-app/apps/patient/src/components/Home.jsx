@@ -21,7 +21,7 @@ import {
     Heart,
     Activity,
 } from 'lucide-react';
-import derndeeLogo from '@shared/assets/images/derndee-logo.png';
+import stepdeeLogo from '@shared/assets/images/stepdee-logo.png';
 import doctorImageSrc from '@shared/assets/images/doctor.png';
 
 const isBleDeviceConnected = (device) => device?.status === 'connected';
@@ -164,7 +164,7 @@ const Home = () => {
         >
             <header className="sticky top-0 z-20 bg-white/90 backdrop-blur-md border-b border-sky-100 pt-[env(safe-area-inset-top)]">
                 <div className="mx-auto max-w-6xl px-4 sm:px-6 h-16 flex items-center justify-between gap-3">
-                    <img src={derndeeLogo} alt="DernDee" className="h-9 object-contain" />
+                    <img src={stepdeeLogo} alt="StepDee" className="h-9 object-contain" />
                     <button
                         type="button"
                         className={`relative w-11 h-11 rounded-full bg-slate-50 text-slate-600 flex items-center justify-center ${tapClass}`}

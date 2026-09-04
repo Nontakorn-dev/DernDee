@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { ArrowLeft, AlertCircle } from 'lucide-react';
-import derndeeLogo from '@shared/assets/images/derndee-logo.png';
+import stepdeeLogo from '@shared/assets/images/stepdee-logo.png';
 import devicePositionImageSrc from '@shared/assets/images/devicePositionImage.png';
 import { createRealtimeConnection } from '@shared/gateway/realtimeTransport.js';
 import { isRealtimeShankSample, normalizeRealtimeSensorSample } from '@shared/gateway/realtimeSensorUtils.js';
@@ -114,7 +114,7 @@ const Calibration = () => {
             console.log("VERSION 2 ACTIVE - CUSTOM MODALS");
 
             ws.onopen = () => {
-                console.log('✅ Connected to DernDee Backend for Calibration');
+                console.log('✅ Connected to StepDee Backend for Calibration');
                 setIsConnected(true);
             };
 
@@ -372,7 +372,7 @@ const Calibration = () => {
                     >
                         <ArrowLeft className="w-5 h-5 sm:w-6 sm:h-6" />
                     </button>
-                    <img src={derndeeLogo} alt="DernDee" className="h-8 sm:h-10 md:h-12 object-contain" />
+                    <img src={stepdeeLogo} alt="StepDee" className="h-8 sm:h-10 md:h-12 object-contain" />
                 </div>
             </header>
 

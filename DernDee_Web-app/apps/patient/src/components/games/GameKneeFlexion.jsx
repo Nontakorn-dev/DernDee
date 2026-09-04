@@ -26,7 +26,7 @@ import {
     Hand,
     Footprints,
 } from 'lucide-react';
-import derndeeLogo from '@shared/assets/images/derndee-logo.png';
+import stepdeeLogo from '@shared/assets/images/stepdee-logo.png';
 
 const GAUGE_MAX_SCALE = 100;
 const REP_REARM_HOLD_MS = 140;
@@ -669,7 +669,7 @@ const GameKneeFlexion = () => {
                     >
                         <ArrowLeft className="w-5 h-5" />
                     </button>
-                    <img src={derndeeLogo} alt="DernDee" className="h-10 sm:h-12 object-contain" />
+                    <img src={stepdeeLogo} alt="StepDee" className="h-10 sm:h-12 object-contain" />
                 </div>
                 <div className="text-center" />
                 <button

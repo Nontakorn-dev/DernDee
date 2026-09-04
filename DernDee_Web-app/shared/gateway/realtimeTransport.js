@@ -639,7 +639,7 @@ class BrowserBleManager {
         ...device,
         status: 'connected',
         deviceId: selectedDeviceKey,
-        deviceName: bluetoothDevice.name || 'DernDee sensor',
+        deviceName: bluetoothDevice.name || 'StepDee sensor',
         signal: 'Streaming',
       }))
       this.rememberDevice(positionId, bluetoothDevice, target.expectedDeviceId)

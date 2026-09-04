@@ -1,6 +1,6 @@
-# DernDee
+# StepDee
 
-![DernDee logo](DernDee_Web-app/shared/assets/images/derndee-logo.png)
+![StepDee logo](DernDee_Web-app/shared/assets/images/stepdee-logo.png)
 
 อัปเดตตามโค้ดและโครงสร้าง repository ปัจจุบัน ณ 2026-06-11
 

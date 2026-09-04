@@ -8,7 +8,7 @@ export function registerDernDeePwa() {
   const updateSW = registerSW({
     immediate: true,
     onOfflineReady() {
-      console.info('DernDee is ready for offline use.')
+      console.info('StepDee is ready for offline use.')
     },
     onNeedRefresh() {
       void updateSW(true)

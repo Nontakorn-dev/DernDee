@@ -80,7 +80,7 @@ export function JourneyMap() {
 
       <main className="mx-auto w-full max-w-4xl px-4 py-8 sm:px-6">
         <header className="mb-8">
-          <p className="text-xs font-bold uppercase tracking-[0.2em] text-blue-500">DernDee</p>
+          <p className="text-xs font-bold uppercase tracking-[0.2em] text-blue-500">StepDee</p>
           <h1 className="mt-1 text-3xl font-extrabold leading-tight text-slate-800 sm:text-4xl">
             เส้นทางเดินดี
           </h1>

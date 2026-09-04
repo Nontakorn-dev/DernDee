@@ -1,4 +1,4 @@
-import derndeeLogo from "@shared/assets/images/derndee-logo.png";
+import stepdeeLogo from "@shared/assets/images/stepdee-logo.png";
 import { Link, useNavigate } from "react-router-dom";
 import { useRef, type PointerEvent, type ReactNode } from "react";
 
@@ -52,8 +52,8 @@ export function GameHeader({
           className="relative z-50 flex min-h-12 cursor-pointer touch-manipulation items-center px-1"
         >
           <img
-            src={derndeeLogo}
-            alt="DernDee"
+            src={stepdeeLogo}
+            alt="StepDee"
             className="h-8 w-auto object-contain sm:h-10"
           />
         </Link>

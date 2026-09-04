@@ -1,8 +1,8 @@
-# DernDee Web App
+# StepDee Web App
 
 อัปเดตตามโค้ดในโฟลเดอร์นี้ ณ 2026-05-05
 
-`DernDee_Web-app/` คือ frontend หลักของโปรเจกต์ DernDee และรวม patient app, clinic app, Browser BLE transport, shared gait runtime, PWA support, และ Supabase integration ไว้ใน workspace เดียว
+`DernDee_Web-app/` คือ frontend หลักของโปรเจกต์ StepDee และรวม patient app, clinic app, Browser BLE transport, shared gait runtime, PWA support, และ Supabase integration ไว้ใน workspace เดียว
 
 ## โครงสร้างแอปปัจจุบัน
 

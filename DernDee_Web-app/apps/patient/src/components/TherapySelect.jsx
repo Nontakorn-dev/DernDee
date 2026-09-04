@@ -1,7 +1,7 @@
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Activity, ArrowLeft, Footprints, Map, Mountain, Target, Music, Timer, Accessibility } from 'lucide-react';
-import derndeeLogo from '@shared/assets/images/derndee-logo.png';
+import stepdeeLogo from '@shared/assets/images/stepdee-logo.png';
 
 const TherapySelect = () => {
     const navigate = useNavigate();
@@ -98,7 +98,7 @@ const TherapySelect = () => {
                     >
                         <ArrowLeft className="w-5 h-5 sm:w-6 sm:h-6" />
                     </button>
-                    <img src={derndeeLogo} alt="DernDee" className="h-8 sm:h-10 md:h-12 object-contain" />
+                    <img src={stepdeeLogo} alt="StepDee" className="h-8 sm:h-10 md:h-12 object-contain" />
                 </div>
                 <div className="w-8"></div> {/* Spacer for balance if needed, or just empty */}
             </header>

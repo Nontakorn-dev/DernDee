@@ -4,7 +4,7 @@ import { useNavigate, useParams } from 'react-router-dom'
 import { useUserAuth } from '@shared/context/UserAuthContext.jsx'
 import { createGaitLabDashboardApp } from '@shared/gait-dashboard/app.js'
 import dashboardCssText from '@shared/gait-dashboard/styles/main.css?inline'
-import derndeeLogo from '@shared/assets/images/derndee-logo.png'
+import stepdeeLogo from '@shared/assets/images/stepdee-logo.png'
 import { createLiveGaitBroadcastStreamClient } from '@shared/services/liveGaitBroadcast.js'
 import { fetchDoctorPatientDetail } from '@shared/services/sessionService.js'
 
@@ -123,8 +123,8 @@ const DoctorLiveGaitDashboard = () => {
       <header className="header">
         <div className="header-brand" style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
           <img
-            src={derndeeLogo}
-            alt="DernDee Logo"
+            src={stepdeeLogo}
+            alt="StepDee Logo"
             style={{ height: '44px', objectFit: 'contain', filter: 'drop-shadow(0 4px 6px rgba(0,0,0,0.1))' }}
           />
           <div style={{ height: '32px', width: '2px', background: '#e2e8f0', borderRadius: '4px' }}></div>
