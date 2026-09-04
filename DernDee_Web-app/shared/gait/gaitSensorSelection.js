@@ -34,6 +34,13 @@ export function hasActiveShankSensorStates(sensorStates = [], options = {}) {
   return filterActiveShankSensorStates(sensorStates, options).length > 0;
 }
 
+export function hasConnectedShankBleDevices(devices = []) {
+  return devices.some((device) => (
+    isShankBodyPositionId(device.positionId)
+    && device.status === 'connected'
+  ));
+}
+
 export function hasStreamingShankBleDevices(devices = []) {
   return devices.some((device) => (
     isShankBodyPositionId(device.positionId)

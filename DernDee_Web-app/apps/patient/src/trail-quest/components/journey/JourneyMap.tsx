@@ -16,13 +16,15 @@ import {
 } from "@trail/lib/progression";
 import { loadSettings, writeSettings } from "@trail/lib/settings";
 import { isTouchInputParam, withTouchInput } from "@trail/lib/sensorInput";
-import { kitFromBleDevices, type TrailKit, type TrailKitDetection } from "@trail/lib/trailKit";
+import { kitFromBleDevices, canPlayChapterWithKit, type TrailKit, type TrailKitDetection } from "@trail/lib/trailKit";
 import {
   getBrowserBleDevicesSnapshot,
   subscribeToBrowserBleDevices,
 } from "@shared/gateway/realtimeTransport.js";
-import { Link, useSearchParams } from "react-router-dom";
+import { trailGuidesForChapter } from "@shared/sensors/sensorPlacementGuides.js";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { useEffect, useState } from "react";
+import SensorPlacementSheet from "@patient/components/SensorPlacementSheet.jsx";
 
 const GAME_ICONS: Record<MovementKind, { src: string; alt: string }> = {
   dorsiflexor: { src: "/game/icons/icon-sky-duck.png", alt: "Sky Duck" },
@@ -32,6 +34,7 @@ const GAME_ICONS: Record<MovementKind, { src: string; alt: string }> = {
 };
 
 export function JourneyMap() {
+  const navigate = useNavigate();
   const [params] = useSearchParams();
   const allowTouch = isTouchInputParam(params);
   const [save, setSave] = useState(() => emptySave());
@@ -39,6 +42,7 @@ export function JourneyMap() {
   const [muted, setMuted] = useState(false);
   const [character, setCharacter] = useState<CharacterId>("boy");
   const [testKit, setTestKit] = useState<TrailKit>(() => loadSettings().testKit);
+  const [guide, setGuide] = useState<ReturnType<typeof trailGuidesForChapter> | null>(null);
   const [detection, setDetection] = useState<TrailKitDetection | "unknown">(() =>
     allowTouch ? loadSettings().testKit : kitFromBleDevices(getBrowserBleDevicesSnapshot()),
   );
@@ -66,6 +70,11 @@ export function JourneyMap() {
 
   const next = nextPlayable(save, detection);
   const continueHref = withTouchInput(`/play?chapter=${next.chapter}&stage=${next.stage}`, allowTouch);
+  const nextReady = CHAPTERS.some((chapter) => isChapterUnlocked(chapter, save, detection));
+
+  const openGuide = (chapterId: MovementKind) => {
+    setGuide(trailGuidesForChapter(chapterId));
+  };
 
   return (
     <div
@@ -106,6 +115,7 @@ export function JourneyMap() {
           <div className="absolute bottom-10 left-[27px] top-4 w-[3px] rounded-full bg-white/80" />
           <div className="flex flex-col gap-5">
             {CHAPTERS.map((chapter, index) => {
+              const kitLocked = !canPlayChapterWithKit(chapter.id, detection);
               const unlocked = isChapterUnlocked(chapter, save, detection);
               const lockHint = chapterLockHint(chapter, save, detection);
               const done = chapter.stages.every((stage) =>
@@ -120,10 +130,15 @@ export function JourneyMap() {
               return (
                 <article
                   key={chapter.id}
+                  onClick={() => {
+                    if (kitLocked) openGuide(chapter.id);
+                  }}
                   className={`relative rounded-[2rem] border-4 p-5 pl-16 shadow-xl transition-all duration-300 sm:pl-[4.5rem] ${
                     unlocked
                       ? "border-transparent bg-white hover:border-blue-200 hover:shadow-2xl"
-                      : "border-transparent bg-white/70"
+                      : kitLocked
+                        ? "cursor-pointer border-sky-200 bg-white hover:border-sky-300"
+                        : "cursor-default border-transparent bg-white/80"
                   }`}
                 >
                   <div
@@ -132,7 +147,9 @@ export function JourneyMap() {
                         ? "bg-emerald-500 text-white"
                         : unlocked
                           ? "bg-blue-500 text-white"
-                          : "bg-slate-200 text-slate-400"
+                          : kitLocked
+                            ? "bg-sky-500 text-white"
+                            : "bg-slate-200 text-slate-400"
                     }`}
                   >
                     {done ? "✓" : index + 1}
@@ -141,7 +158,7 @@ export function JourneyMap() {
                   <div className="flex gap-4">
                     <div
                       className={`relative h-16 w-16 shrink-0 overflow-hidden rounded-2xl shadow-md sm:h-20 sm:w-20 ${
-                        unlocked ? "" : "opacity-50 grayscale"
+                        unlocked || kitLocked ? "" : "opacity-50 grayscale"
                       }`}
                     >
                       <img
@@ -163,7 +180,23 @@ export function JourneyMap() {
                     </div>
                   </div>
 
-                  {!unlocked ? (
+                  {kitLocked ? (
+                    <div className="mt-3">
+                      <p className="text-sm font-semibold text-sky-700">
+                        {lockHint || "ต้องเชื่อมเซนเซอร์ก่อน"}
+                      </p>
+                      <button
+                        type="button"
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          openGuide(chapter.id);
+                        }}
+                        className="mt-2 inline-flex min-h-11 items-center rounded-full bg-sky-50 px-4 text-sm font-bold text-sky-700 ring-1 ring-sky-200 hover:bg-sky-100"
+                      >
+                        ดูตำแหน่งเซนเซอร์
+                      </button>
+                    </div>
+                  ) : !unlocked ? (
                     <p className="mt-3 text-sm font-semibold text-amber-600">
                       🔒 {lockHint || chapter.unlockHint}
                     </p>
@@ -220,14 +253,24 @@ export function JourneyMap() {
           </div>
         </div>
 
-        <Link
-          to={continueHref}
-          onPointerDown={() => primeGameAudio()}
-          onClick={() => primeGameAudio()}
-          className="mb-8 flex h-14 items-center justify-center rounded-2xl bg-blue-600 text-lg font-bold text-white shadow-xl hover:bg-blue-700"
-        >
-          เริ่มเดิน
-        </Link>
+        {nextReady ? (
+          <Link
+            to={continueHref}
+            onPointerDown={() => primeGameAudio()}
+            onClick={() => primeGameAudio()}
+            className="mb-8 flex h-14 items-center justify-center rounded-2xl bg-blue-600 text-lg font-bold text-white shadow-xl hover:bg-blue-700"
+          >
+            เริ่มเดิน
+          </Link>
+        ) : (
+          <button
+            type="button"
+            onClick={() => openGuide(next.chapter)}
+            className="mb-8 flex h-14 w-full items-center justify-center rounded-2xl bg-blue-600 text-lg font-bold text-white shadow-xl hover:bg-blue-700"
+          >
+            เริ่มเดิน
+          </button>
+        )}
       </main>
 
       <SettingsModal
@@ -249,6 +292,14 @@ export function JourneyMap() {
           setTestKit(kit);
           writeSettings({ testKit: kit });
         }}
+      />
+      <SensorPlacementSheet
+        open={Boolean(guide)}
+        title={guide?.title}
+        note={guide?.note}
+        images={guide?.images}
+        onConnect={() => navigate("/device-connection", { state: { returnTo: "/map" } })}
+        onClose={() => setGuide(null)}
       />
     </div>
   );

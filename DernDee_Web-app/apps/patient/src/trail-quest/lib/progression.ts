@@ -385,6 +385,12 @@ export function chapterLockHint(
   detection: TrailKitDetection | "unknown" = "unknown",
 ) {
   if (!canPlayChapterWithKit(chapter.id, detection)) {
+    if (detection === "none") {
+      if (chapter.id === "hip-flexor") {
+        return "ต้องมีต้นขา + หน้าแข้งข้างเดียวกัน";
+      }
+      return "ต้องมีหน้าแข้ง + หลังเท้าข้างเดียวกัน";
+    }
     if (chapter.id === "combined") {
       return "ป่าจังหวะต้องมีหน้าแข้ง + หลังเท้า ถ้าติดแค่ต้นขา + หน้าแข้ง ให้เล่นข้ามเหว";
     }

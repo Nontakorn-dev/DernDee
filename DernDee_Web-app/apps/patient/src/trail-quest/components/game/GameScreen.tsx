@@ -33,6 +33,7 @@ import { SensorGate } from "@trail/components/game/SensorGate";
 import { useTrailQuestSensors } from "@trail/hooks/useTrailQuestSensors";
 import { withTouchInput } from "@trail/lib/sensorInput";
 import type { TrailKit } from "@trail/lib/trailKit";
+import { trailGuidesForChapter } from "@shared/sensors/sensorPlacementGuides.js";
 
 const INITIAL: HudSnapshot = {
   elapsed: 0,
@@ -536,6 +537,8 @@ export function GameScreen({
         missing={sensors.copy.missing}
         status={allowTouch ? "live" : sensors.status}
         error={sensors.calibrateError}
+        images={trailGuidesForChapter(chapterId).images}
+        note={trailGuidesForChapter(chapterId).note}
         blockedHref={
           sensors.status === "blocked"
             ? withTouchInput("/play?chapter=hip-flexor&stage=1", allowTouch)

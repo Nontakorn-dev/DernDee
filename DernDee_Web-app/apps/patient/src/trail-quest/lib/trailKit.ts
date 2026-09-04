@@ -28,11 +28,16 @@ export function kitFromBleDevices(devices: Array<{ positionId?: string; status?:
   return detectTrailKit(hasAnkle, hasKnee);
 }
 
+export function isTrailQuestReady(devices: Array<{ positionId?: string; status?: string }> = []) {
+  return kitFromBleDevices(devices) !== "none";
+}
+
 export function canPlayChapterWithKit(
   chapterId: string,
   detection: TrailKitDetection | "unknown",
 ) {
-  if (detection === "unknown" || detection === "none") return true;
+  if (detection === "unknown") return true;
+  if (detection === "none") return false;
   if (chapterId === "hip-flexor") return detection === "knee" || detection === "full";
   if (chapterId === "combined") return detection === "ankle" || detection === "full";
   if (chapterId === "dorsiflexor" || chapterId === "plantarflexor") {

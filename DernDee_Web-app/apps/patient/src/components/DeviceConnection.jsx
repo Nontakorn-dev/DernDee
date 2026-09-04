@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import {
     ArrowLeft,
     ArrowRight,
@@ -48,6 +48,8 @@ const createInitialDevices = () => BODY_POSITIONS.map((position) => ({
 }));
 
 const DeviceConnection = () => {
+    const location = useLocation();
+    const returnTo = location.state?.returnTo || '/home';
     const navigate = useNavigate();
     const [devices, setDevices] = useState(createInitialDevices);
     const [isResetting, setIsResetting] = useState(false);
@@ -231,7 +233,7 @@ const DeviceConnection = () => {
             <header className="bg-white shadow-xl px-4 sm:px-6 py-3 sm:py-4 flex items-center justify-between">
                 <div className="flex items-center gap-3">
                     <button
-                        onClick={() => navigate('/home')}
+                        onClick={() => navigate(returnTo)}
                         className="flex items-center gap-2 text-gray-600 hover:text-gray-800 transition-colors"
                     >
                         <ArrowLeft className="w-5 h-5 sm:w-6 sm:h-6" />
@@ -446,7 +448,7 @@ const DeviceConnection = () => {
                                 </div>
                             </div>
                             <button
-                                onClick={() => navigate('/therapy')}
+                                onClick={() => navigate(returnTo)}
                                 className="px-6 py-3 rounded-full text-sm sm:text-base font-extrabold bg-gradient-to-r from-green-500 to-emerald-600 hover:from-green-600 hover:to-emerald-700 text-white transition-all duration-300 shadow-lg hover:shadow-2xl flex items-center gap-2 tracking-wide whitespace-nowrap"
                             >
                                 <span>Go to Therapy</span>

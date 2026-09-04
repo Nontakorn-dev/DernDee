@@ -13,7 +13,14 @@ import {
   GAIT_MIN_ANALYSIS_SAMPLES,
 } from '@shared/gait/gaitRuntimeConfig.js';
 import { GaitSessionAnalyzer } from '@shared/gait/sessionAnalyzer.js';
-import { resolveVisibleShankSensorKeys, hasStreamingShankBleDevices } from '@shared/gait/gaitSensorSelection.js';
+import { estimateShankLengthM } from '@shared/gait/gaitCalibration.js';
+import { createGaitCalibrationCaptureSession } from '@shared/gait/gaitCalibrationCapture.js';
+import { readGaitCalibrationPrefs } from '@shared/gait/gaitCalibrationStore.js';
+import {
+  resolveVisibleShankSensorKeys,
+  hasStreamingShankBleDevices,
+  hasConnectedShankBleDevices,
+} from '@shared/gait/gaitSensorSelection.js';
 import { useUserAuth } from '@shared/context/UserAuthContext.jsx';
 import {
   TRANSPORT_MODE_WEB_BLUETOOTH,
@@ -36,6 +43,8 @@ import WalkAvatarStage from './WalkAvatarStage.jsx';
 import WalkGaitStrip from './WalkGaitStrip.jsx';
 import WalkMicButton from './WalkMicButton.jsx';
 import { AVATAR_CLIPS, resolveAvatarClip } from './avatarClips.js';
+import SensorPlacementSheet from '../SensorPlacementSheet.jsx';
+import { SENSOR_PLACEMENT_GUIDES } from '@shared/sensors/sensorPlacementGuides.js';
 
 const TARGET_TIME_SECONDS = 300;
 const COACH_CONSENT_KEY = 'derndee_free_walk_ai_consent_v1';
@@ -55,7 +64,14 @@ const FreeWalkSession = () => {
   const { user } = useUserAuth();
 
   const [timeElapsed, setTimeElapsed] = useState(0);
-  const [isActive, setIsActive] = useState(true);
+  const [isActive, setIsActive] = useState(false);
+  const [isCalibrated, setIsCalibrated] = useState(false);
+  const [standStillRunning, setStandStillRunning] = useState(false);
+  const [standStillSeconds, setStandStillSeconds] = useState(3);
+  const [standStillError, setStandStillError] = useState('');
+  const [showPlacement, setShowPlacement] = useState(() => (
+    !hasConnectedShankBleDevices(getBrowserBleDevicesSnapshot())
+  ));
   const [isConnected, setIsConnected] = useState(false);
   const [sensorStreaming, setSensorStreaming] = useState(false);
   const [sessionMetrics, setSessionMetrics] = useState({});
@@ -122,6 +138,9 @@ const FreeWalkSession = () => {
   const askReplyWatchRef = useRef(null);
   const lastAskPromptRef = useRef('');
   const lastCoachErrorRef = useRef('');
+  const calibrationCaptureRef = useRef(null);
+  const isCalibratedRef = useRef(false);
+  const tryPlaySessionGreetingRef = useRef(() => false);
 
   useEffect(() => {
     showConsentRef.current = showConsent;
@@ -326,6 +345,7 @@ const FreeWalkSession = () => {
       || greetingInFlightRef.current
       || showConsentRef.current
       || !audioUnlockedRef.current
+      || !isCalibratedRef.current
     ) {
       return false;
     }
@@ -336,15 +356,16 @@ const FreeWalkSession = () => {
     return played;
   }, [playAvatarClip]);
 
+  tryPlaySessionGreetingRef.current = tryPlaySessionGreeting;
+
   const unlockCoachAudio = useCallback(async () => {
     audioUnlockedRef.current = true;
     setAudioUnlocked(true);
     setShowStartTap(false);
     showConsentRef.current = false;
     orchestratorRef.current?.markActivity();
-    playAvatarClip(AVATAR_CLIPS.greeting);
     void coachClientRef.current?.ensureAudioReady?.();
-  }, [playAvatarClip]);
+  }, []);
 
   const applyAggregatedLiveParams = useCallback((aggregatedParams) => {
     if (!aggregatedParams) {
@@ -540,6 +561,7 @@ const FreeWalkSession = () => {
       return;
     }
 
+    calibrationCaptureRef.current?.ingestSample(sample);
     setSensorStreaming(true);
 
     let sensorState = sensorRuntimesRef.current.get(sample.sensorKey);
@@ -669,12 +691,92 @@ const FreeWalkSession = () => {
   }, [isActive]);
 
   useEffect(() => {
-    const unsubscribe = subscribeToBrowserBleDevices((devices) => {
-      setSensorStreaming(hasStreamingShankBleDevices(devices));
+    const unsubscribe = subscribeToBrowserBleDevices((nextDevices) => {
+      const connected = hasConnectedShankBleDevices(nextDevices);
+      setSensorStreaming(hasStreamingShankBleDevices(nextDevices));
+      if (!isCalibratedRef.current) {
+        setShowPlacement(!connected);
+      }
     });
-    setSensorStreaming(hasStreamingShankBleDevices(getBrowserBleDevicesSnapshot()));
+    const snapshot = getBrowserBleDevicesSnapshot();
+    setSensorStreaming(hasStreamingShankBleDevices(snapshot));
+    setShowPlacement(!hasConnectedShankBleDevices(snapshot));
     return unsubscribe;
   }, []);
+
+  useEffect(() => {
+    calibrationCaptureRef.current = createGaitCalibrationCaptureSession({
+      onProgress: (percent) => {
+        setStandStillSeconds(Math.max(1, Math.ceil((3 * (100 - percent)) / 100)));
+      },
+      onComplete: (outcome) => {
+        setStandStillRunning(false);
+        if (!outcome.ok) {
+          setStandStillError(outcome.message || 'ยืนนิ่งแล้วลองอีกครั้ง');
+          return;
+        }
+
+        outcome.results?.forEach((item) => {
+          if (!item?.profile?.ok) {
+            return;
+          }
+          const runtime = sensorRuntimesRef.current.get(item.sensorKey);
+          runtime?.processor?.applyCalibration?.(item.profile);
+          if (item.samples?.length) {
+            runtime?.processor?.warmStartFromSamples?.(item.samples);
+          }
+        });
+
+        isCalibratedRef.current = true;
+        setIsCalibrated(true);
+        setStandStillError('');
+        setIsActive(true);
+        void tryPlaySessionGreetingRef.current?.();
+      },
+    });
+
+    return () => {
+      calibrationCaptureRef.current?.cancel?.();
+    };
+  }, []);
+
+  const startStandStill = useCallback(() => {
+    if (calibrationCaptureRef.current?.isActive?.()) {
+      return;
+    }
+
+    const prefs = readGaitCalibrationPrefs();
+    const parsedHeightCm = Number.parseFloat(prefs.heightCm);
+    const parsedShankLengthCm = Number.parseFloat(prefs.shankLengthCm);
+    setStandStillError('');
+    setStandStillRunning(true);
+    setStandStillSeconds(3);
+    calibrationCaptureRef.current?.start({
+      shankLengthM: estimateShankLengthM({
+        heightCm: Number.isFinite(parsedHeightCm) ? parsedHeightCm : null,
+        shankLengthCm: Number.isFinite(parsedShankLengthCm) ? parsedShankLengthCm : null,
+      }),
+    });
+  }, []);
+
+  useEffect(() => {
+    if (showConsent || showStartTap || showPlacement || isCalibrated || standStillRunning || standStillError) {
+      return;
+    }
+    if (!sensorStreaming) {
+      return;
+    }
+    startStandStill();
+  }, [
+    isCalibrated,
+    sensorStreaming,
+    showConsent,
+    showPlacement,
+    showStartTap,
+    standStillError,
+    standStillRunning,
+    startStandStill,
+  ]);
 
   useEffect(() => {
     if (!isActive) {
@@ -697,7 +799,7 @@ const FreeWalkSession = () => {
   }, [isActive]);
 
   useEffect(() => {
-    if (!audioUnlocked || showConsent) {
+    if (!audioUnlocked || showConsent || !isCalibrated) {
       return undefined;
     }
 
@@ -710,7 +812,7 @@ const FreeWalkSession = () => {
     }, 3000);
 
     return () => clearTimeout(retryTimer);
-  }, [showConsent, audioUnlocked, tryPlaySessionGreeting]);
+  }, [showConsent, audioUnlocked, isCalibrated, tryPlaySessionGreeting]);
 
   useEffect(() => {
     if (!isActive) {
@@ -1105,6 +1207,47 @@ const FreeWalkSession = () => {
           </div>
         </div>
       </main>
+
+      {!showConsent && !showStartTap && !showPlacement && !isCalibrated ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/45 p-4">
+          <div className="w-full max-w-md rounded-[2rem] bg-white p-6 text-center shadow-2xl">
+            <p className="text-xs font-bold uppercase tracking-[0.18em] text-sky-500">ตั้งศูนย์</p>
+            <h2 className="mt-1 text-2xl font-black text-slate-800">ยืนตรง 3 วินาที</h2>
+            <p className="mt-2 text-[15px] leading-relaxed text-slate-500">
+              วางเท้าบนพื้น อย่าแกว่งขา กำลังเก็บสัญญาณหน้าแข้ง
+            </p>
+            <div className="mt-5 text-7xl font-black tabular-nums text-sky-500">
+              {sensorStreaming || standStillRunning ? standStillSeconds : '…'}
+            </div>
+            {!sensorStreaming && !standStillError ? (
+              <p className="mt-3 text-sm font-semibold text-amber-600">รอสัญญาณเซนเซอร์</p>
+            ) : null}
+            {standStillError ? (
+              <>
+                <p className="mt-3 text-sm font-semibold text-red-600">{standStillError}</p>
+                <button
+                  type="button"
+                  onClick={startStandStill}
+                  className="mt-5 min-h-12 w-full rounded-2xl bg-sky-600 py-3 text-base font-extrabold text-white"
+                >
+                  ยืนนิ่งแล้วลองอีกครั้ง
+                </button>
+              </>
+            ) : (
+              <p className="mt-4 text-sm font-semibold text-slate-400">ยืนนิ่งไว้</p>
+            )}
+          </div>
+        </div>
+      ) : null}
+
+      <SensorPlacementSheet
+        open={showPlacement && !showConsent && !showStartTap}
+        title={SENSOR_PLACEMENT_GUIDES.freeWalk.title}
+        body={SENSOR_PLACEMENT_GUIDES.freeWalk.body}
+        images={SENSOR_PLACEMENT_GUIDES.freeWalk.images}
+        onConnect={() => navigate('/device-connection', { state: { returnTo: '/walk-session' } })}
+        onClose={() => navigate('/therapy')}
+      />
 
       {showConsent && (
         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
