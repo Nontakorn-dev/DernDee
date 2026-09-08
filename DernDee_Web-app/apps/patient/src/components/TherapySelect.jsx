@@ -191,7 +191,7 @@ const TherapySelect = () => {
             <SensorPlacementSheet
                 open={Boolean(guide)}
                 title={guide?.title}
-                note={guide?.note}
+                note={guide?.note || guide?.body}
                 images={guide?.images}
                 onConnect={goConnect}
                 onClose={() => setGuide(null)}

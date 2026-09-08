@@ -285,7 +285,7 @@ export class GaitCoachOrchestrator {
       trigger: 'user_ask',
       snapshot,
       prompt: buildGaitCoachPrompt(snapshot)
-        || `ผู้ป่วยถามว่า: "${question}" ตอบสั้นๆ เป็นภาษาไทยอย่างอบอุ่น ไม่เกิน 2 ประโยค ห้ามเงียบ`,
+        || `ผู้ป่วยถามว่า: "${question}" ตอบเป็นภาษาไทยอย่างอบอุ่น ถ้าเรื่องเดินหรือเซนเซอร์ให้อธิบายให้ถูกและครบ 3 ถึง 6 ประโยค รวมลู่ 5 เมตร ไป-กลับ ห้ามเงียบ`,
       hintText: '',
     };
   }

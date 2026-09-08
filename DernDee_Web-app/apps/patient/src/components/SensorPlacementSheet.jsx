@@ -50,6 +50,7 @@ export function SensorPlacementFigures({ images = [], title }) {
 const SensorPlacementSheet = ({
   open,
   title,
+  body,
   note,
   images = [],
   connectLabel = 'ไปเชื่อมเซนเซอร์',
@@ -134,9 +135,9 @@ const SensorPlacementSheet = ({
 
         <div className="min-h-0 shrink overflow-y-auto px-5 py-2 sm:px-6 sm:py-3">
           <SensorPlacementFigures images={images} title={title} />
-          {note ? (
+          {(note || body) ? (
             <p className="mt-3 text-center text-[15px] leading-relaxed text-slate-500">
-              {note}
+              {note || body}
             </p>
           ) : null}
         </div>
