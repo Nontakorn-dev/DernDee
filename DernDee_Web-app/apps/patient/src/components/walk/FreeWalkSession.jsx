@@ -48,10 +48,7 @@ import { SENSOR_PLACEMENT_GUIDES } from '@shared/sensors/sensorPlacementGuides.j
 
 const TARGET_TIME_SECONDS = 300;
 const COACH_CONSENT_KEY = 'derndee_free_walk_ai_consent_v1';
-const ASK_HANGOVER_MS = 420;
-const MOUTH_OPEN_ENERGY = 0.18;
-const MOUTH_ONSET_MS = 60;
-const MOUTH_CLOSE_MS = 560;
+const ASK_HANGOVER_MS = 520;
 
 function formatTime(seconds) {
   const mins = Math.floor(seconds / 60);
@@ -126,12 +123,8 @@ const FreeWalkSession = () => {
   const [audioUnlocked, setAudioUnlocked] = useState(false);
   const [avatarClipId, setAvatarClipId] = useState('idle');
   const [lipSyncActive, setLipSyncActive] = useState(false);
-  const [mouthTalking, setMouthTalking] = useState(false);
+  const [talking, setTalking] = useState(false);
   const lipSyncActiveRef = useRef(false);
-  const mouthPaceRef = useRef(0);
-  const mouthTalkingRef = useRef(false);
-  const lastVoiceAtRef = useRef(0);
-  const energyOpenSinceRef = useRef(0);
   const askHangoverRef = useRef(null);
   const questionSentRef = useRef(false);
   const askCoachActiveRef = useRef(false);
@@ -224,11 +217,6 @@ const FreeWalkSession = () => {
 
     lipSyncActiveRef.current = true;
     setLipSyncActive(true);
-    setMouthTalking(false);
-    mouthTalkingRef.current = false;
-    mouthPaceRef.current = 0;
-    lastVoiceAtRef.current = 0;
-    energyOpenSinceRef.current = 0;
   }, []);
 
   const endAskLipSync = useCallback((delayMs = ASK_HANGOVER_MS) => {
@@ -240,8 +228,7 @@ const FreeWalkSession = () => {
       askHangoverRef.current = null;
       lipSyncActiveRef.current = false;
       setLipSyncActive(false);
-      setMouthTalking(false);
-      mouthTalkingRef.current = false;
+      setTalking(false);
       orchestratorRef.current?.markAskRest();
       if (avatarClipIdRef.current === 'idle') {
         setAvatarClipId('idle');
@@ -432,20 +419,13 @@ const FreeWalkSession = () => {
               if (!lipSyncActiveRef.current) {
                 beginAskLipSync();
               }
-              lastVoiceAtRef.current = Date.now();
-              energyOpenSinceRef.current = Date.now();
-              if (!mouthTalkingRef.current) {
-                mouthTalkingRef.current = true;
-                setMouthTalking(true);
-              }
+              setTalking(true);
             }
             return;
           }
 
           if (nextState === COACH_CONNECTION_STATES.READY && lipSyncActiveRef.current) {
-            setMouthTalking(false);
-            mouthTalkingRef.current = false;
-            mouthPaceRef.current = 0;
+            setTalking(false);
             endAskLipSync();
           }
         },
@@ -478,32 +458,6 @@ const FreeWalkSession = () => {
             { force: true, interrupt: true, retry: true },
           );
         },
-      });
-      client.setMouthLevelListener((energy) => {
-        const value = Number.isFinite(energy) ? Math.max(0, Math.min(1, energy)) : 0;
-        mouthPaceRef.current = value;
-        if (!lipSyncActiveRef.current) {
-          return;
-        }
-
-        const now = Date.now();
-        if (value >= MOUTH_OPEN_ENERGY) {
-          lastVoiceAtRef.current = now;
-          if (!energyOpenSinceRef.current) {
-            energyOpenSinceRef.current = now;
-          }
-          if (!mouthTalkingRef.current && now - energyOpenSinceRef.current >= MOUTH_ONSET_MS) {
-            mouthTalkingRef.current = true;
-            setMouthTalking(true);
-          }
-          return;
-        }
-
-        energyOpenSinceRef.current = 0;
-        if (mouthTalkingRef.current && now - lastVoiceAtRef.current >= MOUTH_CLOSE_MS) {
-          mouthTalkingRef.current = false;
-          setMouthTalking(false);
-        }
       });
       coachClientRef.current = client;
       await client.connect();
@@ -1152,9 +1106,7 @@ const FreeWalkSession = () => {
               clipId={avatarClipId}
               paused={!isActive}
               isListening={askCoachActive}
-              lipSyncActive={lipSyncActive}
-              mouthTalking={mouthTalking}
-              mouthPaceRef={mouthPaceRef}
+              talking={talking}
               subtitle={coachSubtitle}
               onEnded={handleAvatarEnded}
             />
