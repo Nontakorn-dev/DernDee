@@ -25,6 +25,7 @@ import { trailGuidesForChapter } from "@shared/sensors/sensorPlacementGuides.js"
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { useEffect, useState } from "react";
 import SensorPlacementSheet from "@patient/components/SensorPlacementSheet.jsx";
+import { useUserAuth } from "@shared/context/UserAuthContext.jsx";
 
 const GAME_ICONS: Record<MovementKind, { src: string; alt: string }> = {
   dorsiflexor: { src: "/game/icons/icon-sky-duck.png", alt: "Sky Duck" },
@@ -34,10 +35,14 @@ const GAME_ICONS: Record<MovementKind, { src: string; alt: string }> = {
 };
 
 export function JourneyMap() {
+  const { user } = useUserAuth();
+  const patientId = user?.uid || null;
   const navigate = useNavigate();
   const [params] = useSearchParams();
   const allowTouch = isTouchInputParam(params);
-  const [save, setSave] = useState(() => emptySave());
+  const [loadedSave, setSave] = useState(() => emptySave());
+  const [loadedPatientId, setLoadedPatientId] = useState<string | null>(null);
+  const save = loadedPatientId === patientId ? loadedSave : emptySave();
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [muted, setMuted] = useState(false);
   const [character, setCharacter] = useState<CharacterId>("boy");
@@ -48,13 +53,18 @@ export function JourneyMap() {
   );
 
   useEffect(() => {
-    setSave(loadSave());
-    void hydrateSave().then(setSave);
+    let cancelled = false;
+    setLoadedPatientId(patientId);
+    setSave(loadSave(patientId));
+    void hydrateSave(patientId).then((next) => {
+      if (!cancelled) setSave(next);
+    });
     const settings = loadSettings();
     setMuted(settings.muted);
     setCharacter(settings.character);
     setTestKit(settings.testKit);
-  }, []);
+    return () => { cancelled = true; };
+  }, [patientId]);
 
   useEffect(() => {
     if (allowTouch) {

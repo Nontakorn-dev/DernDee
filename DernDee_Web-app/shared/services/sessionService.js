@@ -1,4 +1,5 @@
 import { getSupabaseClient } from '@shared/supabase/client.js'
+import { syncFrontendSessionRecord } from './frontendSessionSync.js'
 import {
   countPendingSessions,
   enqueuePendingSession,
@@ -372,7 +373,11 @@ function buildNormalizedFrontendSessionRecord({
 }) {
   const startTime = startedAt ? new Date(startedAt) : new Date()
   const endTime = endedAt ? new Date(endedAt) : new Date()
-  const durationSeconds = Math.max(0, Math.round((endTime.getTime() - startTime.getTime()) / 1000))
+  const durationSeconds = Math.max(0, Math.round(
+    Number.isFinite(summary.duration_seconds)
+      ? summary.duration_seconds
+      : (endTime.getTime() - startTime.getTime()) / 1000,
+  ))
   const detailsPayload = {
     ...normalizeSessionDetails(details),
   }
@@ -439,55 +444,21 @@ function buildSessionRowFromRecord(record) {
 }
 
 async function insertFrontendSessionRecord(record) {
-  const supabase = getSupabaseClient()
-  const sessionRow = buildSessionRowFromRecord(record)
-
-  let insertResponse = await supabase
-    .from('sessions')
-    .insert(sessionRow)
-    .select('id')
-    .single()
-
-  if (insertResponse.error && isMissingSessionDetailsColumnError(insertResponse.error)) {
-    const fallbackRow = { ...sessionRow }
-    delete fallbackRow.details
-    insertResponse = await supabase
-      .from('sessions')
-      .insert(fallbackRow)
-      .select('id')
-      .single()
-  }
-
-  if (insertResponse.error) {
-    throw insertResponse.error
-  }
-
-  const sessionId = insertResponse.data?.id
-
-  if (sessionId && record.gaitMetricsRows.length) {
-    const { error } = await supabase
-      .from('gait_metrics')
-      .insert(record.gaitMetricsRows.map((row) => ({
-        ...row,
-        session_id: sessionId,
-      })))
-
-    if (error) {
-      throw error
-    }
-  }
-
-  return {
-    sessionId,
-    savedMetricsCount: record.gaitMetricsRows.length,
-    sessionRow,
-  }
+  return syncFrontendSessionRecord(getSupabaseClient(), record, buildSessionRowFromRecord(record))
 }
 
-async function syncPendingSessionRecord(record) {
-  const syncResult = await insertFrontendSessionRecord(record)
-  await removePendingSession(record.id)
-  return syncResult
+const pendingSessionSyncs = new Map()
+
+function syncPendingSessionRecord(record) {
+  const key = `${record.patientId}:${record.gatewaySessionId}`
+  if (pendingSessionSyncs.has(key)) return pendingSessionSyncs.get(key)
+  const sync = (async () => {
+    const syncResult = await insertFrontendSessionRecord(record)
+    await removePendingSession(record.id)
+    return syncResult
+  })().finally(() => pendingSessionSyncs.delete(key))
+  pendingSessionSyncs.set(key, sync)
+  return sync
 }
 
 export async function flushPendingFrontendSessions() {

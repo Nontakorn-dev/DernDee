@@ -74,7 +74,7 @@ const History = () => {
             try {
                 const [sessions, trailDays] = await Promise.all([
                     fetchPatientHistorySessions(user.uid),
-                    fetchTrailQuestDays().catch(() => []),
+                    fetchTrailQuestDays(user.uid).catch(() => []),
                 ]);
                 setHistoryData(sessions);
                 setFilteredData(sessions);
@@ -468,4 +468,3 @@ const History = () => {
 };
 
 export default History;
-

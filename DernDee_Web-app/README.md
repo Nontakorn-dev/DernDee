@@ -59,6 +59,7 @@ dev server ปัจจุบันรันที่ `http://localhost:5174`
 | `npm run dev` | start Vite dev server |
 | `npm run build` | build production assets |
 | `npm run lint` | lint `shared` และ `apps` |
+| `npm test` | ตรวจการ retry เซสชัน, Pause/Resume และการแยกบัญชี Trail Quest ด้วยข้อมูลจำลอง (Node.js 22) |
 | `npm run preview` | preview build output |
 
 ## Routes สำคัญ
@@ -132,6 +133,8 @@ env ที่ควรตั้งบน deployment target
 - `VITE_SUPABASE_AUTH_REDIRECT_URL` ถ้าต้องการ explicit redirect URL
 
 ## Known caveats
+
+รายละเอียดการแก้ session retry, Pause/Resume และคะแนนตามบัญชีอยู่ใน [Session reliability fixes](../docs/session-reliability-fixes.md)
 
 - live sensor mode ต้องใช้ Web Bluetooth จริง
 - doctor live dashboard ใช้ Realtime Broadcast จึงมีผลต่อ Supabase Realtime quota

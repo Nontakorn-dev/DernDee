@@ -4,12 +4,15 @@ import { CHAPTERS, getChapter, type MovementKind } from "@trail/lib/progression"
 import { isTouchInputParam, withTouchInput } from "@trail/lib/sensorInput";
 import { useEffect } from "react";
 import { Navigate, useSearchParams } from "react-router-dom";
+import { useUserAuth } from "@shared/context/UserAuthContext.jsx";
 
 function isChapter(value: string | null): value is MovementKind {
   return CHAPTERS.some((c) => c.id === value);
 }
 
 export function PlayClient() {
+  const { user } = useUserAuth();
+  const patientId = user?.uid || null;
   const [params] = useSearchParams();
   const rawChapter = params.get("chapter");
   const validChapter = isChapter(rawChapter);
@@ -32,7 +35,8 @@ export function PlayClient() {
 
   return (
     <GameScreen
-      key={`${chapter}-${stage}-${allowTouch ? "touch" : "sensor"}`}
+      key={`${patientId}-${chapter}-${stage}-${allowTouch ? "touch" : "sensor"}`}
+      patientId={patientId}
       chapterId={chapter}
       stageId={stage}
       allowTouch={allowTouch}

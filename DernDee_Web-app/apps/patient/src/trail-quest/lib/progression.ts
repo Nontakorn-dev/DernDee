@@ -248,7 +248,11 @@ export type SaveState = {
   clears: StageClearRecord[];
 };
 
-const SAVE_KEY = "derndee-save-v2";
+const SAVE_KEY_PREFIX = "derndee-save-v3";
+
+function saveKey(patientId: string, playDate: string) {
+  return `${SAVE_KEY_PREFIX}:${encodeURIComponent(patientId)}:${playDate}`;
+}
 
 export function bangkokToday() {
   return new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Bangkok" }).format(new Date());
@@ -288,16 +292,18 @@ function normalizeSave(raw: Partial<SaveState> | null | undefined, playDate: str
   };
 }
 
-function writeLocalSave(next: SaveState) {
-  if (typeof window === "undefined") return;
-  localStorage.setItem(SAVE_KEY, JSON.stringify(next));
+function writeLocalSave(patientId: string | null, next: SaveState) {
+  if (!patientId || typeof window === "undefined") return;
+  localStorage.setItem(saveKey(patientId, next.playDate), JSON.stringify(next));
 }
 
-export function loadSave(): SaveState {
+export function loadSave(patientId: string | null): SaveState {
   const today = bangkokToday();
-  if (typeof window === "undefined") return emptySave(today);
+  if (!patientId || typeof window === "undefined") return emptySave(today);
   try {
-    const raw = localStorage.getItem(SAVE_KEY);
+    // The old shared key has no owner. Leave it untouched and never attribute
+    // it to whoever happens to sign in next; owned cloud progress still loads.
+    const raw = localStorage.getItem(saveKey(patientId, today));
     if (!raw) return emptySave(today);
     return normalizeSave(JSON.parse(raw) as Partial<SaveState>, today);
   } catch {
@@ -333,34 +339,39 @@ export function mergeSaves(a: SaveState, b: SaveState): SaveState {
   };
 }
 
-export function writeSave(next: SaveState) {
+export function writeSave(patientId: string | null, next: SaveState) {
+  if (!patientId) return;
   const today = bangkokToday();
+  if (next.playDate !== today) return;
   const payload = normalizeSave(next, today);
-  writeLocalSave(payload);
-  void import("@trail/lib/trailQuestCloud").then(({ persistTrailQuestDay }) => {
-    void persistTrailQuestDay(payload);
-  });
+  writeLocalSave(patientId, payload);
+  return import("@trail/lib/trailQuestCloud").then(({ persistTrailQuestDay }) => {
+    return persistTrailQuestDay(patientId, payload);
+  }).catch((error) => console.warn("Trail Quest progress sync failed", error));
 }
 
-export async function hydrateSave(): Promise<SaveState> {
-  const local = loadSave();
+export async function hydrateSave(patientId: string | null): Promise<SaveState> {
+  const local = loadSave(patientId);
+  if (!patientId) return local;
   try {
     const { fetchTrailQuestDay, persistTrailQuestDay } = await import("@trail/lib/trailQuestCloud");
-    const remote = await fetchTrailQuestDay(local.playDate);
+    const remote = await fetchTrailQuestDay(patientId, local.playDate);
+    const latestLocal = loadSave(patientId);
+    if (latestLocal.playDate !== local.playDate) return latestLocal;
     if (!remote) {
-      if (local.completed.length > 0 || local.totalScore > 0) {
-        void persistTrailQuestDay(local);
+      if (latestLocal.completed.length > 0 || latestLocal.totalScore > 0) {
+        await persistTrailQuestDay(patientId, latestLocal);
       }
-      return local;
+      return latestLocal;
     }
-    const merged = mergeSaves(local, remote);
-    writeLocalSave(merged);
+    const merged = mergeSaves(latestLocal, remote);
+    writeLocalSave(patientId, merged);
     if (savesDiffer(merged, remote)) {
-      void persistTrailQuestDay(merged);
+      await persistTrailQuestDay(patientId, merged);
     }
     return merged;
   } catch {
-    return local;
+    return loadSave(patientId);
   }
 }
 

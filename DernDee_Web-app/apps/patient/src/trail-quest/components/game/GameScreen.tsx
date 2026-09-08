@@ -55,10 +55,12 @@ const INITIAL: HudSnapshot = {
 };
 
 export function GameScreen({
+  patientId,
   chapterId,
   stageId,
   allowTouch = false,
 }: {
+  patientId: string | null;
   chapterId: MovementKind;
   stageId: number;
   allowTouch?: boolean;
@@ -143,7 +145,7 @@ export function GameScreen({
       persistTimer = window.setTimeout(() => {
         if (totalScore <= lastPersistedScoreRef.current) return;
         lastPersistedScoreRef.current = totalScore;
-        writeSave(applyLiveScore(loadSave(), totalScore));
+        writeSave(patientId, applyLiveScore(loadSave(patientId), totalScore));
       }, 1200);
     };
 
@@ -190,7 +192,7 @@ export function GameScreen({
           engine.setHolding(false);
           const earned = Math.max(0, next.score - startScoreRef.current);
           lastPersistedScoreRef.current = Math.max(lastPersistedScoreRef.current, next.score);
-          writeSave(applyStageClear(loadSave(), chapterId, stageId, earned, next.score));
+          writeSave(patientId, applyStageClear(loadSave(patientId), chapterId, stageId, earned, next.score));
           setStoryOpen(true);
         }
       });
@@ -212,7 +214,7 @@ export function GameScreen({
       loadPlayableAssets(settings.character, season, bootJump, bootEnergy).catch(() =>
         loadPlayableAssets("dino", season, bootJump, bootEnergy),
       ),
-      hydrateSave(),
+      hydrateSave(patientId),
     ])
       .then(([assets, daySave]) => {
         if (cancelled) return;
@@ -221,7 +223,7 @@ export function GameScreen({
       })
       .catch(() => {
         if (cancelled) return;
-        startEngine(undefined, loadSave().totalScore);
+        startEngine(undefined, loadSave(patientId).totalScore);
       });
 
     let cleanup = () => {
@@ -237,11 +239,11 @@ export function GameScreen({
       const liveScore = engineRef.current?.snapshot()?.score;
       if (typeof liveScore === "number" && liveScore > lastPersistedScoreRef.current) {
         lastPersistedScoreRef.current = liveScore;
-        writeSave(applyLiveScore(loadSave(), liveScore));
+        writeSave(patientId, applyLiveScore(loadSave(patientId), liveScore));
       }
       cleanup();
     };
-  }, [allowTouch, chapterId, mixedRun, stageId, stage.gaps, stage.runSeconds, stage.targetAngle, worldKit]);
+  }, [patientId, allowTouch, chapterId, mixedRun, stageId, stage.gaps, stage.runSeconds, stage.targetAngle, worldKit]);
 
   useEffect(() => {
     const release = () => {
@@ -361,7 +363,7 @@ export function GameScreen({
     const liveScore = engineRef.current?.snapshot()?.score;
     if (typeof liveScore === "number" && liveScore > lastPersistedScoreRef.current) {
       lastPersistedScoreRef.current = liveScore;
-      writeSave(applyLiveScore(loadSave(), liveScore));
+      writeSave(patientId, applyLiveScore(loadSave(patientId), liveScore));
     }
     setHold(false);
     engineRef.current?.stop();

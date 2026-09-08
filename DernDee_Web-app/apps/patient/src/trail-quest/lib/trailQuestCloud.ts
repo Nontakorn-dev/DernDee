@@ -45,24 +45,24 @@ export function rowToSave(row: TrailQuestDayRow, fallbackDate: string): SaveStat
   };
 }
 
-async function getPatientId() {
-  if (!isSupabaseConfigured) return null;
+async function getPatientClient(patientId: string | null) {
+  if (!patientId || !isSupabaseConfigured) return null;
   const supabase = getSupabaseClient();
   const { data } = await supabase.auth.getSession();
-  return data.session?.user?.id ?? null;
+  return data.session?.user?.id === patientId ? supabase : null;
 }
 
-export async function fetchTrailQuestDay(playDate: string): Promise<SaveState | null> {
-  const patientId = await getPatientId();
-  if (!patientId) return null;
-  const supabase = getSupabaseClient();
+export async function fetchTrailQuestDay(patientId: string, playDate: string): Promise<SaveState | null> {
+  const supabase = await getPatientClient(patientId);
+  if (!supabase) return null;
   const { data, error } = await supabase
     .from("trail_quest_days")
     .select("play_date, completed, score, last_chapter, last_stage, clears")
     .eq("patient_id", patientId)
     .eq("play_date", playDate)
     .maybeSingle();
-  if (error || !data) return null;
+  if (error) throw error;
+  if (!data) return null;
   return rowToSave(data as TrailQuestDayRow, playDate);
 }
 
@@ -72,10 +72,9 @@ export type TrailQuestDaySummary = {
   completedCount: number;
 };
 
-export async function fetchTrailQuestDays(limit = 42): Promise<TrailQuestDaySummary[]> {
-  const patientId = await getPatientId();
-  if (!patientId) return [];
-  const supabase = getSupabaseClient();
+export async function fetchTrailQuestDays(patientId: string | null, limit = 42): Promise<TrailQuestDaySummary[]> {
+  const supabase = await getPatientClient(patientId);
+  if (!supabase) return [];
   const { data, error } = await supabase
     .from("trail_quest_days")
     .select("play_date, score, completed")
@@ -90,10 +89,9 @@ export async function fetchTrailQuestDays(limit = 42): Promise<TrailQuestDaySumm
   }));
 }
 
-export async function persistTrailQuestDay(save: SaveState) {
-  const patientId = await getPatientId();
-  if (!patientId) return;
-  const supabase = getSupabaseClient();
+export async function persistTrailQuestDay(patientId: string, save: SaveState) {
+  const supabase = await getPatientClient(patientId);
+  if (!supabase) return;
   const { error } = await supabase.from("trail_quest_days").upsert(
     {
       patient_id: patientId,

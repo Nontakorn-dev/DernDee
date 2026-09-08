@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ArrowLeft, Pause, Play, Square } from 'lucide-react';
-import { createCalibratedGaitProcessorClient } from '@shared/gait/gaitProcessorClient.js';
+import { FreeWalkSensorRuntime } from '@shared/gait/freeWalkSensorRuntime.js';
 import {
   aggregateGaitParams,
   buildLiveSessionMetricsFromParams,
@@ -10,9 +10,7 @@ import {
 } from '@shared/gait/gaitParamsAggregation.js';
 import {
   GAIT_ANALYSIS_INTERVAL_MS,
-  GAIT_MIN_ANALYSIS_SAMPLES,
 } from '@shared/gait/gaitRuntimeConfig.js';
-import { GaitSessionAnalyzer } from '@shared/gait/sessionAnalyzer.js';
 import { estimateShankLengthM } from '@shared/gait/gaitCalibration.js';
 import { createGaitCalibrationCaptureSession } from '@shared/gait/gaitCalibrationCapture.js';
 import { readGaitCalibrationPrefs } from '@shared/gait/gaitCalibrationStore.js';
@@ -136,6 +134,14 @@ const FreeWalkSession = () => {
   const isCalibratedRef = useRef(false);
   const tryPlaySessionGreetingRef = useRef(() => false);
 
+  const setWalkActive = useCallback((active) => {
+    isActiveRef.current = active;
+    sensorRuntimesRef.current.forEach((runtime) => runtime.setActive(active));
+    orchestratorRef.current?.setPaused(!active);
+    if (active) orchestratorRef.current?.markActivity();
+    setIsActive(active);
+  }, []);
+
   useEffect(() => {
     showConsentRef.current = showConsent;
   }, [showConsent]);
@@ -145,8 +151,7 @@ const FreeWalkSession = () => {
   }
 
   const destroySensorRuntime = useCallback((sensorState) => {
-    sensorState.unsubscribeParams?.();
-    sensorState.processor?.destroy?.();
+    sensorState.destroy();
   }, []);
 
   const getVisibleSensorStates = useCallback(() => (
@@ -478,30 +483,10 @@ const FreeWalkSession = () => {
   }, [beginAskLipSync, endAskLipSync, user?.uid]);
 
   const createSensorRuntime = useCallback((sample) => {
-    const processor = createCalibratedGaitProcessorClient(sample.sensorKey);
-    const sessionAnalyzer = new GaitSessionAnalyzer();
-    const sensorState = {
-      sensorKey: sample.sensorKey,
-      side: sample.side || null,
-      sensorMount: sample.sensorMount || 'unknown',
-      lastSeenAt: Date.now(),
-      processor,
-      sessionAnalyzer,
-      sampleCount: 0,
-      latestParams: null,
-      unsubscribeParams: null,
-    };
-
-    sensorState.unsubscribeParams = processor.onParams(({ params }) => {
-      if (!params) {
-        return;
-      }
-
-      sensorState.latestParams = params;
-      sensorState.sessionAnalyzer.record(params);
-      applyAggregatedLiveParams(getAggregatedLiveParams());
+    const sensorState = new FreeWalkSensorRuntime(sample, {
+      onParams: () => applyAggregatedLiveParams(getAggregatedLiveParams()),
     });
-
+    sensorState.setActive(isActiveRef.current);
     sensorRuntimesRef.current.set(sample.sensorKey, sensorState);
     return sensorState;
   }, [applyAggregatedLiveParams, getAggregatedLiveParams]);
@@ -533,7 +518,7 @@ const FreeWalkSession = () => {
       return;
     }
 
-    sensorState.processor.addSample({
+    sensorState.addSample({
       ax: sample.ax,
       ay: sample.ay,
       az: sample.az,
@@ -545,7 +530,6 @@ const FreeWalkSession = () => {
       sensorName: sample.name,
       sensorMount: sensorState.sensorMount,
     });
-    sensorState.sampleCount += 1;
   }, [createSensorRuntime, syncVisibleSensorViews]);
 
   handleMessageRef.current = handleMessage;
@@ -611,9 +595,7 @@ const FreeWalkSession = () => {
   useEffect(() => {
     analysisTimerRef.current = setInterval(() => {
       sensorRuntimesRef.current.forEach((sensorState) => {
-        if (sensorState.sampleCount >= GAIT_MIN_ANALYSIS_SAMPLES) {
-          sensorState.processor?.analyze?.();
-        }
+        sensorState.analyze();
       });
     }, GAIT_ANALYSIS_INTERVAL_MS);
 
@@ -625,7 +607,7 @@ const FreeWalkSession = () => {
   }, []);
 
   useEffect(() => {
-    if (!isConnected || !user?.uid || sessionStartedRef.current) {
+    if (!isActive || !isConnected || !user?.uid || sessionStartedRef.current) {
       return;
     }
 
@@ -635,15 +617,11 @@ const FreeWalkSession = () => {
     });
     sessionStartedRef.current = true;
     sessionStartedAtRef.current = new Date().toISOString();
-  }, [isConnected, user?.uid]);
+  }, [isActive, isConnected, user?.uid]);
 
   useEffect(() => {
     coachModeRef.current = coachMode;
   }, [coachMode]);
-
-  useEffect(() => {
-    isActiveRef.current = isActive;
-  }, [isActive]);
 
   useEffect(() => {
     const unsubscribe = subscribeToBrowserBleDevices((nextDevices) => {
@@ -676,16 +654,13 @@ const FreeWalkSession = () => {
             return;
           }
           const runtime = sensorRuntimesRef.current.get(item.sensorKey);
-          runtime?.processor?.applyCalibration?.(item.profile);
-          if (item.samples?.length) {
-            runtime?.processor?.warmStartFromSamples?.(item.samples);
-          }
+          runtime?.applyCalibration(item.profile);
         });
 
         isCalibratedRef.current = true;
         setIsCalibrated(true);
         setStandStillError('');
-        setIsActive(true);
+        setWalkActive(true);
         void tryPlaySessionGreetingRef.current?.();
       },
     });
@@ -693,7 +668,7 @@ const FreeWalkSession = () => {
     return () => {
       calibrationCaptureRef.current?.cancel?.();
     };
-  }, []);
+  }, [setWalkActive]);
 
   const startStandStill = useCallback(() => {
     if (calibrationCaptureRef.current?.isActive?.()) {
@@ -739,6 +714,7 @@ const FreeWalkSession = () => {
     }
 
     const interval = setInterval(() => {
+      if (!isActiveRef.current) return;
       setTimeElapsed((previous) => {
         const next = previous + 1;
         sessionElapsedRef.current = next;
@@ -975,7 +951,8 @@ const FreeWalkSession = () => {
   };
 
   const handleEndWalk = async () => {
-    setIsActive(false);
+    setWalkActive(false);
+    const endedAt = new Date().toISOString();
 
     const analyzers = Array.from(sensorRuntimesRef.current.values())
       .map((sensorState) => sensorState.sessionAnalyzer)
@@ -985,6 +962,7 @@ const FreeWalkSession = () => {
 
     const sessionPayload = {
       summary: {
+        duration_seconds: timeElapsed,
         total_steps: persistedSummary.total_steps ?? 0,
         avg_speed_mps: persistedSummary.avg_speed_mps ?? 0,
         cadence_spm: persistedSummary.cadence_spm ?? 0,
@@ -1027,6 +1005,7 @@ const FreeWalkSession = () => {
         gaitMetricsRows: sessionPayload.gait_metrics_rows,
         source: sessionPayload.source,
         startedAt: sessionStartedAtRef.current,
+        endedAt,
       }).catch((error) => {
         console.error('Failed to persist walk session:', error);
       });
@@ -1141,7 +1120,7 @@ const FreeWalkSession = () => {
             />
             <button
               type="button"
-              onClick={() => setIsActive((previous) => !previous)}
+              onClick={() => setWalkActive(!isActiveRef.current)}
               className="flex min-h-[4.5rem] flex-col items-center justify-center gap-1.5 rounded-2xl border border-amber-300/80 bg-gradient-to-b from-amber-300 to-amber-500 font-bold text-white shadow-lg shadow-amber-500/25 transition active:scale-[0.97] sm:min-h-[5rem] sm:rounded-3xl"
             >
               {isActive ? <Pause className="h-6 w-6 sm:h-7 sm:w-7" /> : <Play className="h-6 w-6 sm:h-7 sm:w-7" />}
