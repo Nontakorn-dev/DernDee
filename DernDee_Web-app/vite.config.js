@@ -355,8 +355,6 @@ export default defineConfig(({ mode }) => {
         registerType: 'autoUpdate',
         includeAssets: [
           'StepDee_logo.png',
-          'DernDee_logo.png',
-          'vite.svg',
           'audio/*.m4a',
         ],
         injectManifest: {

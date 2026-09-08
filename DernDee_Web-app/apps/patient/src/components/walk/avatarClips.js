@@ -92,45 +92,11 @@ export const AVATAR_CLIPS = {
     loop: true,
     line: '',
   },
-  mouthIdle: {
-    id: 'mouthIdle',
-    src: '/Avatar/video/14_MOUTH_IDLE_CLOSED.webm?v=smooth1',
-    loop: true,
-    line: '',
-  },
-  mouthTalk: {
-    id: 'mouthTalk',
-    src: '/Avatar/video/17_MOUTH_TALK_B.webm?v=1',
-    loop: true,
-    line: '',
-  },
-  mouthTalkA: {
-    id: 'mouthTalkA',
-    src: '/Avatar/video/16_MOUTH_TALK_A.webm?v=1',
-    loop: true,
-    line: '',
-  },
-  mouthTalkB: {
-    id: 'mouthTalkB',
-    src: '/Avatar/video/17_MOUTH_TALK_B.webm?v=1',
-    loop: true,
-    line: '',
-  },
-  mouthTalkC: {
-    id: 'mouthTalkC',
-    src: '/Avatar/video/18_MOUTH_TALK_C.webm?v=1',
-    loop: true,
-    line: '',
-  },
 };
 
 Object.keys(AVATAR_CLIPS).forEach((key) => {
   AVATAR_CLIPS[key] = withDeviceSources(AVATAR_CLIPS[key]);
 });
-
-export const MOUTH_TALK_CLIPS = [
-  AVATAR_CLIPS.mouthTalk,
-];
 
 export function avatarNeedsCanvasKey() {
   if (typeof navigator === 'undefined') {
