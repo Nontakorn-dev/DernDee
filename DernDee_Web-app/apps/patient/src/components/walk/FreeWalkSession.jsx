@@ -44,6 +44,7 @@ import WalkGaitStrip from './WalkGaitStrip.jsx';
 import WalkMicButton from './WalkMicButton.jsx';
 import { AVATAR_CLIPS, resolveAvatarClip } from './avatarClips.js';
 import SensorPlacementSheet from '../SensorPlacementSheet.jsx';
+import StandStillCalibrateSheet from '../StandStillCalibrateSheet.jsx';
 import { SENSOR_PLACEMENT_GUIDES } from '@shared/sensors/sensorPlacementGuides.js';
 
 const TARGET_TIME_SECONDS = 300;
@@ -1161,35 +1162,13 @@ const FreeWalkSession = () => {
       </main>
 
       {!showConsent && !showStartTap && !showPlacement && !isCalibrated ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/45 p-4">
-          <div className="w-full max-w-md rounded-[2rem] bg-white p-6 text-center shadow-2xl">
-            <p className="text-xs font-bold uppercase tracking-[0.18em] text-sky-500">ตั้งศูนย์</p>
-            <h2 className="mt-1 text-2xl font-black text-slate-800">ยืนตรง 3 วินาที</h2>
-            <p className="mt-2 text-[15px] leading-relaxed text-slate-500">
-              วางเท้าบนพื้น อย่าแกว่งขา กำลังเก็บสัญญาณหน้าแข้ง
-            </p>
-            <div className="mt-5 text-7xl font-black tabular-nums text-sky-500">
-              {sensorStreaming || standStillRunning ? standStillSeconds : '…'}
-            </div>
-            {!sensorStreaming && !standStillError ? (
-              <p className="mt-3 text-sm font-semibold text-amber-600">รอสัญญาณเซนเซอร์</p>
-            ) : null}
-            {standStillError ? (
-              <>
-                <p className="mt-3 text-sm font-semibold text-red-600">{standStillError}</p>
-                <button
-                  type="button"
-                  onClick={startStandStill}
-                  className="mt-5 min-h-12 w-full rounded-2xl bg-sky-600 py-3 text-base font-extrabold text-white"
-                >
-                  ยืนนิ่งแล้วลองอีกครั้ง
-                </button>
-              </>
-            ) : (
-              <p className="mt-4 text-sm font-semibold text-slate-400">ยืนนิ่งไว้</p>
-            )}
-          </div>
-        </div>
+        <StandStillCalibrateSheet
+          open
+          secondsLeft={sensorStreaming || standStillRunning ? standStillSeconds : null}
+          waiting={!sensorStreaming && !standStillError}
+          error={standStillError}
+          onRetry={startStandStill}
+        />
       ) : null}
 
       <SensorPlacementSheet

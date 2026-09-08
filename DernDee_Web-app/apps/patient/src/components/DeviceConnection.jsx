@@ -256,12 +256,6 @@ const DeviceConnection = () => {
                                         <span className="text-cyan-700"> · {streamingCount} streaming</span>
                                     )}
                                 </p>
-                                <p className="text-xs sm:text-sm font-medium text-gray-500 mt-1">
-                                    Sensors auto-match by BLE name (e.g. DernDee_R_Shank, DernDee_R_Foot)
-                                </p>
-                                <p className="text-xs sm:text-sm font-medium text-gray-500 mt-1">
-                                    Trail Quest: ankle games need shank + foot. Jump game needs shank + thigh.
-                                </p>
                             </div>
                             <div className="flex flex-col sm:flex-row gap-2 sm:gap-3 w-full sm:w-auto">
                                 <button
