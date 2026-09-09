@@ -31,17 +31,17 @@ test('near-end cue fires before the 5 m mark', () => {
   assert.equal(nearEnd.progressM, 4.5)
 })
 
-test('later legs use 5 m / steps from the completed leg', () => {
+test('later legs use 5 m / steps from the completed about-face', () => {
   const walkway = new FreeWalkWalkwayTracker()
-  let turn = null
   const started = 5_000
   for (let step = 1; step <= 10; step += 1) {
-    const result = walkway.ingestStep({ stepCount: step, stepLength: 0.9 }, started + (step * 600))
-    const hit = result.events.find((event) => event.type === 'turn_rest')
-    if (hit) turn = hit
+    walkway.ingestStep({ stepCount: step, stepLength: 0.9 }, started + (step * 600))
   }
 
-  assert.ok(turn)
+  walkway.ingestYaw(0, started + 7_000)
+  const turn = walkway.ingestYaw(180, started + 7_500)
+  assert.equal(turn?.type, 'turn_rest')
+  assert.equal(turn.reason, 'yaw_turn')
   assert.equal(turn.steps, 10)
   assert.equal(turn.stepLengthM, 0.5)
   assert.equal(turn.strideLengthM, 1)
@@ -54,21 +54,69 @@ test('later legs use 5 m / steps from the completed leg', () => {
   assert.equal(overlaid.stepLength, 0.5)
 })
 
-test('yaw turn near the end completes a leg', () => {
+test('reaching 5 m without a 180 turn does not play turn rest', () => {
+  const walkway = new FreeWalkWalkwayTracker()
+  let turn = null
+  let nearEnd = null
+  for (let step = 1; step <= 10; step += 1) {
+    const result = walkway.ingestStep({ stepCount: step, stepLength: 0.9 }, 1_000 + step)
+    const turnHit = result.events.find((event) => event.type === 'turn_rest')
+    const nearHit = result.events.find((event) => event.type === 'near_end')
+    if (turnHit) turn = turnHit
+    if (nearHit) nearEnd = nearHit
+  }
+
+  assert.equal(turn, null)
+  assert.ok(nearEnd)
+  assert.equal(walkway.progressM, 5)
+  assert.equal(walkway.snapshot().direction, 'out')
+})
+
+test('a step burst past 4.2 m still fires near-end', () => {
+  const walkway = new FreeWalkWalkwayTracker()
+  const result = walkway.ingestStep({ stepCount: 10, stepLength: 0.9 }, 1_000)
+  assert.ok(result.events.some((event) => event.type === 'near_end'))
+  assert.ok(!result.events.some((event) => event.type === 'turn_rest'))
+  assert.equal(result.progressM, 5)
+})
+
+test('yaw 120 deg is not an about-face', () => {
+  const walkway = new FreeWalkWalkwayTracker()
+  for (let step = 1; step <= 9; step += 1) {
+    walkway.ingestStep({ stepCount: step, stepLength: 0.9 }, 2_000 + step)
+  }
+
+  walkway.ingestYaw(0, 3_000)
+  assert.equal(walkway.ingestYaw(120, 3_500), null)
+  assert.equal(walkway.progressM, 4.5)
+})
+
+test('yaw 180 deg before the flag does not complete a leg', () => {
   const walkway = new FreeWalkWalkwayTracker()
   for (let step = 1; step <= 6; step += 1) {
     walkway.ingestStep({ stepCount: step, stepLength: 0.9 }, 2_000 + step)
   }
 
   walkway.ingestYaw(0, 3_000)
-  const turn = walkway.ingestYaw(170, 4_000)
+  assert.equal(walkway.ingestYaw(180, 4_000), null)
+  assert.equal(walkway.progressM, 3)
+})
+
+test('yaw 180 deg near the flag completes a leg', () => {
+  const walkway = new FreeWalkWalkwayTracker()
+  for (let step = 1; step <= 9; step += 1) {
+    walkway.ingestStep({ stepCount: step, stepLength: 0.9 }, 2_000 + step)
+  }
+
+  walkway.ingestYaw(0, 3_000)
+  const turn = walkway.ingestYaw(180, 4_000)
   assert.equal(turn?.type, 'turn_rest')
   assert.equal(turn.reason, 'yaw_turn')
-  assert.equal(turn.stepLengthM, 5 / 6)
+  assert.equal(turn.stepLengthM, 5 / 9)
   assert.equal(walkway.progressM, 0)
 
-  const next = walkway.ingestStep({ stepCount: 7, stepLength: 0.9 }, 5_000)
-  assert.ok(Math.abs(next.progressM - (5 / 6)) < 0.001)
+  const next = walkway.ingestStep({ stepCount: 10, stepLength: 0.9 }, 5_000)
+  assert.ok(Math.abs(next.progressM - (5 / 9)) < 0.001)
 })
 
 test('walkway stones keep the walker on the nearest slot and slide the path forward', () => {

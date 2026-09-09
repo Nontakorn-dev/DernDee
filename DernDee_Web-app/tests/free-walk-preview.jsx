@@ -22,6 +22,8 @@ function Preview() {
     <div style={{ display:'flex', flexWrap:'wrap', gap:12, padding:12 }}>
       <button onClick={() => setClip('greeting')}>เล่นคลิปทักทาย</button>
       <button onClick={() => setClip('nearEnd')}>เล่นคลิปใกล้ถึง</button>
+      <button onClick={() => setClip('turnRest')}>เล่นคลิปกลับตัว</button>
+      <button onClick={() => setClip('walkwayFaster0')}>เล่นคลิปเดินกลับ</button>
       <button onClick={() => {setClip('idle');setTalking(false);}}>Idle</button>
       <button onClick={() => setTalking(v => !v)}>สลับตอบคำถาม</button>
       <button onClick={() => setPauseOpen(true)}>เปิดป็อปอัป Pause</button>

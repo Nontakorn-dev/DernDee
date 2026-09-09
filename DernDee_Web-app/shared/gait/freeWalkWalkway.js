@@ -2,9 +2,16 @@
 export const FREE_WALK_WALKWAY_LENGTH_M = 5;
 
 const DEFAULT_STEP_LENGTH_M = 0.5;
-const NEAR_END_M = 4.2;
-const TURN_YAW_DEG = 120;
-const TURN_MIN_PROGRESS_M = 2.5;
+/** Speak clip 14 once the walker is near the 5 m flag. */
+export const WALKWAY_NEAR_END_M = 4.2;
+/**
+ * About-face detection: a real 180° turn, with IMU wrap/noise slop.
+ * Distance reaching 5 m must not count as a turn.
+ */
+export const WALKWAY_TURN_YAW_DEG = 160;
+export const WALKWAY_TURN_MIN_PROGRESS_M = WALKWAY_NEAR_END_M;
+/** Ignore slow heading drift; a physical about-face happens in a few seconds. */
+export const WALKWAY_TURN_WINDOW_MS = 4_000;
 const TURN_COOLDOWN_MS = 8_000;
 const SHORT_STEP_M = 0.4;
 const SLOW_CADENCE_SPM = 70;
@@ -61,10 +68,23 @@ export class FreeWalkWalkwayTracker {
     this.calibratedStepLengthM = DEFAULT_STEP_LENGTH_M;
     this.yawBaselineDeg = null;
     this.lastYawDeg = null;
+    this.yawSamples = [];
     this.nearEndSpoken = false;
     this.turnSpoken = false;
     this.lastTurnAtMs = null;
     this.completedLegs = [];
+  }
+
+  rememberYawSample(yawDeg, now) {
+    this.yawSamples.push({ yawDeg, atMs: now });
+    const windowStart = now - WALKWAY_TURN_WINDOW_MS;
+    this.yawSamples = this.yawSamples.filter((sample) => sample.atMs >= windowStart);
+  }
+
+  hasAboutFace(yawDeg) {
+    return this.yawSamples.some((sample) => (
+      Math.abs(unwrapDeltaDeg(sample.yawDeg, yawDeg)) >= WALKWAY_TURN_YAW_DEG
+    ));
   }
 
   ingestYaw(yawDeg, now = Date.now()) {
@@ -72,20 +92,23 @@ export class FreeWalkWalkwayTracker {
       return null;
     }
 
+    this.lastYawDeg = yawDeg;
     if (this.yawBaselineDeg == null) {
       this.yawBaselineDeg = yawDeg;
-      this.lastYawDeg = yawDeg;
+    }
+
+    // Only watch for a 180° about-face after the walker is near the flag.
+    // Mid-walk shank swing must not count, and slow IMU drift from the start
+    // of the leg must not count either.
+    if (this.progressM < WALKWAY_TURN_MIN_PROGRESS_M || this.turnSpoken) {
+      this.yawSamples = [{ yawDeg, atMs: now }];
       return null;
     }
 
-    this.lastYawDeg = yawDeg;
-    const cooledDown = this.lastTurnAtMs == null || now - this.lastTurnAtMs >= TURN_COOLDOWN_MS;
-    const turned = Math.abs(unwrapDeltaDeg(this.yawBaselineDeg, yawDeg)) >= TURN_YAW_DEG
-      && this.progressM >= TURN_MIN_PROGRESS_M
-      && cooledDown
-      && !this.turnSpoken;
+    this.rememberYawSample(yawDeg, now);
 
-    if (!turned) {
+    const cooledDown = this.lastTurnAtMs == null || now - this.lastTurnAtMs >= TURN_COOLDOWN_MS;
+    if (!cooledDown || !this.hasAboutFace(yawDeg)) {
       return null;
     }
 
@@ -98,7 +121,7 @@ export class FreeWalkWalkwayTracker {
   ingestStep(params = {}, now = Date.now()) {
     const stepCount = Number(params.stepCount);
     if (!Number.isFinite(stepCount) || stepCount <= this.lastStepCount) {
-      return this.snapshot();
+      return { ...this.snapshot(), events: [] };
     }
 
     const newSteps = stepCount - this.lastStepCount;
@@ -110,28 +133,20 @@ export class FreeWalkWalkwayTracker {
 
     // First leg is locked at 0.5 m. Later legs use 5 m / steps from the last completed leg.
     this.progressM = Math.min(
-      this.lengthM + 0.5,
+      this.lengthM,
       this.progressM + (this.calibratedStepLengthM * newSteps),
     );
     this.beginNextLeg();
 
     const events = [];
-    const completingByDistance = !this.turnSpoken
-      && this.progressM >= this.lengthM * 0.96
-      && (this.lastTurnAtMs == null || now - this.lastTurnAtMs >= TURN_COOLDOWN_MS);
-
-    if (!this.nearEndSpoken && this.progressM >= NEAR_END_M && !completingByDistance) {
+    if (!this.nearEndSpoken && this.progressM >= WALKWAY_NEAR_END_M) {
       this.nearEndSpoken = true;
       events.push({ type: 'near_end', ...this.snapshot() });
     }
 
-    if (completingByDistance) {
-      events.push(this.completeLeg('distance', now));
-    }
-
     return {
       ...this.snapshot(),
-      events: events.filter(Boolean),
+      events,
     };
   }
 
@@ -170,6 +185,9 @@ export class FreeWalkWalkwayTracker {
     this.turnSpoken = true;
     this.lastTurnAtMs = now;
     this.yawBaselineDeg = this.lastYawDeg;
+    this.yawSamples = this.lastYawDeg == null
+      ? []
+      : [{ yawDeg: this.lastYawDeg, atMs: now }];
 
     return leg;
   }
@@ -191,7 +209,7 @@ export class FreeWalkWalkwayTracker {
       calibratedStepLengthM: this.calibratedStepLengthM,
       legSteps: this.legSteps,
       completedLegs: this.completedLegs.slice(),
-      nearEnd: this.progressM >= NEAR_END_M,
+      nearEnd: this.progressM >= WALKWAY_NEAR_END_M,
     };
   }
 

@@ -1,7 +1,7 @@
 function withDeviceSources(clip) {
   // Invalidate the truncated WebM assets previously cached by browsers.
   if (/\/(14_|15_|16_|17_|18_)/.test(clip.src)) {
-    clip = { ...clip, src: `${clip.src.split('?')[0]}?v=fullframes-20260909` };
+    clip = { ...clip, src: `${clip.src.split('?')[0]}?v=v2-turn-20260909` };
   }
   const mp4Src = clip.src.replace(/\.webm/i, '.mp4');
   return {
@@ -104,9 +104,9 @@ export const AVATAR_CLIPS = {
   },
   turnRest: {
     id: 'turnRest',
-    src: '/Avatar/video/15_TURN_REST.webm?v=fix1',
+    src: '/Avatar/video/15_TURN_REST.webm',
     loop: false,
-    line: 'ถึงปลายทางแล้ว กลับหลังหันแล้วพักก่อนได้เลยครับ',
+    line: 'กลับหลังหันแล้วพักก่อนได้เลยครับ',
   },
   walkwayFaster0: {
     id: 'walkwayFaster0',

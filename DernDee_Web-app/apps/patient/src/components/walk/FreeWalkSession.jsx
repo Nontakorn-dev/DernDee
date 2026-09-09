@@ -150,6 +150,9 @@ const FreeWalkSession = () => {
   const isCalibratedRef = useRef(false);
   const tryPlaySessionGreetingRef = useRef(() => false);
   const walkwayRef = useRef(null);
+  const walkwayCueQueueRef = useRef([]);
+  const walkwayCueDrainingRef = useRef(false);
+  const drainWalkwayCuesRef = useRef(() => {});
   const orientationTrackersRef = useRef(new Map());
 
   if (!walkwayRef.current) {
@@ -204,6 +207,7 @@ const FreeWalkSession = () => {
     activeSensorKeysRef.current = [];
     orientationTrackersRef.current.clear();
     walkwayRef.current?.reset();
+    walkwayCueQueueRef.current = [];
     orchestratorRef.current?.reset();
     legacyCoachRef.current?.reset();
     setSessionMetrics({});
@@ -233,6 +237,7 @@ const FreeWalkSession = () => {
     setAvatarClipId('idle');
     setCoachSubtitle('');
     orchestratorRef.current?.markActivity();
+    void drainWalkwayCuesRef.current();
   }, []);
 
   const beginAskLipSync = useCallback(() => {
@@ -275,6 +280,7 @@ const FreeWalkSession = () => {
       if (avatarClipIdRef.current === 'idle') {
         setAvatarClipId('idle');
       }
+      void drainWalkwayCuesRef.current();
     }, delayMs);
   }, []);
 
@@ -389,23 +395,20 @@ const FreeWalkSession = () => {
   }, [beginAskLipSync, endAskLipSync, playAvatarClip]);
 
   const playTurnRestThenAdvice = useCallback(async (overlaid, advice) => {
-    const dispatch = orchestratorRef.current?.buildWalkwayDispatch(
+    // Play clip 15 directly so an orchestrator cooldown cannot swallow a real 180° turn.
+    const spoken = playAvatarClip(AVATAR_CLIPS.turnRest);
+    if (!spoken) {
+      return false;
+    }
+    orchestratorRef.current?.buildWalkwayDispatch(
       'turn_rest',
       overlaid,
       sessionElapsedRef.current,
     );
-    if (!dispatch) {
-      return false;
-    }
-
-    const spoken = await dispatchCoachLine(dispatch);
-    if (!spoken) {
-      return false;
-    }
 
     await waitUntilAvatarIdle();
     await new Promise((resolve) => {
-      window.setTimeout(resolve, 350);
+      window.setTimeout(resolve, 80);
     });
 
     const adviceDispatch = orchestratorRef.current?.buildWalkwayDispatch(
@@ -417,7 +420,69 @@ const FreeWalkSession = () => {
       await dispatchCoachLine(adviceDispatch);
     }
     return true;
-  }, [dispatchCoachLine, waitUntilAvatarIdle]);
+  }, [dispatchCoachLine, playAvatarClip, waitUntilAvatarIdle]);
+
+  const drainWalkwayCues = useCallback(async () => {
+    if (walkwayCueDrainingRef.current) {
+      return;
+    }
+    walkwayCueDrainingRef.current = true;
+    try {
+      while (walkwayCueQueueRef.current.length) {
+        if (!isActiveRef.current) {
+          break;
+        }
+        if (!greetingPlayedRef.current || lipSyncActiveRef.current) {
+          break;
+        }
+        if (avatarBusyRef.current) {
+          await waitUntilAvatarIdle();
+          if (avatarBusyRef.current) {
+            break;
+          }
+          continue;
+        }
+
+        const cue = walkwayCueQueueRef.current.shift();
+        if (!cue) {
+          break;
+        }
+        let played = false;
+        if (cue.type === 'turn_rest') {
+          played = await playTurnRestThenAdvice(cue.overlaid, cue.advice);
+        } else if (cue.type === 'near_end') {
+          played = playAvatarClip(AVATAR_CLIPS.nearEnd);
+          if (played) {
+            orchestratorRef.current?.buildWalkwayDispatch(
+              'near_end',
+              cue.overlaid,
+              sessionElapsedRef.current,
+            );
+          }
+        }
+        if (!played) {
+          walkwayCueQueueRef.current.unshift(cue);
+          break;
+        }
+      }
+    } finally {
+      walkwayCueDrainingRef.current = false;
+    }
+  }, [playAvatarClip, playTurnRestThenAdvice, waitUntilAvatarIdle]);
+
+  drainWalkwayCuesRef.current = drainWalkwayCues;
+
+  const enqueueWalkwayCue = useCallback((cue) => {
+    if (!cue?.type || !isActiveRef.current) {
+      return;
+    }
+    const queue = walkwayCueQueueRef.current;
+    if (queue.some((item) => item.type === cue.type)) {
+      return;
+    }
+    queue.push(cue);
+    void drainWalkwayCues();
+  }, [drainWalkwayCues]);
 
   const tryPlaySessionGreeting = useCallback(() => {
     if (
@@ -479,40 +544,13 @@ const FreeWalkSession = () => {
       speedMps: Number.isFinite(overlaid.walkingSpeed) ? overlaid.walkingSpeed : null,
     });
 
-    if (!isActiveRef.current || !greetingPlayedRef.current || lipSyncActiveRef.current) {
-      return;
-    }
-
-    const sessionElapsedS = sessionElapsedRef.current;
     const events = walkwayResult?.events || [];
     for (const event of events) {
-      if (event?.type !== 'near_end' && event?.type !== 'turn_rest') {
-        continue;
-      }
-      if (event.type === 'turn_rest') {
-        void playTurnRestThenAdvice(overlaid, event.advice);
-        return;
-      }
-      const dispatch = orchestratorRef.current?.buildWalkwayDispatch(
-        event.type,
-        overlaid,
-        sessionElapsedS,
-      );
-      if (dispatch) {
-        void dispatchCoachLine(dispatch);
-        return;
+      if (event?.type === 'near_end') {
+        enqueueWalkwayCue({ type: 'near_end', overlaid });
       }
     }
-
-    const dispatch = orchestratorRef.current?.evaluate(overlaid, {
-      sessionElapsedS,
-      protocol: FREE_WALK_COACH_MODE,
-    });
-
-    if (dispatch) {
-      void dispatchCoachLine(dispatch);
-    }
-  }, [dispatchCoachLine, playTurnRestThenAdvice]);
+  }, [enqueueWalkwayCue]);
 
   const initializeCoach = useCallback(async () => {
     if (getFreeWalkCoachMode() === COACH_MODES.LEGACY) {
@@ -702,14 +740,10 @@ const FreeWalkSession = () => {
       return;
     }
 
-    if (!greetingPlayedRef.current || lipSyncActiveRef.current || avatarBusyRef.current) {
-      return;
-    }
-
     const overlaid = walkwayRef.current.applySpatialOverlay(latestParamsRef.current || {});
     latestParamsRef.current = overlaid;
-    void playTurnRestThenAdvice(overlaid, turnEvent.advice);
-  }, [createSensorRuntime, playTurnRestThenAdvice, syncVisibleSensorViews]);
+    enqueueWalkwayCue({ type: 'turn_rest', overlaid, advice: turnEvent.advice });
+  }, [createSensorRuntime, enqueueWalkwayCue, syncVisibleSensorViews]);
 
   handleMessageRef.current = handleMessage;
 
