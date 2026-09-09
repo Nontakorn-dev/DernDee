@@ -247,11 +247,6 @@ export class GaitCoachOrchestrator {
       return null;
     }
 
-    // Walkway Free Walk: stay quiet while resting between legs unless asked.
-    if (options.protocol === 'walkway') {
-      return null;
-    }
-
     const now = Date.now();
     const sessionElapsedS = options.sessionElapsedS ?? 0;
     const params = options.params ?? null;

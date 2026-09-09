@@ -518,11 +518,15 @@ const FreeWalkSession = () => {
     }
 
     const walkway = walkwayRef.current;
+    const previousStepCount = walkway?.lastStepCount ?? 0;
     const walkwayResult = walkway?.ingestStep({
       stepCount: aggregatedParams.stepCount,
       stepLength: aggregatedParams.stepLength,
       stepTime: aggregatedParams.stepTime,
     });
+    if (walkway && walkway.lastStepCount > previousStepCount) {
+      orchestratorRef.current?.markActivity();
+    }
     const snap = walkway?.snapshot();
     if (snap) {
       setWalkwayView({
@@ -975,6 +979,8 @@ const FreeWalkSession = () => {
         || avatarBusyRef.current
         || lipSyncActiveRef.current
         || askCoachActiveRef.current
+        || walkwayCueDrainingRef.current
+        || walkwayCueQueueRef.current.length
       ) {
         return;
       }
