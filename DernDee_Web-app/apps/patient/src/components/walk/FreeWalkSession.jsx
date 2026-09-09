@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, Pause, Play, Square } from 'lucide-react';
+import { ArrowLeft, Pause } from 'lucide-react';
 import { FreeWalkSensorRuntime } from '@shared/gait/freeWalkSensorRuntime.js';
 import {
   aggregateGaitParams,
@@ -29,17 +29,21 @@ import {
 } from '@shared/gateway/realtimeTransport.js';
 import { normalizeRealtimeSensorSample } from '@shared/gateway/realtimeSensorUtils.js';
 import { persistSessionFromFrontend } from '@shared/services/sessionService.js';
-import { COACH_MODES, getFreeWalkCoachMode, shouldUseBrowserSpeechRecognition } from '@shared/coach/coachConfig.js';
+import { COACH_MODES, FREE_WALK_COACH_MODE, getFreeWalkCoachMode, shouldUseBrowserSpeechRecognition } from '@shared/coach/coachConfig.js';
 import { describeCoachConnectError, fetchCoachSessionRecap } from '@shared/coach/geminiCoachApi.js';
 import { GeminiLiveClient, COACH_CONNECTION_STATES } from '@shared/coach/geminiLiveClient.js';
 import { GaitCoachOrchestrator } from '@shared/coach/gaitCoachOrchestrator.js';
 import { LegacyWalkCoach } from '@shared/coach/legacyCoach.js';
+import { FreeWalkWalkwayTracker } from '@shared/gait/freeWalkWalkway.js';
+import { OrientationTracker } from '@shared/sensor/orientationTracker.js';
 import stepdeeLogo from '@shared/assets/images/stepdee-logo.png';
 import WalkConnectionPills from './WalkConnectionPills.jsx';
-import WalkSessionHud from './WalkSessionHud.jsx';
+import { WalkSessionClock, WalkStepCount } from './WalkSessionHud.jsx';
 import WalkAvatarStage from './WalkAvatarStage.jsx';
-import WalkGaitStrip from './WalkGaitStrip.jsx';
+import WalkPauseDialog from './WalkPauseDialog.jsx';
 import WalkMicButton from './WalkMicButton.jsx';
+import './FreeWalkSession.css';
+import WalkRiverScene from './WalkRiverScene.jsx';
 import { AVATAR_CLIPS, resolveAvatarClip } from './avatarClips.js';
 import SensorPlacementSheet from '../SensorPlacementSheet.jsx';
 import StandStillCalibrateSheet from '../StandStillCalibrateSheet.jsx';
@@ -76,6 +80,8 @@ const FreeWalkSession = () => {
   const [coachState, setCoachState] = useState(COACH_CONNECTION_STATES.IDLE);
   const [coachMode, setCoachMode] = useState(getFreeWalkCoachMode());
   const [askCoachActive, setAskCoachActive] = useState(false);
+  const [micOpening, setMicOpening] = useState(false);
+  const micOpeningRef = useRef(false);
   const [showConsent, setShowConsent] = useState(() => {
     if (typeof window === 'undefined' || getFreeWalkCoachMode() === COACH_MODES.LEGACY) {
       return false;
@@ -103,10 +109,10 @@ const FreeWalkSession = () => {
   const activeSensorKeysRef = useRef([]);
   const latestParamsRef = useRef(null);
   const coachClientRef = useRef(null);
+  const speechRecognitionRef = useRef(null);
   const coachConnectingRef = useRef(false);
   const orchestratorRef = useRef(null);
   const legacyCoachRef = useRef(null);
-  const speechRecognitionRef = useRef(null);
   const coachRecapRef = useRef('');
   const sessionElapsedRef = useRef(0);
   const coachModeRef = useRef(coachMode);
@@ -123,6 +129,16 @@ const FreeWalkSession = () => {
   const [avatarClipId, setAvatarClipId] = useState('idle');
   const [lipSyncActive, setLipSyncActive] = useState(false);
   const [talking, setTalking] = useState(false);
+  const [showPauseDialog, setShowPauseDialog] = useState(false);
+  const [endingWalk, setEndingWalk] = useState(false);
+  const endingWalkRef = useRef(false);
+  const [walkwayView, setWalkwayView] = useState({
+    direction: 'out',
+    legIndex: 0,
+    legSteps: 0,
+    progressM: 0,
+    lengthM: 5,
+  });
   const lipSyncActiveRef = useRef(false);
   const askHangoverRef = useRef(null);
   const questionSentRef = useRef(false);
@@ -133,6 +149,12 @@ const FreeWalkSession = () => {
   const calibrationCaptureRef = useRef(null);
   const isCalibratedRef = useRef(false);
   const tryPlaySessionGreetingRef = useRef(() => false);
+  const walkwayRef = useRef(null);
+  const orientationTrackersRef = useRef(new Map());
+
+  if (!walkwayRef.current) {
+    walkwayRef.current = new FreeWalkWalkwayTracker();
+  }
 
   const setWalkActive = useCallback((active) => {
     isActiveRef.current = active;
@@ -180,11 +202,20 @@ const FreeWalkSession = () => {
     });
     sensorRuntimesRef.current.clear();
     activeSensorKeysRef.current = [];
+    orientationTrackersRef.current.clear();
+    walkwayRef.current?.reset();
     orchestratorRef.current?.reset();
     legacyCoachRef.current?.reset();
     setSessionMetrics({});
     setLiveMetrics({ stepCm: null, cadenceSpm: null, speedMps: null });
     latestParamsRef.current = null;
+    setWalkwayView({
+      direction: 'out',
+      legIndex: 0,
+      legSteps: 0,
+      progressM: 0,
+      lengthM: 5,
+    });
   }, [destroySensorRuntime]);
 
   const handleAvatarEnded = useCallback((endedClipId) => {
@@ -212,10 +243,15 @@ const FreeWalkSession = () => {
 
     if (avatarClipIdRef.current === 'greeting') {
       greetingPlayedRef.current = true;
-      avatarBusyRef.current = false;
-      avatarClipIdRef.current = 'idle';
-      setAvatarClipId('idle');
     }
+    // Stop the prerecorded voice before capture/Live playback to avoid overlap.
+    if (avatarFallbackRef.current) {
+      window.clearTimeout(avatarFallbackRef.current);
+      avatarFallbackRef.current = null;
+    }
+    avatarBusyRef.current = false;
+    avatarClipIdRef.current = 'idle';
+    setAvatarClipId('idle');
 
     if (!questionSentRef.current) {
       coachClientRef.current?.disarmOutput?.();
@@ -267,7 +303,6 @@ const FreeWalkSession = () => {
     avatarBusyRef.current = clip.id !== 'idle';
     avatarClipIdRef.current = clip.id;
     setAvatarClipId(clip.id);
-    setCoachSubtitle(clip.line || '');
     orchestratorRef.current?.markActivity();
 
     if (clip.id !== 'idle') {
@@ -275,15 +310,35 @@ const FreeWalkSession = () => {
         if (avatarClipIdRef.current === clip.id) {
           handleAvatarEnded(clip.id);
         }
-      }, 9000);
+      }, 12000);
     }
 
     return true;
   }, [handleAvatarEnded]);
 
+  const waitUntilAvatarIdle = useCallback(async (timeoutMs = 12_000) => {
+    const startedAt = Date.now();
+    while (avatarBusyRef.current && Date.now() - startedAt < timeoutMs) {
+      await new Promise((resolve) => {
+        setTimeout(resolve, 120);
+      });
+    }
+  }, []);
+
   const dispatchCoachLine = useCallback(async (dispatch) => {
     if (!dispatch) {
       return false;
+    }
+
+    const isWalkwayCue = dispatch.trigger === 'near_end'
+      || dispatch.trigger === 'turn_rest'
+      || dispatch.trigger === 'walkway_advice';
+
+    if (isWalkwayCue) {
+      const walkwayClip = resolveAvatarClip(dispatch);
+      if (walkwayClip) {
+        return playAvatarClip(walkwayClip);
+      }
     }
 
     const avatarClip = resolveAvatarClip(dispatch);
@@ -299,11 +354,12 @@ const FreeWalkSession = () => {
       questionSentRef.current = true;
       lastAskPromptRef.current = dispatch.prompt;
       beginAskLipSync();
-      const sent = await coachClientRef.current.sendGaitPrompt(dispatch.prompt, {
+      setCoachSubtitle('กำลังตอบคำถามนะครับ');
+      const spoken = await coachClientRef.current.askWithTextAndSpeak(dispatch.prompt, {
         force: true,
         interrupt: true,
       });
-      if (!sent) {
+      if (!spoken) {
         questionSentRef.current = false;
         coachClientRef.current?.disarmOutput?.();
         setCoachSubtitle('ส่งคำถามไม่สำเร็จ ลองอีกครั้งนะครับ');
@@ -322,7 +378,7 @@ const FreeWalkSession = () => {
           questionSentRef.current = false;
           endAskLipSync(180);
         }
-      }, 8000);
+      }, 12_000);
       return true;
     }
 
@@ -331,6 +387,37 @@ const FreeWalkSession = () => {
     );
     return true;
   }, [beginAskLipSync, endAskLipSync, playAvatarClip]);
+
+  const playTurnRestThenAdvice = useCallback(async (overlaid, advice) => {
+    const dispatch = orchestratorRef.current?.buildWalkwayDispatch(
+      'turn_rest',
+      overlaid,
+      sessionElapsedRef.current,
+    );
+    if (!dispatch) {
+      return false;
+    }
+
+    const spoken = await dispatchCoachLine(dispatch);
+    if (!spoken) {
+      return false;
+    }
+
+    await waitUntilAvatarIdle();
+    await new Promise((resolve) => {
+      window.setTimeout(resolve, 350);
+    });
+
+    const adviceDispatch = orchestratorRef.current?.buildWalkwayDispatch(
+      'walkway_advice',
+      { ...overlaid, walkwayAdvice: advice },
+      sessionElapsedRef.current,
+    );
+    if (adviceDispatch) {
+      await dispatchCoachLine(adviceDispatch);
+    }
+    return true;
+  }, [dispatchCoachLine, waitUntilAvatarIdle]);
 
   const tryPlaySessionGreeting = useCallback(() => {
     if (
@@ -365,27 +452,67 @@ const FreeWalkSession = () => {
       return;
     }
 
-    latestParamsRef.current = aggregatedParams;
-    const nextSessionMetrics = buildLiveSessionMetricsFromParams(aggregatedParams);
+    const walkway = walkwayRef.current;
+    const walkwayResult = walkway?.ingestStep({
+      stepCount: aggregatedParams.stepCount,
+      stepLength: aggregatedParams.stepLength,
+      stepTime: aggregatedParams.stepTime,
+    });
+    const snap = walkway?.snapshot();
+    if (snap) {
+      setWalkwayView({
+        direction: snap.direction,
+        legIndex: snap.legIndex,
+        legSteps: snap.legSteps,
+        progressM: snap.progressM,
+        lengthM: snap.walkwayLengthM,
+      });
+    }
+    const overlaid = walkway?.applySpatialOverlay(aggregatedParams) || aggregatedParams;
+    latestParamsRef.current = overlaid;
+
+    const nextSessionMetrics = buildLiveSessionMetricsFromParams(overlaid);
     setSessionMetrics(nextSessionMetrics);
     setLiveMetrics({
-      stepCm: Number.isFinite(aggregatedParams.stepLength) ? aggregatedParams.stepLength * 100 : null,
-      cadenceSpm: Number.isFinite(aggregatedParams.cadence) ? aggregatedParams.cadence : null,
-      speedMps: Number.isFinite(aggregatedParams.walkingSpeed) ? aggregatedParams.walkingSpeed : null,
+      stepCm: Number.isFinite(overlaid.stepLength) ? overlaid.stepLength * 100 : null,
+      cadenceSpm: Number.isFinite(overlaid.cadence) ? overlaid.cadence : null,
+      speedMps: Number.isFinite(overlaid.walkingSpeed) ? overlaid.walkingSpeed : null,
     });
 
     if (!isActiveRef.current || !greetingPlayedRef.current || lipSyncActiveRef.current) {
       return;
     }
 
-    const dispatch = orchestratorRef.current?.evaluate(aggregatedParams, {
-      sessionElapsedS: sessionElapsedRef.current,
+    const sessionElapsedS = sessionElapsedRef.current;
+    const events = walkwayResult?.events || [];
+    for (const event of events) {
+      if (event?.type !== 'near_end' && event?.type !== 'turn_rest') {
+        continue;
+      }
+      if (event.type === 'turn_rest') {
+        void playTurnRestThenAdvice(overlaid, event.advice);
+        return;
+      }
+      const dispatch = orchestratorRef.current?.buildWalkwayDispatch(
+        event.type,
+        overlaid,
+        sessionElapsedS,
+      );
+      if (dispatch) {
+        void dispatchCoachLine(dispatch);
+        return;
+      }
+    }
+
+    const dispatch = orchestratorRef.current?.evaluate(overlaid, {
+      sessionElapsedS,
+      protocol: FREE_WALK_COACH_MODE,
     });
 
     if (dispatch) {
       void dispatchCoachLine(dispatch);
     }
-  }, [dispatchCoachLine]);
+  }, [dispatchCoachLine, playTurnRestThenAdvice]);
 
   const initializeCoach = useCallback(async () => {
     if (getFreeWalkCoachMode() === COACH_MODES.LEGACY) {
@@ -421,17 +548,21 @@ const FreeWalkSession = () => {
               window.clearTimeout(askReplyWatchRef.current);
               askReplyWatchRef.current = null;
             }
-            if (askCoachActiveRef.current || questionSentRef.current) {
-              if (!lipSyncActiveRef.current) {
-                beginAskLipSync();
-              }
-              setTalking(true);
+            // Audible Live playback is authoritative, including a late reply
+            // after the waiting hint timed out.
+            questionSentRef.current = true;
+            if (!lipSyncActiveRef.current) beginAskLipSync();
+            if (askHangoverRef.current) {
+              window.clearTimeout(askHangoverRef.current);
+              askHangoverRef.current = null;
             }
+            setTalking(true);
             return;
           }
 
           if (nextState === COACH_CONNECTION_STATES.READY && lipSyncActiveRef.current) {
             setTalking(false);
+            questionSentRef.current = false;
             endAskLipSync();
           }
         },
@@ -454,12 +585,12 @@ const FreeWalkSession = () => {
               questionSentRef.current = false;
               endAskLipSync(180);
             }
-          }, 8000);
+          }, 12_000);
 
           const prompt = lastAskPromptRef.current
             || 'ผู้ป่วยเพิ่งถามมาทางไมค์ ตอบคำถามนั้นทันที ห้ามทักทาย ห้ามสวัสดี ห้ามแนะนำตัว';
           setCoachSubtitle('กำลังตอบคำถามนะครับ');
-          void coachClientRef.current.sendGaitPrompt(
+          void coachClientRef.current.askWithTextAndSpeak(
             `${prompt}\n\nห้ามทักทาย ห้ามสวัสดี ห้ามแนะนำตัว ตอบคำถามทันที`,
             { force: true, interrupt: true, retry: true },
           );
@@ -467,11 +598,18 @@ const FreeWalkSession = () => {
       });
       coachClientRef.current = client;
       await client.connect();
+      if (coachClientRef.current !== client) { client.disconnect(); return; }
       coachModeRef.current = COACH_MODES.LIVE;
       setCoachMode(COACH_MODES.LIVE);
       lastCoachErrorRef.current = '';
     } catch (error) {
       console.warn('Live coach unavailable:', error);
+      if (speechRecognitionRef.current) {
+        const recognition = speechRecognitionRef.current;
+        speechRecognitionRef.current = null;
+        recognition.onend = recognition.onresult = recognition.onerror = null;
+        recognition.abort();
+      }
       coachClientRef.current?.disconnect();
       coachClientRef.current = null;
       setCoachState(COACH_CONNECTION_STATES.ERROR);
@@ -518,7 +656,7 @@ const FreeWalkSession = () => {
       return;
     }
 
-    sensorState.addSample({
+    const sensorSample = {
       ax: sample.ax,
       ay: sample.ay,
       az: sample.az,
@@ -529,8 +667,49 @@ const FreeWalkSession = () => {
       side: sample.side,
       sensorName: sample.name,
       sensorMount: sensorState.sensorMount,
-    });
-  }, [createSensorRuntime, syncVisibleSensorViews]);
+    };
+
+    sensorState.addSample(sensorSample);
+
+    if (!isActiveRef.current) {
+      return;
+    }
+
+    let tracker = orientationTrackersRef.current.get(sample.sensorKey);
+    if (!tracker) {
+      tracker = new OrientationTracker();
+      orientationTrackersRef.current.set(sample.sensorKey, tracker);
+    }
+
+    const orientation = tracker.update(sensorSample);
+    const primaryKey = activeSensorKeysRef.current[0];
+    if (primaryKey !== sample.sensorKey || !Number.isFinite(orientation?.yawDeg)) {
+      return;
+    }
+
+    const turnEvent = walkwayRef.current?.ingestYaw(orientation.yawDeg);
+    const snap = walkwayRef.current?.snapshot();
+    if (snap && turnEvent?.type === 'turn_rest') {
+      setWalkwayView({
+        direction: snap.direction,
+        legIndex: snap.legIndex,
+        legSteps: snap.legSteps,
+        progressM: snap.progressM,
+        lengthM: snap.walkwayLengthM,
+      });
+    }
+    if (!turnEvent || turnEvent.type !== 'turn_rest') {
+      return;
+    }
+
+    if (!greetingPlayedRef.current || lipSyncActiveRef.current || avatarBusyRef.current) {
+      return;
+    }
+
+    const overlaid = walkwayRef.current.applySpatialOverlay(latestParamsRef.current || {});
+    latestParamsRef.current = overlaid;
+    void playTurnRestThenAdvice(overlaid, turnEvent.advice);
+  }, [createSensorRuntime, playTurnRestThenAdvice, syncVisibleSensorViews]);
 
   handleMessageRef.current = handleMessage;
 
@@ -552,6 +731,12 @@ const FreeWalkSession = () => {
       }
       coachClientRef.current?.disconnect();
       coachClientRef.current = null;
+      if (speechRecognitionRef.current) {
+        const recognition = speechRecognitionRef.current;
+        speechRecognitionRef.current = null;
+        recognition.onend = recognition.onresult = recognition.onerror = null;
+        recognition.abort();
+      }
       if (typeof window !== 'undefined') {
         window.speechSynthesis?.cancel();
       }
@@ -763,6 +948,7 @@ const FreeWalkSession = () => {
       const dispatch = orchestratorRef.current?.evaluateIdle({
         sessionElapsedS: sessionElapsedRef.current,
         params: latestParamsRef.current,
+        protocol: FREE_WALK_COACH_MODE,
       });
 
       if (dispatch) {
@@ -790,167 +976,185 @@ const FreeWalkSession = () => {
   const finishAskListen = () => {
     askCoachActiveRef.current = false;
     setAskCoachActive(false);
-    if (speechRecognitionRef.current) {
-      try {
-        speechRecognitionRef.current.stop();
-      } catch {
-        // already stopped
-      }
-      speechRecognitionRef.current = null;
-    }
   };
 
-  const sendAskQuestion = (transcript) => {
-    const question = transcript?.trim();
-    if (!question || questionSentRef.current) {
-      return false;
-    }
-
-    const dispatch = orchestratorRef.current.buildUserQuestionDispatch(
-      latestParamsRef.current,
-      question,
-      sessionElapsedRef.current,
-    );
-    void dispatchCoachLine(dispatch);
-    return true;
-  };
-
-  const handleAskCoachStart = async () => {
-    if (askCoachActiveRef.current) {
-      return;
-    }
-
-    if (getFreeWalkCoachMode() === COACH_MODES.LIVE && !coachClientRef.current) {
-      setCoachSubtitle('กำลังเชื่อมต่อโค้ชนะครับ');
-      if (coachConnectingRef.current) {
-        const deadline = Date.now() + 8000;
-        while (coachConnectingRef.current && Date.now() < deadline) {
-          await new Promise((resolve) => {
-            setTimeout(resolve, 150);
-          });
-        }
-      } else {
-        await initializeCoach();
-      }
-    }
-
-    if (coachModeRef.current !== COACH_MODES.LIVE || !coachClientRef.current) {
-      setCoachSubtitle(lastCoachErrorRef.current || 'โค้ชยังไม่พร้อม ลองใหม่อีกครั้งนะครับ');
-      endAskLipSync(800);
-      return;
-    }
-
+  const startBrowserAsk = (Recognition) => {
+    const recognition = new Recognition();
+    let transcript = '';
+    let submitted = false;
+    let failed = false;
     questionSentRef.current = false;
     askCoachActiveRef.current = true;
     clearAskReplyWatch();
     beginAskLipSync();
     setAskCoachActive(true);
     setCoachSubtitle('พูดได้เลยครับ');
-
-    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-    if (!shouldUseBrowserSpeechRecognition() || !SpeechRecognition) {
-      void coachClientRef.current.startPushToTalk();
-      return;
+    if ([COACH_CONNECTION_STATES.CLOSED, COACH_CONNECTION_STATES.ERROR].includes(coachClientRef.current?.getState())) {
+      coachClientRef.current.disconnect();
+      coachClientRef.current = null;
     }
-
-    const recognition = new SpeechRecognition();
-    let lastTranscript = '';
+    void initializeCoach();
+    void coachClientRef.current?.ensureAudioReady();
+    const submit = async () => {
+      if (submitted || !transcript.trim() || failed) return;
+      submitted = true;
+      questionSentRef.current = true;
+      setCoachSubtitle('กำลังตอบคำถามนะครับ');
+      const client = coachClientRef.current;
+      if (!client || !await client.waitUntilReady(8000) || client !== coachClientRef.current) {
+        questionSentRef.current = false;
+        setCoachSubtitle('โค้ชยังไม่พร้อม ลองถามอีกครั้งครับ');
+        endAskLipSync(180);
+        return;
+      }
+      const dispatch = orchestratorRef.current.buildUserQuestionDispatch(
+        latestParamsRef.current, transcript, sessionElapsedRef.current,
+      );
+      await dispatchCoachLine(dispatch);
+    };
     recognition.lang = 'th-TH';
     recognition.interimResults = true;
     recognition.continuous = false;
     recognition.maxAlternatives = 1;
     recognition.onresult = (event) => {
-      const lastResult = event.results?.[event.results.length - 1];
-      const transcript = lastResult?.[0]?.transcript?.trim();
-      if (!transcript) {
-        return;
-      }
-
-      lastTranscript = transcript;
+      const result = event.results?.[event.results.length - 1];
+      if (!result?.[0]?.transcript?.trim()) return;
+      transcript = result[0].transcript.trim();
       setCoachSubtitle(transcript);
-
-      if (lastResult.isFinal) {
-        sendAskQuestion(transcript);
-      }
+      if (result.isFinal) { recognition.stop(); void submit(); }
     };
     recognition.onerror = (event) => {
-      if (event.error === 'aborted' || event.error === 'no-speech') {
-        return;
-      }
-
-      if (event.error === 'not-allowed' || event.error === 'service-not-allowed') {
-        speechRecognitionRef.current = null;
-        void coachClientRef.current.startPushToTalk();
-        return;
-      }
-
-      finishAskListen();
-      if (!questionSentRef.current) {
-        setCoachSubtitle('ลองพูดอีกครั้งนะครับ');
-        endAskLipSync(180);
-      }
+      failed = true;
+      setCoachSubtitle(event.error === 'not-allowed' || event.error === 'service-not-allowed'
+        ? 'เบราว์เซอร์ยังไม่อนุญาตการรู้จำเสียง กรุณาตรวจสิทธิ์ไมค์ครับ'
+        : 'ยังไม่ได้ยินคำถาม ลองพูดอีกครั้งครับ');
     };
     recognition.onend = () => {
+      if (speechRecognitionRef.current !== recognition) return;
+      speechRecognitionRef.current = null;
       finishAskListen();
-      if (questionSentRef.current) {
-        return;
-      }
-
-      if (lastTranscript) {
-        sendAskQuestion(lastTranscript);
-        return;
-      }
-
-      setCoachSubtitle('ลองพูดอีกครั้งนะครับ');
-      endAskLipSync(180);
+      if (!failed && transcript) void submit();
+      else if (!submitted) endAskLipSync(180);
     };
     speechRecognitionRef.current = recognition;
-    try {
-      recognition.start();
-    } catch {
+    try { recognition.start(); } catch {
       speechRecognitionRef.current = null;
-      void coachClientRef.current.startPushToTalk();
+      finishAskListen();
+      setCoachSubtitle('เปิดการรู้จำเสียงไม่สำเร็จ ลองกด Ask อีกครั้งครับ');
+      endAskLipSync(180);
+    }
+  };
+
+  const handleAskCoachStart = async () => {
+    if (askCoachActiveRef.current || micOpeningRef.current) return;
+    const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (Recognition && shouldUseBrowserSpeechRecognition()) {
+      startBrowserAsk(Recognition);
+      return;
+    }
+    micOpeningRef.current = true;
+    setMicOpening(true);
+    let client;
+    try {
+      // initializeCoach creates the client synchronously before its first await.
+      // Request capture and resume audio within this click, before network waits.
+      if ([COACH_CONNECTION_STATES.CLOSED, COACH_CONNECTION_STATES.ERROR].includes(coachClientRef.current?.getState())) {
+        coachClientRef.current.disconnect();
+        coachClientRef.current = null;
+      }
+      const connecting = initializeCoach();
+      client = coachClientRef.current;
+      if (!client) throw new Error(lastCoachErrorRef.current || 'โค้ชยังไม่พร้อม กรุณาเข้าสู่ระบบแล้วลองใหม่ครับ');
+      beginAskLipSync();
+      const preparing = client.prepareMic();
+      void client.ensureAudioReady();
+      setCoachSubtitle('กำลังเปิดไมค์ กรุณาอนุญาตการใช้ไมค์ในเบราว์เซอร์');
+      const prepared = await preparing;
+      await connecting;
+      if (!prepared) throw new Error(client.describeMicError());
+      if (!await client.waitUntilReady(8000) || client !== coachClientRef.current) {
+        throw new Error(lastCoachErrorRef.current || 'เชื่อมต่อโค้ชไม่สำเร็จ ลองใหม่อีกครั้งครับ');
+      }
+      const started = await client.startPushToTalk();
+      if (!started || !client.micActive) throw new Error(client.describeMicError());
+      questionSentRef.current = false;
+      askCoachActiveRef.current = true;
+      clearAskReplyWatch();
+      beginAskLipSync();
+      setAskCoachActive(true);
+      setCoachSubtitle('กำลังฟังครับ แตะ Ask อีกครั้ง หรือปล่อยปุ่มที่กดค้างเมื่อพูดจบ');
+    } catch (error) {
+      await client?.stopPushToTalk();
+      client?.releaseMicStream();
+      setCoachSubtitle(error.message || 'เปิดไมค์ไม่สำเร็จ ลองใหม่อีกครั้งครับ');
+      endAskLipSync(800);
+    } finally {
+      micOpeningRef.current = false;
+      setMicOpening(false);
     }
   };
 
   const handleAskCoachEnd = () => {
-    const micWasActive = Boolean(coachClientRef.current?.micActive);
-    const hadRecognition = Boolean(speechRecognitionRef.current);
-    askCoachActiveRef.current = false;
-    setAskCoachActive(false);
-
     if (speechRecognitionRef.current) {
-      try {
-        speechRecognitionRef.current.stop();
-      } catch {
-        // already stopped
-      }
-    }
-
-    void coachClientRef.current?.stopPushToTalk();
-
-    if (micWasActive && !questionSentRef.current) {
-      questionSentRef.current = true;
-      clearAskReplyWatch();
-      askReplyWatchRef.current = window.setTimeout(() => {
-        askReplyWatchRef.current = null;
-        if (
-          lipSyncActiveRef.current
-          && coachClientRef.current?.getState() !== COACH_CONNECTION_STATES.SPEAKING
-        ) {
-          questionSentRef.current = false;
-          endAskLipSync(180);
-        }
-      }, 4500);
+      speechRecognitionRef.current.stop();
+      finishAskListen();
       return;
     }
+    void (async () => {
+      const micWasActive = Boolean(coachClientRef.current?.micActive);
+      finishAskListen();
 
-    if (!hadRecognition && !questionSentRef.current) {
-      endAskLipSync(180);
-    }
+      if (micWasActive && !questionSentRef.current && coachClientRef.current) {
+        questionSentRef.current = true;
+        clearAskReplyWatch();
+        setCoachSubtitle('กำลังตอบคำถามนะครับ');
+        askReplyWatchRef.current = window.setTimeout(() => {
+          askReplyWatchRef.current = null;
+          if (
+            lipSyncActiveRef.current
+            && coachClientRef.current?.getState() !== COACH_CONNECTION_STATES.SPEAKING
+          ) {
+            questionSentRef.current = false;
+            setCoachSubtitle('ยังไม่ได้ยินคำตอบ ลองถามอีกครั้งนะครับ');
+            endAskLipSync(180);
+          }
+        }, 14_000);
+
+        const spoken = await coachClientRef.current.finishMicAskAndSpeak({
+          force: true,
+          interrupt: true,
+        });
+        if (!spoken) {
+          questionSentRef.current = false;
+          setCoachSubtitle('ยังไม่ได้ยินคำตอบ ลองถามอีกครั้งนะครับ');
+          endAskLipSync(180);
+        }
+        return;
+      }
+
+      void coachClientRef.current?.stopPushToTalk();
+      if (!questionSentRef.current) {
+        endAskLipSync(180);
+      }
+    })();
+  };
+
+  const handlePauseWalk = () => {
+    setWalkActive(false);
+    setShowPauseDialog(true);
+  };
+
+  const handleContinueWalk = () => {
+    setShowPauseDialog(false);
+    setWalkActive(true);
   };
 
   const handleEndWalk = async () => {
+    if (endingWalkRef.current) {
+      return;
+    }
+    endingWalkRef.current = true;
+    setEndingWalk(true);
     setWalkActive(false);
     const endedAt = new Date().toISOString();
 
@@ -973,6 +1177,9 @@ const FreeWalkSession = () => {
       details: {
         analysis_source: 'shared_gait_processor',
         aggregation_mode: 'gait_dashboard',
+        walkway_protocol: FREE_WALK_COACH_MODE,
+        walkway_length_m: walkwayRef.current?.lengthM ?? 5,
+        spatial_source: latestParamsRef.current?.spatialSource || null,
         ai_coach_enabled: coachMode === COACH_MODES.LIVE,
         coach_mode: coachMode,
         coach_summary_text: null,
@@ -1031,111 +1238,89 @@ const FreeWalkSession = () => {
     });
   };
 
-  const gaitStepCm = liveMetrics.stepCm ?? (sessionMetrics.avg_step_length_m ? sessionMetrics.avg_step_length_m * 100 : null);
-  const gaitCadenceSpm = liveMetrics.cadenceSpm ?? sessionMetrics.cadence_spm;
-  const gaitSpeedMps = liveMetrics.speedMps ?? sessionMetrics.avg_speed_mps;
+  const avatarExpanded = lipSyncActive
+    || talking
+    || askCoachActive
+    || avatarClipId !== 'idle'
+    || coachState === COACH_CONNECTION_STATES.SPEAKING;
 
   return (
-    <div className="relative flex h-dvh flex-col overflow-hidden bg-gradient-to-br from-sky-100 via-blue-200 to-cyan-100">
-      <div className="pointer-events-none absolute inset-0 overflow-hidden">
-        <div className="absolute -left-24 top-16 h-64 w-64 rounded-full bg-white/30 blur-3xl sm:h-80 sm:w-80" />
-        <div className="absolute -right-16 bottom-24 h-72 w-72 rounded-full bg-cyan-200/40 blur-3xl sm:h-96 sm:w-96" />
-        <div className="absolute left-1/2 top-1/3 h-56 w-56 -translate-x-1/2 rounded-full bg-blue-300/20 blur-3xl" />
-      </div>
-
-      <header className="relative z-20 flex shrink-0 items-center justify-between gap-3 border-b border-white/50 bg-white/70 px-4 py-3 backdrop-blur-md sm:px-6 lg:px-8">
+    <div className="free-walk-session relative flex h-dvh flex-col overflow-hidden">
+      <header className="relative z-20 flex shrink-0 items-center justify-between gap-3 bg-white px-4 py-3 shadow-xl sm:px-6 sm:py-4 lg:px-8">
         <div className="flex items-center gap-3">
           <button
             type="button"
             onClick={() => navigate('/therapy')}
-            className="rounded-full p-2 text-slate-600 transition hover:bg-white/80 hover:text-slate-900"
+            className="rounded-full p-2 text-gray-600 transition hover:bg-gray-100 hover:text-gray-800"
           >
             <ArrowLeft className="h-5 w-5" />
           </button>
-          <img src={stepdeeLogo} alt="StepDee" className="h-9 object-contain sm:h-10" />
+          <img src={stepdeeLogo} alt="StepDee" className="h-10 object-contain sm:h-12" />
         </div>
-        <WalkConnectionPills
-          coachState={lipSyncActive || avatarClipId !== 'idle' ? COACH_CONNECTION_STATES.SPEAKING : coachState}
-          coachMode={coachMode}
-        />
+        <WalkConnectionPills connected={isConnected || sensorStreaming} />
       </header>
 
       <main className="relative z-10 flex min-h-0 flex-1 flex-col">
-        <div className="shrink-0 space-y-3 px-4 pt-3 sm:px-6 sm:pt-4 lg:px-8">
-          <WalkSessionHud timeElapsed={timeElapsed} targetSeconds={TARGET_TIME_SECONDS} />
-
-          {!sensorStreaming && (
-            <div className="rounded-xl border border-amber-200/80 bg-amber-50/90 px-3 py-2.5 text-xs text-amber-900 backdrop-blur-sm sm:text-sm">
+        {!sensorStreaming ? (
+          <div className="shrink-0 px-4 pt-2 sm:px-6 lg:px-8">
+            <div className="rounded-xl border border-amber-200/80 bg-amber-50/90 px-3 py-2 text-xs text-amber-900 backdrop-blur-sm sm:text-sm">
               ยังไม่มีข้อมูลจากเซ็นเซอร์ — เชื่อมเซ็นเซอร์ที่ขา (Shank) ก่อนเริ่มเดิน
             </div>
-          )}
+          </div>
+        ) : null}
+
+        <div className="relative min-h-0 flex-1">
+          <div className="absolute inset-0 px-4 py-2 sm:px-6 lg:px-8 lg:py-4">
+            <div className="relative h-full w-full overflow-hidden rounded-[1.75rem]">
+              <WalkRiverScene
+                progressM={walkwayView.progressM}
+                lengthM={walkwayView.lengthM}
+                direction={walkwayView.direction}
+                dimmed={avatarExpanded}
+                paused={!isActive}
+                legSteps={walkwayView.legSteps}
+              />
+              {avatarExpanded ? <div className="walk-scene-frost" aria-hidden="true" /> : null}
+              <WalkSessionClock timeElapsed={timeElapsed} />
+              <div
+                className={
+                  avatarExpanded
+                    ? 'walk-coach-overlay is-expanded'
+                    : 'walk-coach-overlay is-docked'
+                }
+              >
+                <WalkAvatarStage
+                  clipId={avatarClipId}
+                  paused={!isActive && !talking}
+                  isListening={askCoachActive}
+                  talking={talking}
+                  subtitle=""
+                  docked
+                  fillFrame
+                  onEnded={handleAvatarEnded}
+                />
+              </div>
+            </div>
+          </div>
         </div>
 
-        <div className="grid min-h-0 flex-1 grid-cols-1 items-stretch px-4 py-2 sm:px-6 lg:grid-cols-[minmax(160px,220px)_1fr_minmax(160px,220px)] lg:gap-6 lg:px-8 lg:py-4 xl:grid-cols-[minmax(180px,260px)_1fr_minmax(180px,260px)]">
-          <div className="hidden min-h-0 lg:flex lg:flex-col lg:justify-center">
-            <WalkGaitStrip
-              layout="left"
-              stepCm={gaitStepCm}
-              cadenceSpm={gaitCadenceSpm}
-              speedMps={gaitSpeedMps}
-            />
-          </div>
-
-          <div className="flex min-h-0 items-center justify-center">
-            <WalkAvatarStage
-              clipId={avatarClipId}
-              paused={!isActive}
-              isListening={askCoachActive}
-              talking={talking}
-              subtitle={coachSubtitle}
-              onEnded={handleAvatarEnded}
-            />
-          </div>
-
-          <div className="hidden min-h-0 lg:flex lg:flex-col lg:justify-center">
-            <WalkGaitStrip
-              layout="right"
-              stepCm={gaitStepCm}
-              cadenceSpm={gaitCadenceSpm}
-              speedMps={gaitSpeedMps}
-            />
-          </div>
-        </div>
-
-        <div className="shrink-0 px-4 pb-2 pt-1 sm:px-6 lg:hidden">
-          <WalkGaitStrip
-            stepCm={gaitStepCm}
-            cadenceSpm={gaitCadenceSpm}
-            speedMps={gaitSpeedMps}
-          />
-        </div>
-
-        <div className="shrink-0 border-t border-white/50 bg-white/55 px-4 py-4 backdrop-blur-xl sm:px-6 sm:py-5 lg:px-8">
-          <div className="mx-auto grid max-w-5xl grid-cols-3 gap-2 sm:gap-4">
+        <div className="walk-controls shrink-0">
+          <div className="walk-controls__row">
+            <button
+              type="button"
+              onClick={handlePauseWalk}
+              className="walk-controls__btn walk-controls__pause"
+            >
+              <Pause className="h-6 w-6 sm:h-7 sm:w-7" />
+              <span>Pause</span>
+            </button>
             <WalkMicButton
               active={askCoachActive}
-              disabled={coachState === COACH_CONNECTION_STATES.CONNECTING}
+              busy={micOpening}
               onPressStart={handleAskCoachStart}
               onPressEnd={handleAskCoachEnd}
             />
-            <button
-              type="button"
-              onClick={() => setWalkActive(!isActiveRef.current)}
-              className="flex min-h-[4.5rem] flex-col items-center justify-center gap-1.5 rounded-2xl border border-amber-300/80 bg-gradient-to-b from-amber-300 to-amber-500 font-bold text-white shadow-lg shadow-amber-500/25 transition active:scale-[0.97] sm:min-h-[5rem] sm:rounded-3xl"
-            >
-              {isActive ? <Pause className="h-6 w-6 sm:h-7 sm:w-7" /> : <Play className="h-6 w-6 sm:h-7 sm:w-7" />}
-              <span className="text-xs font-extrabold uppercase tracking-wide sm:text-sm">
-                {isActive ? 'Pause' : 'Resume'}
-              </span>
-            </button>
-            <button
-              type="button"
-              onClick={handleEndWalk}
-              className="flex min-h-[4.5rem] flex-col items-center justify-center gap-1.5 rounded-2xl border border-red-400/80 bg-gradient-to-b from-red-500 to-red-600 font-bold text-white shadow-lg shadow-red-500/25 transition active:scale-[0.97] sm:min-h-[5rem] sm:rounded-3xl"
-            >
-              <Square className="h-6 w-6 sm:h-7 sm:w-7" />
-              <span className="text-xs font-extrabold uppercase tracking-wide sm:text-sm">End</span>
-            </button>
+            <WalkStepCount steps={sessionMetrics.total_steps || 0} />
           </div>
         </div>
       </main>
@@ -1164,7 +1349,7 @@ const FreeWalkSession = () => {
           <div className="bg-white rounded-2xl shadow-2xl p-6 max-w-md w-full">
             <h2 className="text-xl font-extrabold text-gray-800 mb-3">AI Walking Coach</h2>
             <p className="text-sm text-gray-600 mb-4">
-              โค้ช AI จะใช้ค่า gait parameters (เช่น ระยะก้าว, cadence) เพื่อให้คำแนะนำผ่านเสียง
+              เดินบนลู่ 5 เมตรไป-กลับ และถามโค้ชได้เมื่อต้องการคำแนะนำ
               ข้อมูลจะถูกส่งไปยัง Google Gemini ตามนโยบายความเป็นส่วนตัวของผู้ให้บริการ
             </p>
             <button
@@ -1177,6 +1362,13 @@ const FreeWalkSession = () => {
           </div>
         </div>
       )}
+
+      <WalkPauseDialog
+        open={showPauseDialog}
+        ending={endingWalk}
+        onContinue={handleContinueWalk}
+        onStop={handleEndWalk}
+      />
 
       {showStartTap && !showConsent && (
         <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">

@@ -8,7 +8,7 @@ import {
   COACH_STEP_IMPROVE_DELTA_M,
   COACH_THRESHOLDS,
 } from './coachConfig.js';
-import { COACH_CUES, getAlertCoachCue, getAlertPraiseCue } from './coachPhrases.js';
+import { COACH_CUES, getAlertCoachCue, getAlertPraiseCue, getWalkwayAdviceCue, pickCueVariant } from './coachPhrases.js';
 import {
   buildGaitCoachPrompt,
   buildGaitCoachSnapshot,
@@ -29,6 +29,7 @@ export class GaitCoachOrchestrator {
     this.pendingCoaching = null;
     this.restUntilMs = 0;
     this.paused = false;
+    this.lastCueVariantIndex = {};
     this.onDispatch = options.onDispatch ?? null;
   }
 
@@ -44,6 +45,7 @@ export class GaitCoachOrchestrator {
     this.pendingCoaching = null;
     this.restUntilMs = 0;
     this.paused = false;
+    this.lastCueVariantIndex = {};
   }
 
   setPaused(paused) {
@@ -78,6 +80,8 @@ export class GaitCoachOrchestrator {
       coachingExample: options.coachingExample ?? null,
       userQuestion: options.userQuestion ?? null,
       restVariant: options.restVariant ?? null,
+      cueVariant: options.cueVariant ?? 0,
+      walkwayAdvice: options.walkwayAdvice ?? null,
     });
 
     if (Number.isFinite(params?.stepLength)) {
@@ -147,6 +151,11 @@ export class GaitCoachOrchestrator {
 
   evaluate(params, options = {}) {
     if (this.paused || !params) {
+      return null;
+    }
+
+    // Free Walk walkway protocol: no per-step metric/rest coaching.
+    if (options.protocol === 'walkway') {
       return null;
     }
 
@@ -238,6 +247,11 @@ export class GaitCoachOrchestrator {
       return null;
     }
 
+    // Walkway Free Walk: stay quiet while resting between legs unless asked.
+    if (options.protocol === 'walkway') {
+      return null;
+    }
+
     const now = Date.now();
     const sessionElapsedS = options.sessionElapsedS ?? 0;
     const params = options.params ?? null;
@@ -261,6 +275,43 @@ export class GaitCoachOrchestrator {
       sessionElapsedS,
       coachingIntent: COACH_CUES.IDLE_RESUME.intent,
       coachingExample: COACH_CUES.IDLE_RESUME.example,
+    });
+  }
+
+  buildWalkwayDispatch(eventType, params, sessionElapsedS = 0) {
+    const now = Date.now();
+    if (!this.canSpeak(eventType, now)) {
+      return null;
+    }
+
+    let cue = COACH_CUES.TURN_REST;
+    if (eventType === 'near_end') {
+      cue = COACH_CUES.NEAR_END;
+    } else if (eventType === 'walkway_advice') {
+      cue = getWalkwayAdviceCue(params?.walkwayAdvice || params?.advice);
+    }
+
+    const variantKey = eventType === 'walkway_advice'
+      ? `walkway_advice:${params?.walkwayAdvice || params?.advice || 'keep'}`
+      : eventType;
+    const picked = pickCueVariant(cue, this.lastCueVariantIndex[variantKey] ?? -1);
+    this.lastCueVariantIndex[variantKey] = picked.index;
+    cue = picked.cue;
+
+    this.markSpoken(eventType, now);
+    this.markActivity(now);
+    if (eventType === 'turn_rest') {
+      this.restUntilMs = Math.max(this.restUntilMs, now + COACH_REST_AFTER_PRAISE_MS);
+    }
+
+    return this.buildDispatch(eventType, params, {
+      sessionElapsedS,
+      coachingIntent: cue.intent,
+      coachingExample: cue.example,
+      cueVariant: picked.index,
+      walkwayAdvice: eventType === 'walkway_advice'
+        ? (params?.walkwayAdvice || params?.advice || null)
+        : null,
     });
   }
 

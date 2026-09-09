@@ -24,16 +24,20 @@ export class GeminiLiveClient {
     this.onStateChange = options.onStateChange ?? null;
     this.onSubtitleChange = options.onSubtitleChange ?? null;
     this.onGreetingRejected = options.onGreetingRejected ?? null;
+    this.responseInProgress = false;
     this.outputArmed = false;
     this.greetingRetryUsed = false;
     this.awaitingNonGreeting = true;
     this.mediaStream = null;
+    this.micStreamPromise = null;
+    this.micGeneration = 0;
     this.mediaRecorder = null;
     this.micActive = false;
     this.micAudioContext = null;
     this.micProcessor = null;
     this.micSource = null;
     this.micGain = null;
+    this.lastMicError = null;
   }
 
   getState() {
@@ -60,6 +64,7 @@ export class GeminiLiveClient {
   }
 
   disarmOutput() {
+    this.responseInProgress = false;
     this.outputArmed = false;
     this.audioPlayer.stop();
   }
@@ -86,15 +91,7 @@ export class GeminiLiveClient {
       }
 
       await this.audioPlayer.init();
-      this.audioPlayer.setSpeakingListener((speaking) => {
-        if (this.muted || !this.outputArmed) {
-          if (!speaking && this.state === COACH_CONNECTION_STATES.SPEAKING) {
-            this.setState(COACH_CONNECTION_STATES.READY);
-          }
-          return;
-        }
-        this.setState(speaking ? COACH_CONNECTION_STATES.SPEAKING : COACH_CONNECTION_STATES.READY);
-      });
+      this.audioPlayer.setSpeakingListener((speaking) => this.handlePlaybackSpeaking(speaking));
 
       this.session = await connectCoachLiveSession({
         token,
@@ -114,6 +111,7 @@ export class GeminiLiveClient {
           },
           onclose: () => {
             this.session = null;
+            void this.stopPushToTalk();
             this.setState(COACH_CONNECTION_STATES.CLOSED);
           },
         },
@@ -124,10 +122,24 @@ export class GeminiLiveClient {
     }
   }
 
+  handlePlaybackSpeaking(speaking) {
+    if (this.muted || !this.outputArmed) {
+      if (!speaking && this.state === COACH_CONNECTION_STATES.SPEAKING) {
+        this.setState(COACH_CONNECTION_STATES.READY);
+      }
+      return;
+    }
+    // Network chunks can have gaps. Keep the avatar in its speaking clip until
+    // the model has finished the turn AND queued audio has drained.
+    if (!speaking && this.responseInProgress) return;
+    this.setState(speaking ? COACH_CONNECTION_STATES.SPEAKING : COACH_CONNECTION_STATES.READY);
+  }
+
   handleServerMessage(message) {
     const serverContent = message?.serverContent;
 
     if (serverContent?.interrupted) {
+      this.responseInProgress = false;
       this.audioPlayer.stop();
       return;
     }
@@ -170,15 +182,33 @@ export class GeminiLiveClient {
     }
 
     if (typeof message?.data === 'string' && message.data) {
+      this.responseInProgress = true;
       this.audioPlayer.enqueueBase64Pcm(message.data);
-      return;
     }
 
     serverContent?.modelTurn?.parts?.forEach((part) => {
-      if (typeof part?.inlineData?.data === 'string' && part.inlineData.data) {
+      if (typeof part?.inlineData?.data === 'string' && part.inlineData.data
+        && (!part.inlineData.mimeType || /^audio\/pcm(?:;|$)/i.test(part.inlineData.mimeType))) {
+        this.responseInProgress = true;
         this.audioPlayer.enqueueBase64Pcm(part.inlineData.data);
       }
     });
+    if (serverContent?.turnComplete) {
+      this.responseInProgress = false;
+      if (!this.audioPlayer.isPlaying()) this.handlePlaybackSpeaking(false);
+    }
+  }
+
+  async askWithTextAndSpeak(promptText, options = {}) {
+    return this.sendGaitPrompt(promptText, options);
+  }
+
+  async finishMicAskAndSpeak() {
+    if (!this.micActive || !this.session) return false;
+    // activityEnd requests the Live answer; do not wait for a transcript or
+    // issue a second TTS request before playing the first audio chunk.
+    await this.stopPushToTalk();
+    return Boolean(this.session);
   }
 
   async waitUntilReady(timeoutMs = 12_000) {
@@ -272,6 +302,7 @@ export class GeminiLiveClient {
     }
 
     if (options.interrupt) {
+      this.responseInProgress = false;
       this.audioPlayer.stop();
     } else if (this.isBusy()) {
       const idle = await this.waitUntilIdle();
@@ -364,12 +395,81 @@ export class GeminiLiveClient {
     });
   }
 
+  hasLiveMicStream() {
+    return Boolean(this.mediaStream?.getAudioTracks?.().some((track) => track.readyState === 'live'));
+  }
+
+  async ensureMicStream() {
+    if (this.hasLiveMicStream()) {
+      return this.mediaStream;
+    }
+
+    if (!navigator.mediaDevices?.getUserMedia) {
+      throw new DOMException('Microphone requires HTTPS or localhost', 'SecurityError');
+    }
+    if (!this.micStreamPromise) {
+      const generation = this.micGeneration;
+      const pending = navigator.mediaDevices.getUserMedia({
+        audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true },
+      }).then((stream) => {
+        if (generation !== this.micGeneration) {
+          stream.getTracks().forEach((track) => track.stop());
+          throw new DOMException('Microphone request cancelled', 'AbortError');
+        }
+        this.mediaStream = stream;
+        return stream;
+      }).finally(() => {
+        if (this.micStreamPromise === pending) this.micStreamPromise = null;
+      });
+      this.micStreamPromise = pending;
+    }
+    return this.micStreamPromise;
+  }
+
+  async prepareMic() {
+    try {
+      // Both operations must start in the originating user gesture.
+      const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+      if (!this.micAudioContext || this.micAudioContext.state === 'closed') {
+        this.micAudioContext = new AudioContextClass();
+      }
+      const resumed = this.micAudioContext.resume();
+      const stream = this.ensureMicStream();
+      await Promise.all([resumed, stream]);
+      this.lastMicError = null;
+      return true;
+    } catch (error) {
+      this.lastMicError = error;
+      return false;
+    }
+  }
+
+  describeMicError() {
+    const name = this.lastMicError?.name || '';
+    if (name === 'SecurityError') return 'ไมค์ต้องใช้ผ่าน HTTPS หรือ localhost กรุณาเปิดลิงก์ที่ปลอดภัยครับ';
+    if (name === 'AbortError') return 'ยกเลิกการเปิดไมค์แล้ว กดถามเพื่อลองใหม่ครับ';
+    if (name === 'NotAllowedError' || name === 'PermissionDeniedError') {
+      return 'เบราว์เซอร์ยังไม่อนุญาตไมค์ กดอนุญาตแล้วถามอีกครั้งนะครับ';
+    }
+    if (name === 'NotFoundError') {
+      return 'ไม่พบไมค์ ตรวจสายหรือเลือกอุปกรณ์เสียงแล้วลองใหม่นะครับ';
+    }
+    if (name === 'NotReadableError') {
+      return 'ไมค์ถูกใช้โดยแอปอื่น ปิดแอปนั้นแล้วลองใหม่นะครับ';
+    }
+    return 'เปิดไมค์ไม่สำเร็จ อนุญาตไมค์แล้วลองอีกครั้งนะครับ';
+  }
+
   async startPushToTalk() {
-    if (!this.session || this.micActive) {
-      return;
+    if (!this.session) {
+      return false;
+    }
+    if (this.micActive) {
+      return true;
     }
 
     this.micActive = true;
+    this.lastMicError = null;
 
     try {
       this.session.sendRealtimeInput({ activityStart: {} });
@@ -378,31 +478,26 @@ export class GeminiLiveClient {
     }
 
     try {
-      this.mediaStream = await navigator.mediaDevices.getUserMedia({
-        audio: {
-          channelCount: 1,
-          echoCancellation: true,
-          noiseSuppression: true,
-        },
-      });
-    } catch {
+      await this.ensureMicStream();
+    } catch (error) {
+      this.lastMicError = error;
       this.micActive = false;
       try {
         this.session.sendRealtimeInput({ activityEnd: {} });
       } catch {
         // session may not support activity signals
       }
-      return;
+      return false;
     }
 
     if (!this.micActive) {
-      this.mediaStream.getTracks().forEach((track) => track.stop());
-      this.mediaStream = null;
-      return;
+      return false;
     }
 
     try {
-      this.micAudioContext = new AudioContext();
+      if (!this.micAudioContext || this.micAudioContext.state === 'closed') {
+        this.micAudioContext = new AudioContext();
+      }
       if (this.micAudioContext.state === 'suspended') {
         await this.micAudioContext.resume();
       }
@@ -424,12 +519,11 @@ export class GeminiLiveClient {
       this.micSource.connect(this.micProcessor);
       this.micProcessor.connect(this.micGain);
       this.micGain.connect(this.micAudioContext.destination);
-    } catch {
-      this.micActive = false;
-      if (this.mediaStream) {
-        this.mediaStream.getTracks().forEach((track) => track.stop());
-        this.mediaStream = null;
-      }
+      return true;
+    } catch (error) {
+      this.lastMicError = error;
+      await this.stopPushToTalk();
+      return false;
     }
   }
 
@@ -474,11 +568,7 @@ export class GeminiLiveClient {
       this.mediaRecorder.stop();
     }
     this.mediaRecorder = null;
-
-    if (this.mediaStream) {
-      this.mediaStream.getTracks().forEach((track) => track.stop());
-      this.mediaStream = null;
-    }
+    this.releaseMicStream();
 
     if (wasActive && this.session) {
       this.armOutput();
@@ -490,11 +580,22 @@ export class GeminiLiveClient {
     }
   }
 
+  releaseMicStream() {
+    this.micGeneration += 1;
+    this.micStreamPromise = null;
+    if (this.mediaStream) {
+      this.mediaStream.getTracks().forEach((track) => track.stop());
+      this.mediaStream = null;
+    }
+  }
+
   disconnect() {
     this.disarmOutput();
     this.stopPushToTalk();
+    this.releaseMicStream();
     this.audioPlayer.destroy();
     this.audioPlayer = new PcmAudioPlayer(24000);
+    this.responseInProgress = false;
     this.outputArmed = false;
     this.greetingRetryUsed = false;
     this.awaitingNonGreeting = true;

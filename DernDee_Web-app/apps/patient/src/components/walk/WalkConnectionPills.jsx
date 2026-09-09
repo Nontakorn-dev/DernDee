@@ -1,53 +1,21 @@
 import React from 'react';
-import { COACH_CONNECTION_STATES } from '@shared/coach/geminiLiveClient.js';
+import { useNavigate } from 'react-router-dom';
+import { Bluetooth } from 'lucide-react';
 
-function coachPillClass(coachState) {
-  if (coachState === COACH_CONNECTION_STATES.SPEAKING) {
-    return 'bg-emerald-500 text-white';
-  }
+const WalkConnectionPills = ({ connected = false }) => {
+  const navigate = useNavigate();
 
-  if (
-    coachState === COACH_CONNECTION_STATES.ERROR
-    || coachState === COACH_CONNECTION_STATES.CLOSED
-  ) {
-    return 'bg-red-500 text-white';
-  }
-
-  if (
-    coachState === COACH_CONNECTION_STATES.CONNECTING
-    || coachState === COACH_CONNECTION_STATES.IDLE
-  ) {
-    return 'bg-amber-400 text-white';
-  }
-
-  return 'bg-emerald-500 text-white';
-}
-
-function coachPillLabel(coachState, coachMode) {
-  if (coachMode === 'legacy') {
-    return 'Coach Legacy';
-  }
-
-  if (coachState === COACH_CONNECTION_STATES.SPEAKING) {
-    return 'Coach Speaking';
-  }
-
-  if (coachState === COACH_CONNECTION_STATES.CONNECTING) {
-    return 'Coach Connecting';
-  }
-
-  if (coachState === COACH_CONNECTION_STATES.ERROR) {
-    return 'Coach Error';
-  }
-
-  return 'Coach Ready';
-}
-
-const WalkConnectionPills = ({ coachState, coachMode }) => {
   return (
-    <span className={`px-3 py-1.5 rounded-full text-xs font-bold uppercase tracking-wide ${coachPillClass(coachState)}`}>
-      {coachPillLabel(coachState, coachMode)}
-    </span>
+    <button
+      type="button"
+      onClick={() => navigate('/device-connection', { state: { returnTo: '/walk-session' } })}
+      className={`walk-connection ${connected ? 'is-on' : 'is-off'}`}
+      aria-label={connected ? 'อุปกรณ์เชื่อมต่อแล้ว' : 'ไปหน้าเชื่อมต่ออุปกรณ์'}
+    >
+      <span className="walk-connection__dot" aria-hidden="true" />
+      <Bluetooth className="h-4 w-4" strokeWidth={2.4} />
+      <span>{connected ? 'Connected' : 'Connect'}</span>
+    </button>
   );
 };
 

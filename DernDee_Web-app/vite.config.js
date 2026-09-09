@@ -176,7 +176,11 @@ function localDevSupabaseAuth(env) {
 
 const GEMINI_LIVE_MODEL = 'gemini-3.1-flash-live-preview'
 const GEMINI_SUMMARY_MODEL = 'gemini-2.0-flash'
-const GEMINI_COACH_LIVE_CONFIG = buildCoachLiveSessionConfig()
+const GEMINI_TTS_MODEL = 'gemini-3.1-flash-tts-preview'
+const GEMINI_TTS_VOICE = 'Zubenelgenubi'
+const GEMINI_COACH_LIVE_CONFIG = buildCoachLiveSessionConfig({
+  responseModalities: ['AUDIO'],
+})
 
 function localDevGeminiCoach(env) {
   const geminiApiKey = env.GEMINI_API_KEY
@@ -268,6 +272,70 @@ function localDevGeminiCoach(env) {
           res.statusCode = 500
           res.setHeader('Content-Type', 'application/json')
           res.end(JSON.stringify({ error: error.message || 'Failed to generate coach summary' }))
+        }
+      })
+
+      server.middlewares.use('/__dev/gemini/coach-speech', async (req, res, next) => {
+        if (req.method !== 'POST') {
+          next()
+          return
+        }
+
+        if (!isTrustedDevAddress(req.socket.remoteAddress)) {
+          res.statusCode = 403
+          res.setHeader('Content-Type', 'application/json')
+          res.end(JSON.stringify({ error: 'Gemini dev helper is restricted to local requests.' }))
+          return
+        }
+
+        try {
+          const { text = '', voiceName = GEMINI_TTS_VOICE } = await readJsonBody(req)
+          const spoken = String(text || '').trim()
+          if (!spoken) {
+            res.statusCode = 400
+            res.setHeader('Content-Type', 'application/json')
+            res.end(JSON.stringify({ error: 'Missing text' }))
+            return
+          }
+
+          const ai = new GoogleGenAI({ apiKey: geminiApiKey })
+          const response = await ai.models.generateContent({
+            model: GEMINI_TTS_MODEL,
+            contents: [{ role: 'user', parts: [{ text: spoken }] }],
+            config: {
+              responseModalities: ['AUDIO'],
+              speechConfig: {
+                voiceConfig: {
+                  prebuiltVoiceConfig: {
+                    voiceName,
+                  },
+                },
+              },
+            },
+          })
+
+          const part = response.candidates?.[0]?.content?.parts?.find((item) => item?.inlineData?.data)
+          const audioBase64 = part?.inlineData?.data || ''
+          if (!audioBase64) {
+            res.statusCode = 502
+            res.setHeader('Content-Type', 'application/json')
+            res.end(JSON.stringify({ error: 'Empty TTS audio' }))
+            return
+          }
+
+          res.statusCode = 200
+          res.setHeader('Content-Type', 'application/json')
+          res.end(JSON.stringify({
+            audioBase64,
+            mimeType: part?.inlineData?.mimeType || 'audio/pcm',
+            sampleRate: 24000,
+            voiceName,
+            model: GEMINI_TTS_MODEL,
+          }))
+        } catch (error) {
+          res.statusCode = 500
+          res.setHeader('Content-Type', 'application/json')
+          res.end(JSON.stringify({ error: error.message || 'Failed to synthesize speech' }))
         }
       })
     },

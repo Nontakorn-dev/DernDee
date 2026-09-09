@@ -1,4 +1,8 @@
 function withDeviceSources(clip) {
+  // Invalidate the truncated WebM assets previously cached by browsers.
+  if (/\/(14_|15_|16_|17_|18_)/.test(clip.src)) {
+    clip = { ...clip, src: `${clip.src.split('?')[0]}?v=fullframes-20260909` };
+  }
   const mp4Src = clip.src.replace(/\.webm/i, '.mp4');
   return {
     ...clip,
@@ -92,6 +96,72 @@ export const AVATAR_CLIPS = {
     loop: true,
     line: '',
   },
+  nearEnd: {
+    id: 'nearEnd',
+    src: '/Avatar/video/14_NEAR_END.webm',
+    loop: false,
+    line: 'เก่งมาก ใกล้ถึงแล้วครับ',
+  },
+  turnRest: {
+    id: 'turnRest',
+    src: '/Avatar/video/15_TURN_REST.webm?v=fix1',
+    loop: false,
+    line: 'ถึงปลายทางแล้ว กลับหลังหันแล้วพักก่อนได้เลยครับ',
+  },
+  walkwayFaster0: {
+    id: 'walkwayFaster0',
+    src: '/Avatar/video/16_WALKWAY_FASTER_3a1.webm',
+    loop: false,
+    line: 'เดี๋ยวตอนเดินกลับลองเดินให้เร็วขึ้นอีกนิดนะครับ',
+  },
+  walkwayFaster1: {
+    id: 'walkwayFaster1',
+    src: '/Avatar/video/16_WALKWAY_FASTER_3a2.webm',
+    loop: false,
+    line: 'เดี๋ยวตอนเดินกลับลองเพิ่มจังหวะอีกนิดนะครับ',
+  },
+  walkwayFaster2: {
+    id: 'walkwayFaster2',
+    src: '/Avatar/video/16_WALKWAY_FASTER_3a3.webm',
+    loop: false,
+    line: 'เดี๋ยวตอนเดินกลับลองเดินให้คล่องขึ้นอีกหน่อยนะครับ',
+  },
+  walkwayLonger0: {
+    id: 'walkwayLonger0',
+    src: '/Avatar/video/17_WALKWAY_LONGER_STEP_3b1.webm',
+    loop: false,
+    line: 'เดี๋ยวตอนเดินกลับลองก้าวให้ยาวขึ้นอีกหน่อยนะครับ',
+  },
+  walkwayLonger1: {
+    id: 'walkwayLonger1',
+    src: '/Avatar/video/17_WALKWAY_LONGER_STEP_3b2.webm',
+    loop: false,
+    line: 'เดี๋ยวตอนเดินกลับลองก้าวให้กว้างขึ้นอีกนิดนะครับ',
+  },
+  walkwayLonger2: {
+    id: 'walkwayLonger2',
+    src: '/Avatar/video/17_WALKWAY_LONGER_STEP_3b3.webm',
+    loop: false,
+    line: 'เดี๋ยวตอนเดินกลับลองเหยียดก้าวให้ยาวขึ้นนะครับ',
+  },
+  walkwayKeep0: {
+    id: 'walkwayKeep0',
+    src: '/Avatar/video/18_WALKWAY_KEEP_3c1.webm',
+    loop: false,
+    line: 'เดี๋ยวตอนเดินกลับลองรักษาแบบนี้ต่อไปได้เลยครับ',
+  },
+  walkwayKeep1: {
+    id: 'walkwayKeep1',
+    src: '/Avatar/video/18_WALKWAY_KEEP_3c2.webm',
+    loop: false,
+    line: 'เดี๋ยวตอนเดินกลับลองเดินสม่ำเสมอแบบนี้ต่อไปนะครับ',
+  },
+  walkwayKeep2: {
+    id: 'walkwayKeep2',
+    src: '/Avatar/video/18_WALKWAY_KEEP_3c3.webm',
+    loop: false,
+    line: 'เดี๋ยวตอนเดินกลับลองทำแบบนี้ต่อไปได้เลยครับ',
+  },
 };
 
 Object.keys(AVATAR_CLIPS).forEach((key) => {
@@ -127,6 +197,12 @@ const ALERT_TO_CLIP = {
   slow_cadence: 'rhythm',
 };
 
+const WALKWAY_ADVICE_CLIPS = {
+  faster: ['walkwayFaster0', 'walkwayFaster1', 'walkwayFaster2'],
+  longer_step: ['walkwayLonger0', 'walkwayLonger1', 'walkwayLonger2'],
+  keep: ['walkwayKeep0', 'walkwayKeep1', 'walkwayKeep2'],
+};
+
 export function resolveAvatarClip(dispatch) {
   if (!dispatch?.trigger) {
     return null;
@@ -151,6 +227,23 @@ export function resolveAvatarClip(dispatch) {
   if (dispatch.trigger === 'metric_alert') {
     const clipId = ALERT_TO_CLIP[dispatch.snapshot?.alert];
     return clipId ? AVATAR_CLIPS[clipId] : null;
+  }
+
+  if (dispatch.trigger === 'near_end') {
+    return AVATAR_CLIPS.nearEnd;
+  }
+
+  if (dispatch.trigger === 'turn_rest') {
+    return AVATAR_CLIPS.turnRest;
+  }
+
+  if (dispatch.trigger === 'walkway_advice') {
+    const advice = dispatch.snapshot?.walkway_advice || 'keep';
+    const variants = WALKWAY_ADVICE_CLIPS[advice] || WALKWAY_ADVICE_CLIPS.keep;
+    const parsed = Number(dispatch.snapshot?.cue_variant);
+    const index = Number.isFinite(parsed) ? parsed : 0;
+    const clipId = variants[index % variants.length];
+    return AVATAR_CLIPS[clipId] ?? AVATAR_CLIPS.walkwayKeep0;
   }
 
   return null;

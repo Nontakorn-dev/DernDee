@@ -12,6 +12,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+from avatar_media import mux_audio
+
 W, H = 1280, 704
 FPS = 24
 RGB_N = W * H * 3
@@ -104,6 +106,7 @@ def iter_rgb_frames(src: Path):
 
 
 def encode_webm(src: Path, dest: Path) -> None:
+    silent = dest.with_name(f"{dest.stem}.silent.webm")
     encode = subprocess.Popen(
         [
             "ffmpeg",
@@ -127,6 +130,8 @@ def encode_webm(src: Path, dest: Path) -> None:
             "yuva420p",
             "-auto-alt-ref",
             "0",
+            "-lag-in-frames",
+            "0",
             "-b:v",
             "0",
             "-crf",
@@ -135,7 +140,7 @@ def encode_webm(src: Path, dest: Path) -> None:
             "good",
             "-cpu-used",
             "2",
-            str(dest),
+            str(silent),
         ],
         stdin=subprocess.PIPE,
         stderr=subprocess.PIPE,
@@ -148,10 +153,12 @@ def encode_webm(src: Path, dest: Path) -> None:
     code = encode.wait()
     if code != 0:
         raise RuntimeError(f"webm encode failed: {err[-1200:].decode(errors='replace')}")
+    mux_audio(src, silent, dest, "libopus")
     print(f"webm {dest.name} {dest.stat().st_size // 1024}k", flush=True)
 
 
 def encode_ios(src: Path, dest: Path) -> None:
+    silent = dest.with_name(f"{dest.stem}.silent.mp4")
     encode = subprocess.Popen(
         [
             "ffmpeg",
@@ -185,7 +192,7 @@ def encode_ios(src: Path, dest: Path) -> None:
             "yuv420p",
             "-movflags",
             "+faststart",
-            str(dest),
+            str(silent),
         ],
         stdin=subprocess.PIPE,
         stderr=subprocess.PIPE,
@@ -200,6 +207,7 @@ def encode_ios(src: Path, dest: Path) -> None:
     code = encode.wait()
     if code != 0:
         raise RuntimeError(f"ios encode failed: {err[-1200:].decode(errors='replace')}")
+    mux_audio(src, silent, dest, "aac")
     print(f"ios {dest.name} {dest.stat().st_size // 1024}k", flush=True)
 
 

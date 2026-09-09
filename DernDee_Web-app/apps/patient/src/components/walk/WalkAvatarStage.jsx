@@ -9,8 +9,18 @@ const MAX_PACKED_WIDTH = 1600;
 const AVATAR_FRAME_W = 1280;
 const AVATAR_FRAME_H = 704;
 const CROSSFADE_MS = 180;
-const FRAME_WAIT_MS = 1200;
-const MEDIA_BASE = 'absolute inset-0 h-full w-full bg-transparent object-contain object-center';
+const MEDIA_CONTAIN = 'absolute inset-0 h-full w-full bg-transparent object-contain object-center';
+const MEDIA_COVER = 'absolute inset-0 h-full w-full bg-transparent object-cover';
+
+function mediaStyle(fillFrame, opacity, zIndex) {
+  return {
+    opacity,
+    zIndex,
+    backgroundColor: 'transparent',
+    objectFit: fillFrame ? 'cover' : 'contain',
+    objectPosition: fillFrame ? '49% 100%' : 'center',
+  };
+}
 
 function applyPackedAlpha(packedImageData) {
   const packedWidth = packedImageData.width;
@@ -56,37 +66,25 @@ function prepareVideo(video, muted = true) {
   }
 }
 
-function waitForPaintedFrame(video) {
+function waitForPaintedFrame(video, signal) {
   return new Promise((resolve) => {
-    let settled = false;
-    let paints = 0;
-
-    const finish = () => {
-      if (settled) {
-        return;
-      }
-      settled = true;
-      window.clearTimeout(timeoutId);
-      resolve(paints > 0 && Boolean(video.videoWidth));
+    let raf = 0;
+    const started = performance.now();
+    const finish = (ready) => {
+      cancelAnimationFrame(raf);
+      signal.removeEventListener('abort', abort);
+      resolve(ready);
     };
-
-    const timeoutId = window.setTimeout(finish, FRAME_WAIT_MS);
-
-    const onPaint = () => {
-      paints += 1;
-      if (paints < 2 && typeof video.requestVideoFrameCallback === 'function' && !video.seeking) {
-        video.requestVideoFrameCallback(onPaint);
-        return;
-      }
-      window.requestAnimationFrame(() => window.requestAnimationFrame(finish));
+    const abort = () => finish(false);
+    const check = () => {
+      if (signal.aborted) return finish(false);
+      // Hidden decoder videos may not receive requestVideoFrameCallback in WebKit.
+      if (video.readyState >= 2 && video.videoWidth && !video.seeking) return finish(true);
+      if (video.error || performance.now() - started > 10000) return finish(false);
+      raf = requestAnimationFrame(check);
     };
-
-    if (typeof video.requestVideoFrameCallback === 'function') {
-      video.requestVideoFrameCallback(onPaint);
-      return;
-    }
-
-    video.addEventListener('playing', onPaint, { once: true });
+    signal.addEventListener('abort', abort, { once: true });
+    raf = requestAnimationFrame(check);
   });
 }
 
@@ -121,7 +119,6 @@ function usePackedAlphaDraw(videoRef, canvasRef, enabled, videoSrc) {
     const framedScratch = document.createElement('canvas');
     const scratchContext = scratch.getContext('2d', { willReadFrequently: true, alpha: true });
     const framedContext = framedScratch.getContext('2d', { willReadFrequently: true, alpha: true });
-    const canVfc = typeof video.requestVideoFrameCallback === 'function';
 
     const cancelDraw = () => {
       window.cancelAnimationFrame(rafId);
@@ -158,6 +155,7 @@ function usePackedAlphaDraw(videoRef, canvasRef, enabled, videoSrc) {
       lastDrawAt = now;
       try {
         if (!isPackedFrame(video.videoWidth, video.videoHeight)) {
+          context.clearRect(0, 0, canvas.width, canvas.height);
           context.drawImage(video, 0, 0, canvas.width, canvas.height);
           return;
         }
@@ -190,19 +188,16 @@ function usePackedAlphaDraw(videoRef, canvasRef, enabled, videoSrc) {
       }
     };
 
+    let lastMediaTime = -1;
     const schedule = () => {
       if (stopped) return;
       cancelDraw();
-      if (canVfc) {
-        vfcId = video.requestVideoFrameCallback(() => {
-          drawOnce();
-          if (!stopped && !video.paused && !video.ended) schedule();
-        });
-        return;
-      }
       rafId = window.requestAnimationFrame(() => {
-        drawOnce();
-        if (!stopped && !video.paused && !video.ended) schedule();
+        if (video.currentTime !== lastMediaTime || lastMediaTime < 0) {
+          drawOnce();
+          if (video.readyState >= 2 && !video.seeking) lastMediaTime = video.currentTime;
+        }
+        schedule();
       });
     };
 
@@ -230,15 +225,18 @@ function Slot({
   opacity,
   zIndex,
   useCanvasKey,
+  mediaClass,
+  fillFrame,
 }) {
   usePackedAlphaDraw(videoRef, canvasRef, useCanvasKey && Boolean(src), src);
+  const fittedStyle = mediaStyle(fillFrame, opacity, zIndex);
 
   return (
     <>
       <video
         ref={videoRef}
-        className={useCanvasKey ? 'pointer-events-none absolute h-px w-px opacity-0' : MEDIA_BASE}
-        style={useCanvasKey ? undefined : { opacity, zIndex, backgroundColor: 'transparent' }}
+        className={useCanvasKey ? 'pointer-events-none absolute h-px w-px opacity-0' : mediaClass}
+        style={useCanvasKey ? undefined : fittedStyle}
         width={AVATAR_FRAME_W}
         height={AVATAR_FRAME_H}
         playsInline
@@ -247,16 +245,10 @@ function Slot({
       {useCanvasKey ? (
         <canvas
           ref={canvasRef}
-          className={MEDIA_BASE}
+          className={mediaClass}
           width={AVATAR_FRAME_W}
           height={AVATAR_FRAME_H}
-          style={{
-            opacity,
-            zIndex,
-            backgroundColor: 'transparent',
-            objectFit: 'contain',
-            objectPosition: 'center',
-          }}
+          style={fittedStyle}
         />
       ) : null}
     </>
@@ -268,6 +260,8 @@ function CrossfadeStage({
   loop,
   paused,
   useCanvasKey,
+  mediaClass,
+  fillFrame,
   onEnded,
 }) {
   const videoARef = useRef(null);
@@ -281,6 +275,8 @@ function CrossfadeStage({
   const [slotSrc, setSlotSrc] = useState(['', '']);
   const [opacities, setOpacities] = useState([0, 0]);
   const [zIndexes, setZIndexes] = useState([2, 1]);
+  const [playbackError, setPlaybackError] = useState(false);
+  const [retry, setRetry] = useState(0);
 
   useEffect(() => {
     const warm = document.createElement('video');
@@ -289,9 +285,17 @@ function CrossfadeStage({
     warm.playsInline = true;
     warm.src = getAvatarVideoSrc(AVATAR_CLIPS.talkSmall);
     warm.load();
+    return () => { warm.removeAttribute('src'); warm.load(); };
+  }, []);
+
+  useEffect(() => {
+    const videos = [videoARef.current, videoBRef.current];
+    return () => videos.forEach(video => { video?.pause(); });
   }, []);
 
   useLayoutEffect(() => {
+    const controller = new AbortController();
+    setPlaybackError(false);
     const videos = [videoARef.current, videoBRef.current];
     videos.forEach((video) => prepareVideo(video, true));
 
@@ -300,6 +304,9 @@ function CrossfadeStage({
       fadeRafRef.current = 0;
     };
 
+    const cleanup = () => { controller.abort(); requestIdRef.current += 1; cancelFade(); };
+
+    const reportError = () => { if (!controller.signal.aborted) setPlaybackError(true); };
     const applyFrontAudio = (video) => {
       prepareVideo(video, Boolean(loop) || paused);
     };
@@ -319,13 +326,13 @@ function CrossfadeStage({
           video?.pause();
           prepareVideo(video, true);
         });
-        return () => cancelFade();
+        return cleanup;
       }
 
       const stillIndex = activeSrcRef.current ? front : 0;
       const stillVideo = videos[stillIndex];
       if (!stillVideo) {
-        return () => cancelFade();
+        return cleanup;
       }
 
       const requestId = requestIdRef.current + 1;
@@ -343,8 +350,9 @@ function CrossfadeStage({
       });
 
       const playPromise = stillVideo.play();
-      playPromise?.catch?.(() => {});
-      void waitForPaintedFrame(stillVideo).then((ready) => {
+      playPromise?.catch?.(reportError);
+      void waitForPaintedFrame(stillVideo, controller.signal).then((ready) => {
+        if (!ready && !controller.signal.aborted) reportError();
         if (requestIdRef.current !== requestId || !ready) {
           return;
         }
@@ -354,21 +362,21 @@ function CrossfadeStage({
         setOpacities(stillIndex === 0 ? [1, 0] : [0, 1]);
         setZIndexes(stillIndex === 0 ? [2, 1] : [1, 2]);
       });
-      return () => cancelFade();
+      return cleanup;
     }
 
     if (activeSrcRef.current === src && frontVideo) {
       frontVideo.loop = Boolean(loop);
       applyFrontAudio(frontVideo);
       const playPromise = frontVideo.play();
-      playPromise?.catch?.(() => {});
-      return () => cancelFade();
+      playPromise?.catch?.(reportError);
+      return cleanup;
     }
 
     const incomingIndex = activeSrcRef.current ? 1 - front : front;
     const incoming = videos[incomingIndex];
     if (!incoming) {
-      return () => cancelFade();
+      return cleanup;
     }
 
     const requestId = requestIdRef.current + 1;
@@ -407,11 +415,12 @@ function CrossfadeStage({
     };
 
     const startCover = () => {
-      if (!activeSrcRef.current || incomingIndex === front) {
+      if (!activeSrcRef.current || incomingIndex === front || window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
         finishSwap();
         return;
       }
 
+      prepareVideo(videos[front], true);
       if (!loop) {
         applyFrontAudio(incoming);
       }
@@ -436,19 +445,18 @@ function CrossfadeStage({
     };
 
     const playPromise = incoming.play();
-    playPromise?.catch?.(() => {});
+    playPromise?.catch?.(reportError);
 
-    void waitForPaintedFrame(incoming).then((ready) => {
-      if (requestIdRef.current !== requestId || !ready) {
+    void waitForPaintedFrame(incoming, controller.signal).then((ready) => {
+      if (!ready && !controller.signal.aborted) reportError();
+        if (requestIdRef.current !== requestId || !ready) {
         return;
       }
       startCover();
     });
 
-    return () => {
-      cancelFade();
-    };
-  }, [loop, paused, src]);
+    return cleanup;
+  }, [loop, paused, src, retry]);
 
   useEffect(() => {
     const frontVideo = frontRef.current === 0 ? videoARef.current : videoBRef.current;
@@ -458,15 +466,16 @@ function CrossfadeStage({
 
     const handleEnded = () => onEnded?.();
     frontVideo.addEventListener('ended', handleEnded);
-    frontVideo.addEventListener('error', handleEnded);
+
     return () => {
       frontVideo.removeEventListener('ended', handleEnded);
-      frontVideo.removeEventListener('error', handleEnded);
+
     };
   }, [loop, onEnded, src, opacities]);
 
   return (
     <>
+      {playbackError && <button type="button" className="pointer-events-auto absolute inset-x-4 bottom-8 z-50 rounded-xl bg-white p-3 text-sm text-teal-900 shadow" onClick={() => { activeSrcRef.current = ''; setRetry(value => value + 1); }}>วิดีโอยังไม่พร้อม · แตะเพื่อเล่นอีกครั้ง</button>}
       <Slot
         videoRef={videoARef}
         canvasRef={canvasARef}
@@ -474,6 +483,8 @@ function CrossfadeStage({
         opacity={opacities[0]}
         zIndex={zIndexes[0]}
         useCanvasKey={useCanvasKey}
+        mediaClass={mediaClass}
+        fillFrame={fillFrame}
       />
       <Slot
         videoRef={videoBRef}
@@ -482,6 +493,8 @@ function CrossfadeStage({
         opacity={opacities[1]}
         zIndex={zIndexes[1]}
         useCanvasKey={useCanvasKey}
+        mediaClass={mediaClass}
+        fillFrame={fillFrame}
       />
     </>
   );
@@ -493,18 +506,28 @@ const WalkAvatarStage = ({
   isListening = false,
   talking = false,
   subtitle = '',
+  docked = false,
+  fillFrame = false,
+  renderMode = 'auto',
   onEnded,
 }) => {
   const clip = talking
     ? AVATAR_CLIPS.talkSmall
     : (AVATAR_CLIPS[clipId] ?? AVATAR_CLIPS.idle);
-  const useCanvasKey = avatarNeedsCanvasKey();
-  const videoSrc = getAvatarVideoSrc(clip);
+  const useCanvasKey = renderMode === 'packed' || (renderMode === 'auto' && avatarNeedsCanvasKey());
+  const videoSrc = useCanvasKey ? clip.srcIos : clip.src;
   const speaking = clipId !== 'idle' || talking;
+  const mediaClass = fillFrame ? MEDIA_COVER : MEDIA_CONTAIN;
 
   return (
-    <div className="relative flex h-full w-full min-h-[180px] max-h-[min(52vh,440px)] flex-col items-center justify-center">
-      {(speaking || isListening) && (
+    <div
+      className={
+        docked
+          ? 'walk-avatar-stage is-docked relative h-full w-full overflow-hidden bg-transparent'
+          : 'walk-avatar-stage relative flex h-full w-full min-h-[180px] max-h-[min(72vh,560px)] flex-col overflow-hidden'
+      }
+    >
+      {(speaking || isListening) && !docked && (
         <>
           <span className="pointer-events-none absolute inset-x-[18%] top-[8%] h-[70%] rounded-full bg-emerald-200/25 blur-3xl" />
           <span className="pointer-events-none absolute inset-x-[22%] top-[14%] h-[58%] rounded-full bg-cyan-200/20 blur-2xl" />
@@ -516,6 +539,8 @@ const WalkAvatarStage = ({
         loop={Boolean(clip.loop)}
         paused={paused}
         useCanvasKey={useCanvasKey}
+        mediaClass={mediaClass}
+        fillFrame={fillFrame}
         onEnded={() => onEnded?.(clipId)}
       />
 

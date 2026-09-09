@@ -2,6 +2,7 @@ import { getSupabaseClient, isSupabaseConfigured } from '../supabase/client.js';
 
 const LIVE_COACH_TOKEN_PATH = '/api/live-coach-token';
 const WALK_COACH_RECAP_PATH = '/api/walk-coach-recap';
+const WALK_COACH_SPEECH_PATH = '/api/walk-coach-speech';
 
 async function waitForAccessToken() {
   if (!isSupabaseConfigured) {
@@ -141,4 +142,31 @@ export async function fetchCoachSessionRecap(summary, duration) {
   }
 
   return postCoachFunction('gemini-coach-summary', { summary, duration }, WALK_COACH_RECAP_PATH);
+}
+
+export async function fetchCoachSpeech(text, options = {}) {
+  const payload = {
+    text: String(text || '').trim(),
+    voiceName: options.voiceName || 'Zubenelgenubi',
+  };
+  if (!payload.text) {
+    throw new Error('Missing speech text');
+  }
+
+  if (import.meta.env.DEV) {
+    try {
+      const devResponse = await fetch('/__dev/gemini/coach-speech', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      if (devResponse.ok) {
+        return parseCoachResponse(devResponse);
+      }
+    } catch {
+      // fall through
+    }
+  }
+
+  return postCoachFunction('gemini-coach-speech', payload, WALK_COACH_SPEECH_PATH);
 }

@@ -24,13 +24,17 @@ function detectTrend(previousStepLengthM, currentStepLengthM) {
   return 'stable';
 }
 
-export function buildNaturalCoachPrompt({ intent, example = null }) {
+export function buildNaturalCoachPrompt({ intent, example = null, maxWords = 15 }) {
   const exampleLine = example
     ? `\nแนวประโยค (ปรับถ้อยคำให้สุภาพ เป็นทางการเล็กน้อย อบอุ่น ไม่ต้องอ่านตามตัวอักษร): ${example}`
     : '';
 
+  const lengthRule = maxWords > 15
+    ? `พูด 3 ถึง 6 ประโยค ให้ครบและชัดเจน ไม่เกิน ${maxWords} คำ`
+    : `พูดประโยคเดียวสั้นๆ ไม่เกิน ${maxWords} คำ`;
+
   return `พูดแบบ StepDee ภาษาไทยกลาง สำเนียงคนไทยแท้ สุภาพ เป็นทางการเล็กน้อย
-พูดประโยคเดียวสั้นๆ ไม่เกิน 15 คำ ทั้งคำตอบมี ครับ ได้ไม่เกิน 1 ครั้ง และต้องเป็นคำสุดท้ายเท่านั้น
+${lengthRule} ทั้งคำตอบมี ครับ ได้ไม่เกิน 1 ครั้ง และต้องเป็นคำสุดท้ายเท่านั้น
 ห้ามใส่ ครับ หลังคำชมหรือกลางประโยค ห้ามพูดตัวเลขยาว ห้ามถามกลับ
 ห้ามโทนเพื่อนคุยเล่น ห้ามโทนหุ่นยนต์ ห้ามใช้คำว่า คนเก่ง
 สิ่งที่ต้องสื่อ: ${intent}${exampleLine}`;
@@ -64,6 +68,8 @@ export function buildGaitCoachSnapshot(params, options = {}) {
     coaching_intent: options.coachingIntent ?? null,
     coaching_example: options.coachingExample ?? null,
     rest_variant: options.restVariant ?? null,
+    cue_variant: options.cueVariant ?? 0,
+    walkway_advice: options.walkwayAdvice ?? gait.walkwayAdvice ?? null,
   };
 }
 
@@ -80,6 +86,7 @@ export function buildGaitCoachPrompt(snapshot) {
     return buildNaturalCoachPrompt({
       intent: snapshot.coaching_intent,
       example: snapshot.coaching_example,
+      maxWords: snapshot.event === 'turn_rest' ? 80 : 15,
     });
   }
 
@@ -89,7 +96,7 @@ export function buildGaitCoachPrompt(snapshot) {
 ตอบตรงคำถามทันที ห้ามทักทาย ห้ามสวัสดี ห้ามแนะนำตัว
 ขึ้นต้นด้วยคำตอบเลย พูดช้าๆ ชัดๆ จังหวะเรียบ
 ถ้าถามเรื่องเดิน เซนเซอร์ วิธีฝึก หรือวิธีใช้แอป: อธิบายให้ถูกและครบ 3 ถึง 6 ประโยค ห้ามตัดสั้นจนข้อมูลไม่พอ
-ความรู้ที่ต้องใช้: เดินอิสระติดเซนเซอร์หน้าแข้งอย่างน้อยหนึ่งข้างให้แน่นเหนือข้อเท้า ยืนตรงวางเท้าบนพื้นตั้งศูนย์ 3 วินาที แล้วเดินบนทางตรงหรือลู่ยาวประมาณ 5 เมตร ไปสุดแล้วกลับ ไป-กลับ
+ความรู้ที่ต้องใช้: เดินอิสระติดเซนเซอร์หน้าแข้งอย่างน้อยหนึ่งข้างให้แน่นเหนือข้อเท้า ยืนตรงวางเท้าบนพื้นตั้งศูนย์ 3 วินาที แล้วเดินบนทางตรงหรือลู่ยาวประมาณ 5 เมตร ไปสุดแล้วกลับ ไป-กลับ หลังถึงปลายทางให้กลับหลังหันแล้วพัก แล้วตอนเดินกลับลองปรับตามคำแนะนำ เช่น ก้าวยาวขึ้น เดินเร็วขึ้น หรือรักษาแบบเดิม
 ถ้าถามเรื่องเกมข้อเท้า: หน้าแข้งคู่กับหลังเท้าข้างเดียวกัน ถ้าถามเกมกระโดดหรือยกเข่า: ต้นขาคู่กับหน้าแข้งข้างเดียวกัน
 เรื่องอื่นที่สั้นได้: 1 ถึง 2 ประโยค
 ทั้งคำตอบมีคำว่า ครับ ได้ไม่เกิน 1 ครั้ง และต้องเป็นคำสุดท้ายของทั้งคำตอบเท่านั้น
@@ -154,11 +161,14 @@ export function buildGaitCoachPrompt(snapshot) {
 
 export function isCoachGreetingSpeech(text) {
   const compact = String(text || '').replace(/\s+/g, '');
-  if (!compact) {
+  if (!compact || compact.length > 56) {
     return false;
   }
 
-  return /สวัสดี|เดินดีบัดดี้|สเต็ปดี|stepdee|ผู้ช่วยของคุณ|ยินดีที่ได้รู้จัก|ผมเป็นผู้ช่วย/i.test(compact);
+  return /^(สวัสดี|เดินดีบัดดี้)/.test(compact)
+    || /ยินดีที่ได้รู้จัก/.test(compact)
+    || /ผมเป็นผู้ช่วย/.test(compact)
+    || /ผู้ช่วยของคุณ/.test(compact);
 }
 
 export function getCoachHintText(snapshot) {

@@ -1,0 +1,93 @@
+.walk-track {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  isolation: isolate;
+  border-radius: 28px;
+  background: #8fbf63;
+  container-type: size;
+}
+
+.walk-track__garden {
+  position: absolute;
+  inset: 0;
+  background: url('/images/walk/BG1.jpg') center / cover no-repeat;
+}
+
+@container (min-aspect-ratio: 1/1) {
+  .walk-track__garden {
+    background-image: url('/images/walk/BG2.jpg');
+  }
+}
+
+.walk-track__path {
+  position: absolute;
+  left: 50%;
+  top: 16%;
+  bottom: 4%;
+  width: min(42%, 15rem);
+  transform: translateX(-50%);
+  pointer-events: none;
+}
+
+.walk-track__walker {
+  --walk-frames: 8;
+  --walk-frame: 0;
+  --walk-w: 11.25rem;
+  --walk-scale: 1;
+  position: absolute;
+  left: 50%;
+  z-index: 3;
+  transform: translateX(-50%) scale(var(--walk-scale));
+  transform-origin: 50% 100%;
+  filter: drop-shadow(0 12px 10px #3b4a2040);
+  transition: bottom 560ms cubic-bezier(0.33, 1, 0.32, 1);
+}
+
+.walk-track__walker.is-still {
+  height: 42%;
+  width: auto;
+}
+
+.walk-track__walker.is-still img {
+  display: block;
+  height: 100%;
+  width: auto;
+  max-width: 9rem;
+  user-select: none;
+  pointer-events: none;
+}
+
+.walk-track__walker.is-still.is-stepping {
+  animation: walkBob 0.56s ease-in-out 1;
+}
+
+.walk-track__walker.is-sheet {
+  width: var(--walk-w);
+  height: var(--walk-w);
+  background-repeat: no-repeat;
+  background-position: calc(var(--walk-frame) * var(--walk-w) * -1) 0;
+  background-size: calc(var(--walk-frames) * var(--walk-w)) 100%;
+}
+
+.walk-track.is-dimmed .walk-track__garden {
+  filter: saturate(0.8) brightness(0.97);
+}
+
+@keyframes walkBob {
+  0%, 100% { transform: translateX(-50%) scale(var(--walk-scale)) translateY(0); }
+  50% { transform: translateX(-50%) scale(var(--walk-scale)) translateY(-7px); }
+}
+
+@media (min-width: 640px) {
+  .walk-track__path { width: min(36%, 17rem); }
+  .walk-track__walker { --walk-w: 13rem; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .walk-track__walker,
+  .walk-track__walker.is-stepping {
+    animation: none !important;
+    transition: none !important;
+  }
+}

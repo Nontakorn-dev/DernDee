@@ -3,3 +3,6 @@ verify_jwt = false
 
 [functions.gemini-coach-summary]
 verify_jwt = false
+
+[functions.gemini-coach-speech]
+verify_jwt = false

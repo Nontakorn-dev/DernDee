@@ -59,7 +59,7 @@ export class CoachLiveSession {
 
   sendJson(payload) {
     if (!this.socket || this.socket.readyState !== WebSocket.OPEN) {
-      return;
+      throw new Error('Coach websocket is not ready');
     }
     this.socket.send(JSON.stringify(payload));
   }
@@ -119,7 +119,6 @@ export async function connectCoachLiveSession({
   return new Promise((resolve, reject) => {
     const socket = new WebSocket(liveWebsocketUrl(token));
     let settled = false;
-    let opened = false;
     let timer = 0;
 
     const finish = (error, session) => {
@@ -151,9 +150,7 @@ export async function connectCoachLiveSession({
         finish(error instanceof Error ? error : new Error('Failed to start coach session'));
         return;
       }
-      opened = true;
-      callbacks.onopen?.();
-      finish(null, new CoachLiveSession(socket));
+
     });
 
     socket.addEventListener('message', (event) => {
@@ -162,7 +159,16 @@ export async function connectCoachLiveSession({
           return;
         }
         try {
-          callbacks.onmessage?.(JSON.parse(text));
+          const message = JSON.parse(text);
+          if (message.error) {
+            finish(new Error(message.error.message || 'Coach setup rejected'));
+            return;
+          }
+          if (message.setupComplete && !settled) {
+            callbacks.onopen?.();
+            finish(null, new CoachLiveSession(socket));
+          }
+          callbacks.onmessage?.(message);
         } catch {
           // ignore malformed frames
         }
@@ -170,19 +176,19 @@ export async function connectCoachLiveSession({
     });
 
     socket.addEventListener('error', () => {
-      if (opened) {
+      if (settled) {
         callbacks.onerror?.();
         return;
       }
       finish(new Error('Coach websocket failed'));
     });
 
-    socket.addEventListener('close', () => {
-      if (opened) {
+    socket.addEventListener('close', (event) => {
+      if (settled) {
         callbacks.onclose?.();
         return;
       }
-      finish(new Error('Coach websocket closed'));
+      finish(new Error(`Coach setup closed (${event.code}): ${event.reason || 'no reason'}`));
     });
   });
 }

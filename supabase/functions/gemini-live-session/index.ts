@@ -164,13 +164,9 @@ Deno.serve(async (req) => {
         config: {
           responseModalities: ['AUDIO'],
           systemInstruction: SYSTEM_INSTRUCTION,
-          outputAudioTranscription: {},
-          speechConfig: {
-            languageCode: 'th-TH',
-            voiceConfig: {
-              prebuiltVoiceConfig: {
-                voiceName: 'Zubenelgenubi',
-              },
+          realtimeInputConfig: {
+            automaticActivityDetection: {
+              disabled: true,
             },
           },
         },

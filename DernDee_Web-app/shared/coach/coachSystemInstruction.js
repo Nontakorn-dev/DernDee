@@ -72,15 +72,22 @@ export const COACH_LIVE_SPEECH_CONFIG = {
 };
 
 export function buildCoachLiveSessionConfig(options = {}) {
-  return {
-    responseModalities: options.responseModalities ?? ['AUDIO'],
+  const responseModalities = options.responseModalities ?? ['AUDIO'];
+  const config = {
+    responseModalities,
     systemInstruction: COACH_SYSTEM_INSTRUCTION,
-    outputAudioTranscription: {},
-    speechConfig: COACH_LIVE_SPEECH_CONFIG,
     realtimeInputConfig: {
       automaticActivityDetection: {
         disabled: true,
       },
     },
   };
+
+  // Free Walk plays native Live audio and shows its output transcription.
+  if (responseModalities.includes('AUDIO')) {
+    config.outputAudioTranscription = {};
+    config.speechConfig = COACH_LIVE_SPEECH_CONFIG;
+  }
+
+  return config;
 }

@@ -1,4 +1,7 @@
 export const LIVE_MODEL = 'gemini-3.1-flash-live-preview';
+export const TTS_MODEL = 'gemini-3.1-flash-tts-preview';
+export const TTS_VOICE_NAME = 'Zubenelgenubi';
+export const TTS_SAMPLE_RATE = 24000;
 
 export const COACH_MODES = {
   LIVE: 'live',
@@ -44,7 +47,14 @@ export const COACH_COOLDOWN_BY_TRIGGER_MS = {
   rest_break: 0,
   periodic: 60_000,
   user_ask: 0,
+  near_end: 20_000,
+  turn_rest: 12_000,
+  walkway_advice: 8_000,
 };
+
+/** Free Walk uses a fixed walkway protocol instead of per-step coaching. */
+export const FREE_WALK_COACH_MODE = 'walkway';
+export const FREE_WALK_WALKWAY_LENGTH_M = 5;
 
 export const COACH_THRESHOLDS = {
   clearanceM: 0.02,
