@@ -116,15 +116,15 @@
   text-transform: uppercase;
 }
 .walk-controls__pause {
-  background: #fff;
-  color: #1e8f76;
-  border: 1.5px solid #d7eee6;
-  box-shadow: 0 10px 22px #16342a14;
+  background: #d7eee4;
+  color: #146a58;
+  border: 1.5px solid #b7ddce;
+  box-shadow: 0 8px 18px #16342a12;
 }
 .walk-controls__pause:hover {
-  background: #f3fbf8;
+  background: #c7e6da;
   transform: translateY(-2px);
-  box-shadow: 0 14px 26px #16342a18;
+  box-shadow: 0 12px 22px #16342a16;
 }
 .walk-controls__ask {
   min-height: 5.25rem;
@@ -153,11 +153,11 @@
   align-items: center;
   justify-content: center;
   gap: .15rem;
-  border: 0;
+  border: 1.5px solid #b7ddce;
   border-radius: 1.35rem;
-  background: #f6faf8;
-  color: #2c4f44;
-  box-shadow: inset 0 1px 0 #fff;
+  background: #d7eee4;
+  color: #146a58;
+  box-shadow: 0 8px 18px #16342a12;
 }
 .walk-step-count__value {
   color: #147a64;
@@ -168,7 +168,7 @@
   letter-spacing: -.03em;
 }
 .walk-step-count__label {
-  color: #7b938a;
+  color: #3f7f6e;
   font-size: .68rem;
   font-weight: 800;
   letter-spacing: .14em;
