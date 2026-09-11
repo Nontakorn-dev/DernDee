@@ -5,19 +5,16 @@ const DEFAULT_STEP_LENGTH_M = 0.5;
 /** Speak clip 14 once the walker is near the 5 m flag. */
 export const WALKWAY_NEAR_END_M = 4.2;
 /**
- * About-face vs walking: freeze the approach heading near the flag, then require
- * the shank to face well away from that heading and stay there.
- * A single extra stride after clip 14 swings yaw a lot, but it comes back.
- * Thresholds stay below a full 180° because a shank IMU under-reads a body turn,
- * and first-leg progress is locked at 0.5 m so a longer stepper reaches the
- * real flag before the cartoon hits 4.2 m.
+ * About-face vs walking: keep tracking the walk heading until the shank leaves
+ * that cone, then require it to stay well away. Do not compare against the
+ * session-start yaw (gyro drift) and do not wait for a quiet stance — a real
+ * about-face happens while the shank is still rotating.
  */
-export const WALKWAY_TURN_YAW_DEG = 125;
-export const WALKWAY_TURN_HOLD_FLOOR_DEG = 95;
+export const WALKWAY_TURN_YAW_DEG = 100;
 export const WALKWAY_TURN_MIN_PROGRESS_M = 3.5;
-export const WALKWAY_WALK_CONE_DEG = 70;
-export const WALKWAY_WALK_REENTER_DEG = 40;
-export const WALKWAY_TURN_AWAY_MS = 200;
+export const WALKWAY_WALK_CONE_DEG = 60;
+export const WALKWAY_WALK_REENTER_DEG = 35;
+export const WALKWAY_TURN_AWAY_MS = 180;
 export const WALKWAY_TURN_HOLD_MS = 250;
 const WALKWAY_HEADING_EMA = 0.025;
 const TURN_COOLDOWN_MS = 8_000;
@@ -160,34 +157,32 @@ export class FreeWalkWalkwayTracker {
       return null;
     }
 
-    if (!this.walkHeadingFrozen) {
-      if (this.walkHeadingDeg == null) {
-        this.walkHeadingDeg = yawDeg;
-      }
-      this.walkHeadingFrozen = true;
+    if (this.walkHeadingDeg == null) {
+      this.walkHeadingDeg = yawDeg;
     }
 
     const cooledDown = this.lastTurnAtMs == null || now - this.lastTurnAtMs >= TURN_COOLDOWN_MS;
     if (!cooledDown) {
+      this.followWalkHeading(yawDeg);
       this.clearTurnWatch();
       return null;
     }
 
-    const headingOffset = Math.abs(unwrapDeltaDeg(this.walkHeadingDeg, yawDeg));
-    const startOffset = this.yawBaselineDeg == null
-      ? 0
-      : Math.abs(unwrapDeltaDeg(this.yawBaselineDeg, yawDeg));
-    const offset = Math.max(headingOffset, startOffset);
+    const offset = Math.abs(unwrapDeltaDeg(this.walkHeadingDeg, yawDeg));
 
-    // Hysteresis: a pivot can dip toward the old heading without cancelling the turn.
     if (offset < WALKWAY_WALK_REENTER_DEG) {
+      this.followWalkHeading(yawDeg);
+      this.walkHeadingFrozen = false;
       this.clearTurnWatch();
       return null;
     }
 
-    if (offset < WALKWAY_WALK_CONE_DEG && this.turnLeftWalkAtMs == null) {
+    if (offset < WALKWAY_WALK_CONE_DEG && !this.walkHeadingFrozen) {
+      this.followWalkHeading(yawDeg);
       return null;
     }
+
+    this.walkHeadingFrozen = true;
 
     if (this.turnLeftWalkAtMs == null) {
       this.turnLeftWalkAtMs = now;
@@ -198,10 +193,7 @@ export class FreeWalkWalkwayTracker {
       return null;
     }
 
-    const holdFloor = this.turnHoldStartedAtMs == null
-      ? WALKWAY_TURN_YAW_DEG
-      : WALKWAY_TURN_HOLD_FLOOR_DEG;
-    if (offset < holdFloor) {
+    if (offset < WALKWAY_TURN_YAW_DEG) {
       this.turnHoldStartedAtMs = null;
       return null;
     }

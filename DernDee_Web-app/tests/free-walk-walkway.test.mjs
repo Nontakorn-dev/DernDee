@@ -118,14 +118,14 @@ test('a step burst past 4.2 m still fires near-end', () => {
   assert.equal(result.progressM, 5)
 })
 
-test('yaw 120 deg is not an about-face', () => {
+test('yaw 90 deg is not an about-face', () => {
   const walkway = new FreeWalkWalkwayTracker()
   for (let step = 1; step <= 9; step += 1) {
     walkway.ingestStep({ stepCount: step, stepLength: 0.9 }, 2_000 + step)
   }
 
-  ingestYawArc(walkway, 0, 120, 3_000, 4_200, 8)
-  assert.equal(walkway.ingestYaw(120, 4_500), null)
+  ingestYawArc(walkway, 0, 90, 3_000, 4_200, 8)
+  assert.equal(walkway.ingestYaw(90, 4_500), null)
   assert.equal(walkway.progressM, 4.5)
 })
 
@@ -136,11 +136,37 @@ test('a 135 deg about-face after 3.5 m plays turn rest', () => {
   }
 
   let turn = ingestYawArc(walkway, 0, 135, 3_000, 3_800, 8)
-  turn = walkway.ingestYaw(135, 4_050) || turn
-  turn = walkway.ingestYaw(128, 4_200) || turn
-  turn = walkway.ingestYaw(130, 4_400) || turn
+  turn = walkway.ingestYaw(135, 4_200) || turn
+  turn = walkway.ingestYaw(128, 4_400) || turn
+  turn = walkway.ingestYaw(130, 4_700) || turn
   assert.equal(turn?.type, 'turn_rest')
   assert.equal(walkway.snapshot().direction, 'back')
+})
+
+test('yaw drift from the first sample is not an about-face', () => {
+  const walkway = new FreeWalkWalkwayTracker()
+  for (let step = 1; step <= 8; step += 1) {
+    const t = 1_000 + (step * 600)
+    walkway.ingestStep({ stepCount: step, stepLength: 0.9 }, t)
+    for (let i = 0; i < 20; i += 1) {
+      walkway.ingestYaw(((step - 1) * 18) + (i * 0.9), t + (i * 20))
+    }
+  }
+
+  assert.equal(walkway.ingestYaw(140, 8_000), null)
+  assert.equal(walkway.completedLegs.length, 0)
+})
+
+test('an about-face still counts while the shank is rotating', () => {
+  const walkway = new FreeWalkWalkwayTracker()
+  for (let step = 1; step <= 8; step += 1) {
+    walkway.ingestStep({ stepCount: step, stepLength: 0.9 }, 2_000 + step)
+  }
+
+  ingestYawArc(walkway, 0, 140, 3_000, 3_600, 8)
+  let turn = walkway.ingestYaw(140, 3_900, { gyroNormRad: 3.2 })
+  turn = walkway.ingestYaw(138, 4_200, { gyroNormRad: 2.4 }) || turn
+  assert.equal(turn?.type, 'turn_rest')
 })
 
 test('yaw 180 deg before the flag does not complete a leg', () => {

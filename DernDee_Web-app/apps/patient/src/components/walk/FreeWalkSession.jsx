@@ -51,7 +51,7 @@ import { SENSOR_PLACEMENT_GUIDES } from '@shared/sensors/sensorPlacementGuides.j
 
 const TARGET_TIME_SECONDS = 300;
 const COACH_CONSENT_KEY = 'derndee_free_walk_ai_consent_v1';
-const ASK_HANGOVER_MS = 520;
+const ASK_HANGOVER_MS = 280;
 
 function formatTime(seconds) {
   const mins = Math.floor(seconds / 60);
@@ -142,6 +142,7 @@ const FreeWalkSession = () => {
   const lipSyncActiveRef = useRef(false);
   const askHangoverRef = useRef(null);
   const questionSentRef = useRef(false);
+  const askSpeechHeardRef = useRef(false);
   const askCoachActiveRef = useRef(false);
   const askReplyWatchRef = useRef(null);
   const lastAskPromptRef = useRef('');
@@ -276,11 +277,13 @@ const FreeWalkSession = () => {
     setAvatarClipId('idle');
 
     if (!questionSentRef.current) {
+      askSpeechHeardRef.current = false;
       coachClientRef.current?.disarmOutput?.();
     }
 
     lipSyncActiveRef.current = true;
     setLipSyncActive(true);
+    setTalking(false);
   }, []);
 
   const endAskLipSync = useCallback((delayMs = ASK_HANGOVER_MS) => {
@@ -608,7 +611,11 @@ const FreeWalkSession = () => {
             // Audible Live playback is authoritative, including a late reply
             // after the waiting hint timed out.
             questionSentRef.current = true;
-            if (!lipSyncActiveRef.current) beginAskLipSync();
+            askSpeechHeardRef.current = true;
+            if (!lipSyncActiveRef.current) {
+              lipSyncActiveRef.current = true;
+              setLipSyncActive(true);
+            }
             if (askHangoverRef.current) {
               window.clearTimeout(askHangoverRef.current);
               askHangoverRef.current = null;
@@ -617,9 +624,10 @@ const FreeWalkSession = () => {
             return;
           }
 
-          if (nextState === COACH_CONNECTION_STATES.READY && lipSyncActiveRef.current) {
-            setTalking(false);
+          if (nextState === COACH_CONNECTION_STATES.READY && lipSyncActiveRef.current && askSpeechHeardRef.current) {
+            askSpeechHeardRef.current = false;
             questionSentRef.current = false;
+            setTalking(false);
             endAskLipSync();
           }
         },
@@ -744,7 +752,10 @@ const FreeWalkSession = () => {
       return;
     }
 
-    const turnEvent = walkwayRef.current?.ingestYaw(orientation.yawDeg);
+    const turnEvent = walkwayRef.current?.ingestYaw(orientation.yawDeg, Date.now(), {
+      gyroNormRad: orientation.gyroNormRad,
+      pitchDeg: orientation.pitchDeg,
+    });
     const snap = walkwayRef.current?.snapshot();
     if (snap && turnEvent?.type === 'turn_rest') {
       setWalkwayView({

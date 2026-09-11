@@ -3,12 +3,28 @@ function withDeviceSources(clip) {
   if (/\/(14_|15_|16_|17_|18_)/.test(clip.src)) {
     clip = { ...clip, src: `${clip.src.split('?')[0]}?v=v2-turn-20260909` };
   }
+  if (/\/(14_|16_|17_|18_)/.test(clip.src) && clip.inPoint == null) {
+    clip = { ...clip, inPoint: SPEECH_CLIP_IN_POINT_S };
+  }
   const mp4Src = clip.src.replace(/\.webm/i, '.mp4');
   return {
     ...clip,
     srcMp4: mp4Src,
     srcIos: mp4Src.replace(/\.mp4/i, '.ios.mp4'),
   };
+}
+
+/** Skip the closed-mouth rest at the start/end of TALK_SMALL. */
+export const TALK_SMALL_LOOP_START_S = 1.05;
+export const TALK_SMALL_LOOP_END_S = 4.65;
+/** Skip the closed-mouth hold before advice clips start speaking. */
+export const SPEECH_CLIP_IN_POINT_S = 0.28;
+
+export function wrapTalkLoopTime(currentTime, start, end) {
+  if (!Number.isFinite(currentTime) || !Number.isFinite(start) || !Number.isFinite(end) || end <= start) {
+    return currentTime;
+  }
+  return currentTime >= end ? start : currentTime;
 }
 
 export const AVATAR_CLIPS = {
@@ -88,12 +104,16 @@ export const AVATAR_CLIPS = {
     id: 'idle',
     src: '/Avatar/video/11.webm',
     loop: true,
+    silent: true,
     line: '',
   },
   talkSmall: {
     id: 'talkSmall',
-    src: '/Avatar/video/TALK_SMALL.webm?v=convo2',
+    src: '/Avatar/video/TALK_SMALL.webm?v=convo5',
     loop: true,
+    silent: true,
+    loopStart: TALK_SMALL_LOOP_START_S,
+    loopEnd: TALK_SMALL_LOOP_END_S,
     line: '',
   },
   nearEnd: {

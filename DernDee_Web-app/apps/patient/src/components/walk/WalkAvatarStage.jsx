@@ -3,6 +3,7 @@ import {
   AVATAR_CLIPS,
   avatarNeedsCanvasKey,
   getAvatarVideoSrc,
+  wrapTalkLoopTime,
 } from './avatarClips.js';
 
 const MAX_PACKED_WIDTH = 1600;
@@ -56,17 +57,66 @@ function prepareVideo(video, muted = true) {
   }
 
   video.muted = muted;
+  video.defaultMuted = muted;
   video.playsInline = true;
   video.setAttribute('playsinline', 'true');
   video.setAttribute('webkit-playsinline', 'true');
   if (muted) {
     video.setAttribute('muted', '');
+    video.volume = 0;
   } else {
     video.removeAttribute('muted');
   }
 }
 
-function waitForPaintedFrame(video, signal) {
+function fadePlaybackVolume(video, target, ms, signal) {
+  if (!video) {
+    return;
+  }
+
+  const from = Number.isFinite(video.volume) ? video.volume : 0;
+  const to = Math.max(0, Math.min(1, target));
+  if (ms <= 0 || Math.abs(from - to) < 0.02 || signal?.aborted) {
+    video.volume = to;
+    return;
+  }
+
+  const started = performance.now();
+  const tick = (now) => {
+    if (signal?.aborted) {
+      return;
+    }
+    const t = Math.min(1, (now - started) / ms);
+    video.volume = from + ((to - from) * t);
+    if (t < 1) {
+      requestAnimationFrame(tick);
+    }
+  };
+  requestAnimationFrame(tick);
+}
+
+function seekWhenReady(video, time) {
+  if (!video || !Number.isFinite(time) || time <= 0) {
+    return;
+  }
+
+  const apply = () => {
+    try {
+      if (Math.abs(video.currentTime - time) > 0.12) {
+        video.currentTime = time;
+      }
+    } catch {
+      // decoder may not be ready yet
+    }
+  };
+
+  apply();
+  if (video.readyState < 1) {
+    video.addEventListener('loadeddata', apply, { once: true });
+  }
+}
+
+function waitForPaintedFrame(video, signal, expectedTime = 0) {
   return new Promise((resolve) => {
     let raf = 0;
     const started = performance.now();
@@ -79,7 +129,14 @@ function waitForPaintedFrame(video, signal) {
     const check = () => {
       if (signal.aborted) return finish(false);
       // Hidden decoder videos may not receive requestVideoFrameCallback in WebKit.
-      if (video.readyState >= 2 && video.videoWidth && !video.seeking) return finish(true);
+      if (video.readyState >= 2 && video.videoWidth && !video.seeking) {
+        if (expectedTime > 0 && video.currentTime + 0.18 < expectedTime) {
+          seekWhenReady(video, expectedTime);
+          raf = requestAnimationFrame(check);
+          return;
+        }
+        return finish(true);
+      }
       if (video.error || performance.now() - started > 10000) return finish(false);
       raf = requestAnimationFrame(check);
     };
@@ -259,6 +316,11 @@ function CrossfadeStage({
   src,
   loop,
   paused,
+  silent,
+  startAt = 0,
+  loopStart,
+  loopEnd,
+  hardCut = false,
   useCanvasKey,
   mediaClass,
   fillFrame,
@@ -307,8 +369,15 @@ function CrossfadeStage({
     const cleanup = () => { controller.abort(); requestIdRef.current += 1; cancelFade(); };
 
     const reportError = () => { if (!controller.signal.aborted) setPlaybackError(true); };
+    const nativeLoop = Boolean(loop) && !(Number.isFinite(loopStart) && Number.isFinite(loopEnd));
+    const muteAudio = Boolean(loop) || paused || silent;
     const applyFrontAudio = (video) => {
-      prepareVideo(video, Boolean(loop) || paused);
+      prepareVideo(video, muteAudio);
+      if (muteAudio) {
+        video.volume = 0;
+        return;
+      }
+      fadePlaybackVolume(video, 1, 80, controller.signal);
     };
 
     const front = frontRef.current;
@@ -316,7 +385,7 @@ function CrossfadeStage({
 
     videos.forEach((video, index) => {
       if (video) {
-        video.loop = Boolean(loop) && index === front;
+        video.loop = nativeLoop && index === front;
       }
     });
 
@@ -337,7 +406,7 @@ function CrossfadeStage({
 
       const requestId = requestIdRef.current + 1;
       requestIdRef.current = requestId;
-      stillVideo.loop = Boolean(loop);
+      stillVideo.loop = nativeLoop;
       prepareVideo(stillVideo, true);
       if (stillVideo.getAttribute('src') !== src) {
         stillVideo.src = src;
@@ -366,7 +435,7 @@ function CrossfadeStage({
     }
 
     if (activeSrcRef.current === src && frontVideo) {
-      frontVideo.loop = Boolean(loop);
+      frontVideo.loop = nativeLoop;
       applyFrontAudio(frontVideo);
       const playPromise = frontVideo.play();
       playPromise?.catch?.(reportError);
@@ -381,7 +450,8 @@ function CrossfadeStage({
 
     const requestId = requestIdRef.current + 1;
     requestIdRef.current = requestId;
-    incoming.loop = Boolean(loop);
+    incoming.loop = nativeLoop;
+    incoming.volume = 0;
     prepareVideo(incoming, true);
 
     if (incoming.getAttribute('src') !== src) {
@@ -389,11 +459,7 @@ function CrossfadeStage({
       incoming.load();
     }
 
-    try {
-      incoming.currentTime = 0;
-    } catch {
-      // decoder may not be ready yet
-    }
+    seekWhenReady(incoming, startAt);
 
     setSlotSrc((previous) => {
       const next = [...previous];
@@ -407,7 +473,7 @@ function CrossfadeStage({
         prepareVideo(videos[front], true);
         frontRef.current = incomingIndex;
       }
-      incoming.loop = Boolean(loop);
+      incoming.loop = nativeLoop;
       applyFrontAudio(incoming);
       activeSrcRef.current = src;
       setOpacities(incomingIndex === 0 ? [1, 0] : [0, 1]);
@@ -415,13 +481,20 @@ function CrossfadeStage({
     };
 
     const startCover = () => {
-      if (!activeSrcRef.current || incomingIndex === front || window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+      if (
+        hardCut
+        || !activeSrcRef.current
+        || incomingIndex === front
+        || window.matchMedia('(prefers-reduced-motion: reduce)').matches
+      ) {
         finishSwap();
         return;
       }
 
       prepareVideo(videos[front], true);
-      if (!loop) {
+      videos[front].volume = 0;
+      if (!muteAudio) {
+        incoming.volume = 0;
         applyFrontAudio(incoming);
       }
 
@@ -447,7 +520,7 @@ function CrossfadeStage({
     const playPromise = incoming.play();
     playPromise?.catch?.(reportError);
 
-    void waitForPaintedFrame(incoming, controller.signal).then((ready) => {
+    void waitForPaintedFrame(incoming, controller.signal, startAt).then((ready) => {
       if (!ready && !controller.signal.aborted) reportError();
         if (requestIdRef.current !== requestId || !ready) {
         return;
@@ -456,22 +529,63 @@ function CrossfadeStage({
     });
 
     return cleanup;
-  }, [loop, paused, src, retry]);
+  }, [hardCut, loop, loopStart, loopEnd, paused, silent, src, startAt, retry]);
 
   useEffect(() => {
-    const frontVideo = frontRef.current === 0 ? videoARef.current : videoBRef.current;
-    if (!frontVideo || loop) {
+    if (!Number.isFinite(loopStart) || !Number.isFinite(loopEnd) || loopEnd <= loopStart) {
       return undefined;
     }
 
-    const handleEnded = () => onEnded?.();
+    const videos = [videoARef.current, videoBRef.current];
+    let raf = 0;
+    const tick = () => {
+      videos.forEach((video) => {
+        const mediaSrc = video?.currentSrc || video?.getAttribute?.('src') || '';
+        if (!video || video.paused || video.seeking || !/TALK_SMALL/i.test(mediaSrc)) {
+          return;
+        }
+        const wrapped = wrapTalkLoopTime(video.currentTime, loopStart, loopEnd);
+        if (wrapped !== video.currentTime) {
+          try {
+            video.currentTime = wrapped;
+          } catch {
+            // decoder may not be ready yet
+          }
+        }
+      });
+      raf = window.requestAnimationFrame(tick);
+    };
+    raf = window.requestAnimationFrame(tick);
+    return () => window.cancelAnimationFrame(raf);
+  }, [loopEnd, loopStart, src]);
+
+  useEffect(() => {
+    const frontVideo = frontRef.current === 0 ? videoARef.current : videoBRef.current;
+    if (!frontVideo) {
+      return undefined;
+    }
+
+    const handleEnded = () => {
+      if (Number.isFinite(loopStart) && Number.isFinite(loopEnd)) {
+        try {
+          frontVideo.currentTime = loopStart;
+        } catch {
+          // decoder may not be ready yet
+        }
+        const playPromise = frontVideo.play();
+        playPromise?.catch?.(() => {});
+        return;
+      }
+      if (!loop) {
+        onEnded?.();
+      }
+    };
     frontVideo.addEventListener('ended', handleEnded);
 
     return () => {
       frontVideo.removeEventListener('ended', handleEnded);
-
     };
-  }, [loop, onEnded, src, opacities]);
+  }, [loop, loopStart, loopEnd, onEnded, src, opacities]);
 
   return (
     <>
@@ -518,6 +632,11 @@ const WalkAvatarStage = ({
   const videoSrc = useCanvasKey ? clip.srcIos : clip.src;
   const speaking = clipId !== 'idle' || talking;
   const mediaClass = fillFrame ? MEDIA_COVER : MEDIA_CONTAIN;
+  const silent = Boolean(clip.silent) || talking;
+  const startAt = Number.isFinite(clip.loopStart)
+    ? clip.loopStart
+    : (Number.isFinite(clip.inPoint) ? clip.inPoint : 0);
+  const hardCut = talking || Number.isFinite(clip.inPoint);
 
   return (
     <div
@@ -538,6 +657,11 @@ const WalkAvatarStage = ({
         src={videoSrc}
         loop={Boolean(clip.loop)}
         paused={paused}
+        silent={silent}
+        startAt={startAt}
+        loopStart={clip.loopStart}
+        loopEnd={clip.loopEnd}
+        hardCut={hardCut}
         useCanvasKey={useCanvasKey}
         mediaClass={mediaClass}
         fillFrame={fillFrame}

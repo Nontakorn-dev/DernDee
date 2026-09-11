@@ -1,6 +1,26 @@
 const SCHEDULE_LEAD_SEC = 0.04;
 const SPEECH_WINDOW_SEC = 0.02;
 const SPEECH_LOOKAHEAD_SEC = 0.03;
+const EDGE_FADE_SEC = 0.008;
+const CHUNK_EDGE_FADE_SEC = 0.002;
+const STOP_FADE_SEC = 0.016;
+
+export function fadePcmChunkEdges(samples, sampleRate, fadeInSec, fadeOutSec = 0) {
+  const fadeIn = Math.min(samples.length, Math.round(sampleRate * fadeInSec));
+  if (fadeIn >= 2) {
+    for (let index = 0; index < fadeIn; index += 1) {
+      samples[index] *= index / fadeIn;
+    }
+  }
+
+  const fadeOut = Math.min(samples.length, Math.round(sampleRate * fadeOutSec));
+  if (fadeOut >= 2) {
+    const start = samples.length - fadeOut;
+    for (let index = 0; index < fadeOut; index += 1) {
+      samples[start + index] *= 1 - ((index + 1) / fadeOut);
+    }
+  }
+}
 
 export class PcmAudioPlayer {
   constructor(sampleRate = 24000) {
@@ -16,6 +36,19 @@ export class PcmAudioPlayer {
     this.onsetTimes = [];
     this.lastSampleRms = 0;
     this.levelRaf = null;
+    this.outputGain = null;
+  }
+
+  ensureOutputGain() {
+    if (!this.audioContext) {
+      return null;
+    }
+    if (!this.outputGain) {
+      this.outputGain = this.audioContext.createGain();
+      this.outputGain.gain.value = 1;
+      this.outputGain.connect(this.audioContext.destination);
+    }
+    return this.outputGain;
   }
 
   async init() {
@@ -173,17 +206,27 @@ export class PcmAudioPlayer {
       return;
     }
 
+    const now = this.audioContext.currentTime;
+    const restarting = this.nextPlayTime < now + SCHEDULE_LEAD_SEC;
+    fadePcmChunkEdges(
+      samples,
+      this.sampleRate,
+      restarting ? EDGE_FADE_SEC : CHUNK_EDGE_FADE_SEC,
+      CHUNK_EDGE_FADE_SEC,
+    );
+    if (restarting) {
+      this.nextPlayTime = now + SCHEDULE_LEAD_SEC;
+    }
+
     const buffer = this.audioContext.createBuffer(1, samples.length, this.sampleRate);
     buffer.copyToChannel(samples, 0);
 
     const source = this.audioContext.createBufferSource();
     source.buffer = buffer;
-    source.connect(this.audioContext.destination);
-
-    const now = this.audioContext.currentTime;
-    if (this.nextPlayTime < now + SCHEDULE_LEAD_SEC) {
-      this.nextPlayTime = now + SCHEDULE_LEAD_SEC;
-    }
+    const outputGain = this.ensureOutputGain();
+    outputGain.gain.cancelScheduledValues(now);
+    outputGain.gain.setValueAtTime(1, now);
+    source.connect(outputGain);
 
     this.pushWindowLevels(samples, this.nextPlayTime);
     source.start(this.nextPlayTime);
@@ -239,16 +282,22 @@ export class PcmAudioPlayer {
     this.onsetTimes = [];
     this.lastSampleRms = 0;
 
+    const now = this.audioContext?.currentTime ?? 0;
+    if (this.outputGain && this.audioContext) {
+      this.outputGain.gain.cancelScheduledValues(now);
+      this.outputGain.gain.setValueAtTime(Math.max(this.outputGain.gain.value, 0.0001), now);
+      this.outputGain.gain.linearRampToValueAtTime(0.0001, now + STOP_FADE_SEC);
+    }
+
     this.activeSources.forEach((source) => {
       try {
-        source.stop();
+        source.stop(now + STOP_FADE_SEC);
       } catch {
-        // ignore if already stopped
-      }
-      try {
-        source.disconnect();
-      } catch {
-        // ignore disconnect errors
+        try {
+          source.stop();
+        } catch {
+          // ignore if already stopped
+        }
       }
     });
 
@@ -261,6 +310,14 @@ export class PcmAudioPlayer {
 
   destroy() {
     this.stop();
+    if (this.outputGain) {
+      try {
+        this.outputGain.disconnect();
+      } catch {
+        // already disconnected
+      }
+      this.outputGain = null;
+    }
     if (this.audioContext) {
       void this.audioContext.close();
       this.audioContext = null;

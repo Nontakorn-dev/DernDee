@@ -37,6 +37,7 @@ export class GeminiLiveClient {
     this.micProcessor = null;
     this.micSource = null;
     this.micGain = null;
+    this.micSink = null;
     this.lastMicError = null;
   }
 
@@ -70,6 +71,9 @@ export class GeminiLiveClient {
   }
 
   setState(nextState) {
+    if (this.state === nextState) {
+      return;
+    }
     this.state = nextState;
     this.onStateChange?.(nextState);
   }
@@ -410,7 +414,12 @@ export class GeminiLiveClient {
     if (!this.micStreamPromise) {
       const generation = this.micGeneration;
       const pending = navigator.mediaDevices.getUserMedia({
-        audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true },
+        audio: {
+          channelCount: 1,
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
+        },
       }).then((stream) => {
         if (generation !== this.micGeneration) {
           stream.getTracks().forEach((track) => track.stop());
@@ -508,6 +517,13 @@ export class GeminiLiveClient {
       this.micGain.gain.value = 0;
 
       this.micProcessor.onaudioprocess = (event) => {
+        const outputBuffer = event.outputBuffer;
+        if (outputBuffer) {
+          const channels = outputBuffer.numberOfChannels || 1;
+          for (let channel = 0; channel < channels; channel += 1) {
+            outputBuffer.getChannelData(channel).fill(0);
+          }
+        }
         if (!this.micActive || !this.session) {
           return;
         }
@@ -517,8 +533,16 @@ export class GeminiLiveClient {
       };
 
       this.micSource.connect(this.micProcessor);
-      this.micProcessor.connect(this.micGain);
-      this.micGain.connect(this.micAudioContext.destination);
+      // Keep the processor in the graph without routing mic audio to speakers.
+      // ScriptProcessor copies input to output unless we zero it, and some
+      // WebKit builds also ignore a following GainNode of 0.
+      if (typeof this.micAudioContext.createMediaStreamDestination === 'function') {
+        this.micSink = this.micAudioContext.createMediaStreamDestination();
+        this.micProcessor.connect(this.micSink);
+      } else {
+        this.micProcessor.connect(this.micGain);
+        this.micGain.connect(this.micAudioContext.destination);
+      }
       return true;
     } catch (error) {
       this.lastMicError = error;
@@ -559,9 +583,13 @@ export class GeminiLiveClient {
       this.micGain = null;
     }
 
-    if (this.micAudioContext) {
-      void this.micAudioContext.close();
-      this.micAudioContext = null;
+    if (this.micSink) {
+      try {
+        this.micSink.disconnect?.();
+      } catch {
+        // already disconnected
+      }
+      this.micSink = null;
     }
 
     if (this.mediaRecorder && this.mediaRecorder.state !== 'inactive') {
@@ -591,7 +619,11 @@ export class GeminiLiveClient {
 
   disconnect() {
     this.disarmOutput();
-    this.stopPushToTalk();
+    void this.stopPushToTalk();
+    if (this.micAudioContext) {
+      void this.micAudioContext.close();
+      this.micAudioContext = null;
+    }
     this.releaseMicStream();
     this.audioPlayer.destroy();
     this.audioPlayer = new PcmAudioPlayer(24000);
