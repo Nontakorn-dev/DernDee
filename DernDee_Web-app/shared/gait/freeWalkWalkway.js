@@ -5,15 +5,20 @@ const DEFAULT_STEP_LENGTH_M = 0.5;
 /** Speak clip 14 once the walker is near the 5 m flag. */
 export const WALKWAY_NEAR_END_M = 4.2;
 /**
- * About-face vs walking: freeze the approach heading at the flag, then require
- * the shank to face ~180° away from that heading and stay there.
+ * About-face vs walking: freeze the approach heading near the flag, then require
+ * the shank to face well away from that heading and stay there.
  * A single extra stride after clip 14 swings yaw a lot, but it comes back.
+ * Thresholds stay below a full 180° because a shank IMU under-reads a body turn,
+ * and first-leg progress is locked at 0.5 m so a longer stepper reaches the
+ * real flag before the cartoon hits 4.2 m.
  */
-export const WALKWAY_TURN_YAW_DEG = 155;
-export const WALKWAY_TURN_MIN_PROGRESS_M = WALKWAY_NEAR_END_M;
+export const WALKWAY_TURN_YAW_DEG = 125;
+export const WALKWAY_TURN_HOLD_FLOOR_DEG = 95;
+export const WALKWAY_TURN_MIN_PROGRESS_M = 3.5;
 export const WALKWAY_WALK_CONE_DEG = 70;
-export const WALKWAY_TURN_AWAY_MS = 400;
-export const WALKWAY_TURN_HOLD_MS = 500;
+export const WALKWAY_WALK_REENTER_DEG = 40;
+export const WALKWAY_TURN_AWAY_MS = 200;
+export const WALKWAY_TURN_HOLD_MS = 250;
 const WALKWAY_HEADING_EMA = 0.025;
 const TURN_COOLDOWN_MS = 8_000;
 const SHORT_STEP_M = 0.4;
@@ -26,11 +31,50 @@ export const WALKWAY_ADVICE = {
   KEEP: 'keep',
 };
 
+function isPositiveFinite(value) {
+  return Number.isFinite(value) && value > 0;
+}
+
+function stepLengthRegressed(current, previous) {
+  if (isPositiveFinite(current?.stepLengthM) && isPositiveFinite(previous?.stepLengthM)) {
+    return current.stepLengthM < previous.stepLengthM;
+  }
+  return false;
+}
+
+/** Praise keep when this 5 m leg is better than the one before, even below the absolute bars. */
+export function legImprovedVsPrevious(current = {}, previous = null) {
+  if (!previous) {
+    return false;
+  }
+
+  if (isPositiveFinite(current.stepLengthM) && isPositiveFinite(previous.stepLengthM)
+    && current.stepLengthM > previous.stepLengthM) {
+    return true;
+  }
+
+  if (stepLengthRegressed(current, previous)) {
+    return false;
+  }
+
+  const cadenceUp = isPositiveFinite(current.cadenceSpm) && isPositiveFinite(previous.cadenceSpm)
+    && current.cadenceSpm > previous.cadenceSpm;
+  const speedUp = isPositiveFinite(current.speedMps) && isPositiveFinite(previous.speedMps)
+    && current.speedMps > previous.speedMps;
+  return cadenceUp || speedUp;
+}
+
 /**
  * Spatial coaching from a completed 5 m leg: step length = 5 / steps,
  * cadence and speed from that same duration.
+ * Keep also fires when the leg improved vs the previous one, so a 0.2 m
+ * outbound then 0.3 m return is praised instead of asking for 0.4 m / 70 spm.
  */
-export function selectWalkwayAdvice(leg = {}) {
+export function selectWalkwayAdvice(leg = {}, previousLeg = null) {
+  if (legImprovedVsPrevious(leg, previousLeg)) {
+    return WALKWAY_ADVICE.KEEP;
+  }
+
   if (Number.isFinite(leg.stepLengthM) && leg.stepLengthM > 0 && leg.stepLengthM < SHORT_STEP_M) {
     return WALKWAY_ADVICE.LONGER_STEP;
   }
@@ -129,9 +173,19 @@ export class FreeWalkWalkwayTracker {
       return null;
     }
 
-    const offset = Math.abs(unwrapDeltaDeg(this.walkHeadingDeg, yawDeg));
-    if (offset < WALKWAY_WALK_CONE_DEG) {
+    const headingOffset = Math.abs(unwrapDeltaDeg(this.walkHeadingDeg, yawDeg));
+    const startOffset = this.yawBaselineDeg == null
+      ? 0
+      : Math.abs(unwrapDeltaDeg(this.yawBaselineDeg, yawDeg));
+    const offset = Math.max(headingOffset, startOffset);
+
+    // Hysteresis: a pivot can dip toward the old heading without cancelling the turn.
+    if (offset < WALKWAY_WALK_REENTER_DEG) {
       this.clearTurnWatch();
+      return null;
+    }
+
+    if (offset < WALKWAY_WALK_CONE_DEG && this.turnLeftWalkAtMs == null) {
       return null;
     }
 
@@ -139,7 +193,15 @@ export class FreeWalkWalkwayTracker {
       this.turnLeftWalkAtMs = now;
     }
 
-    if (offset < WALKWAY_TURN_YAW_DEG || now - this.turnLeftWalkAtMs < WALKWAY_TURN_AWAY_MS) {
+    if (now - this.turnLeftWalkAtMs < WALKWAY_TURN_AWAY_MS) {
+      this.turnHoldStartedAtMs = null;
+      return null;
+    }
+
+    const holdFloor = this.turnHoldStartedAtMs == null
+      ? WALKWAY_TURN_YAW_DEG
+      : WALKWAY_TURN_HOLD_FLOOR_DEG;
+    if (offset < holdFloor) {
       this.turnHoldStartedAtMs = null;
       return null;
     }
@@ -200,7 +262,8 @@ export class FreeWalkWalkwayTracker {
     const stepLengthM = this.lengthM / steps;
     const cadenceSpm = durationS ? (steps / durationS) * 60 : null;
     const speedMps = durationS ? this.lengthM / durationS : null;
-    const advice = selectWalkwayAdvice({ stepLengthM, cadenceSpm, speedMps });
+    const previousLeg = this.completedLegs[this.completedLegs.length - 1] ?? null;
+    const advice = selectWalkwayAdvice({ stepLengthM, cadenceSpm, speedMps, steps }, previousLeg);
 
     this.calibratedStepLengthM = stepLengthM;
     const leg = {

@@ -153,6 +153,8 @@ const FreeWalkSession = () => {
   const walkwayCueQueueRef = useRef([]);
   const walkwayCueDrainingRef = useRef(false);
   const drainWalkwayCuesRef = useRef(() => {});
+  const playAvatarClipRef = useRef(() => false);
+  const chainedAvatarClipRef = useRef(null);
   const orientationTrackersRef = useRef(new Map());
 
   if (!walkwayRef.current) {
@@ -208,6 +210,7 @@ const FreeWalkSession = () => {
     orientationTrackersRef.current.clear();
     walkwayRef.current?.reset();
     walkwayCueQueueRef.current = [];
+    chainedAvatarClipRef.current = null;
     orchestratorRef.current?.reset();
     legacyCoachRef.current?.reset();
     setSessionMetrics({});
@@ -223,6 +226,10 @@ const FreeWalkSession = () => {
   }, [destroySensorRuntime]);
 
   const handleAvatarEnded = useCallback((endedClipId) => {
+    if (endedClipId && endedClipId !== avatarClipIdRef.current) {
+      return;
+    }
+
     if (endedClipId === 'greeting') {
       greetingPlayedRef.current = true;
     }
@@ -230,6 +237,15 @@ const FreeWalkSession = () => {
     if (avatarFallbackRef.current) {
       window.clearTimeout(avatarFallbackRef.current);
       avatarFallbackRef.current = null;
+    }
+
+    const chained = chainedAvatarClipRef.current;
+    chainedAvatarClipRef.current = null;
+    if (chained) {
+      avatarBusyRef.current = false;
+      if (playAvatarClipRef.current(chained, { replace: true })) {
+        return;
+      }
     }
 
     avatarBusyRef.current = false;
@@ -254,6 +270,7 @@ const FreeWalkSession = () => {
       window.clearTimeout(avatarFallbackRef.current);
       avatarFallbackRef.current = null;
     }
+    chainedAvatarClipRef.current = null;
     avatarBusyRef.current = false;
     avatarClipIdRef.current = 'idle';
     setAvatarClipId('idle');
@@ -284,7 +301,7 @@ const FreeWalkSession = () => {
     }, delayMs);
   }, []);
 
-  const playAvatarClip = useCallback((clip) => {
+  const playAvatarClip = useCallback((clip, options = {}) => {
     if (!clip?.id) {
       return false;
     }
@@ -297,7 +314,7 @@ const FreeWalkSession = () => {
       return false;
     }
 
-    if (avatarBusyRef.current && clip.id !== 'idle') {
+    if (avatarBusyRef.current && clip.id !== 'idle' && !options.replace) {
       return false;
     }
 
@@ -321,6 +338,8 @@ const FreeWalkSession = () => {
 
     return true;
   }, [handleAvatarEnded]);
+
+  playAvatarClipRef.current = playAvatarClip;
 
   const waitUntilAvatarIdle = useCallback(async (timeoutMs = 12_000) => {
     const startedAt = Date.now();
@@ -406,21 +425,17 @@ const FreeWalkSession = () => {
       sessionElapsedRef.current,
     );
 
-    await waitUntilAvatarIdle();
-    await new Promise((resolve) => {
-      window.setTimeout(resolve, 80);
-    });
-
     const adviceDispatch = orchestratorRef.current?.buildWalkwayDispatch(
       'walkway_advice',
       { ...overlaid, walkwayAdvice: advice },
       sessionElapsedRef.current,
     );
-    if (adviceDispatch) {
-      await dispatchCoachLine(adviceDispatch);
-    }
+    const adviceClip = resolveAvatarClip(adviceDispatch);
+    chainedAvatarClipRef.current = adviceClip || null;
+
+    await waitUntilAvatarIdle();
     return true;
-  }, [dispatchCoachLine, playAvatarClip, waitUntilAvatarIdle]);
+  }, [playAvatarClip, waitUntilAvatarIdle]);
 
   const drainWalkwayCues = useCallback(async () => {
     if (walkwayCueDrainingRef.current) {
@@ -1318,7 +1333,6 @@ const FreeWalkSession = () => {
                 direction={walkwayView.direction}
                 dimmed={avatarExpanded}
                 paused={!isActive}
-                legSteps={walkwayView.legSteps}
               />
               {avatarExpanded ? <div className="walk-scene-frost" aria-hidden="true" /> : null}
               <WalkSessionClock timeElapsed={timeElapsed} />

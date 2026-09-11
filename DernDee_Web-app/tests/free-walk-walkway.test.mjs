@@ -28,6 +28,27 @@ test('walkway advice uses 5 m divided by steps then cadence or speed', () => {
   assert.equal(selectWalkwayAdvice({ stepLengthM: 0.5, cadenceSpm: 100, speedMps: 0.83 }), 'keep')
 })
 
+test('walkway keep praises a better leg than the previous one', () => {
+  const first = { stepLengthM: 0.2, cadenceSpm: 50, speedMps: 0.17 }
+  assert.equal(selectWalkwayAdvice(first), 'longer_step')
+  assert.equal(
+    selectWalkwayAdvice({ stepLengthM: 0.3, cadenceSpm: 55, speedMps: 0.28 }, first),
+    'keep',
+  )
+  assert.equal(
+    selectWalkwayAdvice({ stepLengthM: 0.2, cadenceSpm: 50, speedMps: 0.17 }, first),
+    'longer_step',
+  )
+  assert.equal(
+    selectWalkwayAdvice({ stepLengthM: 0.18, cadenceSpm: 80, speedMps: 0.24 }, first),
+    'longer_step',
+  )
+  assert.equal(
+    selectWalkwayAdvice({ stepLengthM: 0.2, cadenceSpm: 62, speedMps: 0.21 }, first),
+    'keep',
+  )
+})
+
 test('first-leg progress ignores noisy accel step length and locks 0.5 m', () => {
   const walkway = new FreeWalkWalkwayTracker()
   const result = walkway.ingestStep({ stepCount: 1, stepLength: 0.9 }, 1_000)
@@ -106,6 +127,20 @@ test('yaw 120 deg is not an about-face', () => {
   ingestYawArc(walkway, 0, 120, 3_000, 4_200, 8)
   assert.equal(walkway.ingestYaw(120, 4_500), null)
   assert.equal(walkway.progressM, 4.5)
+})
+
+test('a 135 deg about-face after 3.5 m plays turn rest', () => {
+  const walkway = new FreeWalkWalkwayTracker()
+  for (let step = 1; step <= 7; step += 1) {
+    walkway.ingestStep({ stepCount: step, stepLength: 0.9 }, 2_000 + step)
+  }
+
+  let turn = ingestYawArc(walkway, 0, 135, 3_000, 3_800, 8)
+  turn = walkway.ingestYaw(135, 4_050) || turn
+  turn = walkway.ingestYaw(128, 4_200) || turn
+  turn = walkway.ingestYaw(130, 4_400) || turn
+  assert.equal(turn?.type, 'turn_rest')
+  assert.equal(walkway.snapshot().direction, 'back')
 })
 
 test('yaw 180 deg before the flag does not complete a leg', () => {
@@ -240,10 +275,12 @@ test('out-and-back laps cycle between trip 1 and trip 2', () => {
   assert.equal(walkwayLapFromLegIndex(2), 1)
 })
 
-test('walker sprite queues at most two extra steps and advances one frame at a time', () => {
-  assert.equal(queuedWalkerSteps(0, 1, 0), 1)
-  assert.equal(queuedWalkerSteps(3, 10, 0), 2)
-  assert.equal(queuedWalkerSteps(8, 0, 1), 1)
+test('walker sprite steps with path movement and stops when progress resets', () => {
+  assert.equal(queuedWalkerSteps(0, 0.5, 0), 1)
+  assert.equal(queuedWalkerSteps(4.5, 5, 0), 1)
+  assert.equal(queuedWalkerSteps(5, 5, 0), 0)
+  assert.equal(queuedWalkerSteps(4, 5, 0), 1)
+  assert.equal(queuedWalkerSteps(5, 0, 1), 0)
   assert.equal(nextWalkerFrame(7), 0)
   assert.equal(nextWalkerFrame(3), 4)
 })

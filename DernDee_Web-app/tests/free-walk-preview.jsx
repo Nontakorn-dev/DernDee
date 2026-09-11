@@ -22,7 +22,7 @@ function Preview() {
     <div style={{ display:'flex', flexWrap:'wrap', gap:12, padding:12 }}>
       <button onClick={() => setClip('greeting')}>เล่นคลิปทักทาย</button>
       <button onClick={() => setClip('nearEnd')}>เล่นคลิปใกล้ถึง</button>
-      <button onClick={() => setClip('turnRest')}>เล่นคลิปกลับตัว</button>
+      <button onClick={() => setClip('turnRest')}>เล่นคลิปกลับตัวแล้วคำแนะนำ</button>
       <button onClick={() => setClip('walkwayFaster0')}>เล่นคลิปเดินกลับ</button>
       <button onClick={() => {setClip('idle');setTalking(false);}}>Idle</button>
       <button onClick={() => setTalking(v => !v)}>สลับตอบคำถาม</button>
@@ -38,12 +38,11 @@ function Preview() {
           lengthM={5}
           direction={progress >= 5 ? 'back' : 'out'}
           paused={paused}
-          legSteps={Math.round(progress * 2)}
         />
         {clip !== 'idle' || talking || active ? <div className="walk-scene-frost" aria-hidden="true" /> : null}
         <WalkSessionClock timeElapsed={42} />
         <div className={`walk-coach-overlay ${clip !== 'idle' || talking || active ? 'is-expanded' : 'is-docked'}`}>
-          <WalkAvatarStage key={packed ? 'packed' : 'webm'} clipId={clip} docked fillFrame renderMode={packed?'packed':'native'} paused={paused&&!talking} talking={talking} onEnded={() => setClip('idle')}/>
+          <WalkAvatarStage key={packed ? 'packed' : 'webm'} clipId={clip} docked fillFrame renderMode={packed?'packed':'native'} paused={paused&&!talking} talking={talking} onEnded={() => setClip((current) => (current === 'turnRest' ? 'walkwayFaster0' : 'idle'))}/>
         </div>
       </div>
       <div className="walk-controls" style={{marginTop:16}}>

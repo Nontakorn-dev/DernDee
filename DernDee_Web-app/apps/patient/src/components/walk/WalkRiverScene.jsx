@@ -39,11 +39,11 @@ function prefersReducedMotion() {
     && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 }
 
-function useWalkPose(legSteps, paused) {
+function useWalkPose(progressM, paused) {
   const [frame, setFrame] = useState(0);
   const [stepping, setStepping] = useState(false);
   const frameRef = useRef(0);
-  const prevStepsRef = useRef(legSteps);
+  const prevProgressRef = useRef(progressM);
   const queueRef = useRef(0);
   const playingRef = useRef(false);
   const timerRef = useRef(0);
@@ -55,17 +55,26 @@ function useWalkPose(legSteps, paused) {
       window.clearTimeout(timerRef.current);
       playingRef.current = false;
       queueRef.current = 0;
+      frameRef.current = 0;
+      setFrame(0);
       setStepping(false);
     };
 
     if (paused) {
       stopPlayback();
-      prevStepsRef.current = legSteps;
+      prevProgressRef.current = progressM;
       return undefined;
     }
 
-    queueRef.current = queuedWalkerSteps(prevStepsRef.current, legSteps, queueRef.current);
-    prevStepsRef.current = legSteps;
+    const previousProgressM = prevProgressRef.current;
+    prevProgressRef.current = progressM;
+
+    if (progressM + 0.05 < previousProgressM) {
+      stopPlayback();
+      return undefined;
+    }
+
+    queueRef.current = queuedWalkerSteps(previousProgressM, progressM, queueRef.current);
 
     const playQueuedStep = () => {
       if (playingRef.current || queueRef.current <= 0) {
@@ -103,7 +112,7 @@ function useWalkPose(legSteps, paused) {
 
     playQueuedStep();
     return undefined;
-  }, [legSteps, paused]);
+  }, [progressM, paused]);
 
   return { frame, stepping };
 }
@@ -114,14 +123,13 @@ const WalkRiverScene = ({
   direction = 'out',
   dimmed = false,
   paused = false,
-  legSteps = 0,
 }) => {
   const track = walkwayTrackPosition({ progressM, lengthM, direction });
   const goingBack = track.facing === 'start';
   const sheetSrc = goingBack ? WALKER_DOWN_SHEET : WALKER_UP_SHEET;
   const stillSrc = goingBack ? WALKER_FRONT_STILL : WALKER_BACK_STILL;
   const hasSheet = useImageExists(sheetSrc);
-  const { frame, stepping } = useWalkPose(legSteps, paused);
+  const { frame, stepping } = useWalkPose(progressM, paused);
   const meters = Math.min(lengthM, Math.max(0, progressM));
 
   return (
