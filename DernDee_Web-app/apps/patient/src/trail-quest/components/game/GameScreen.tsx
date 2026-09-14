@@ -41,7 +41,7 @@ const INITIAL: HudSnapshot = {
   stage: 3,
   chapter: "dorsiflexor",
   progress: 0.42,
-  angle: 8,
+  angle: 0,
   targetAngle: 20,
   phase: "walking",
   holding: false,
@@ -425,15 +425,7 @@ export function GameScreen({
             </div>
           ) : null}
           <GameHud hud={hud} />
-          {allowTouch ? (
-            <div className="pointer-events-none absolute left-1/2 top-14 z-20 -translate-x-1/2 rounded-full bg-amber-50 px-3 py-1 text-[11px] font-bold text-amber-700 shadow landscape:top-[5.5rem]">
-              {chapterId === "combined"
-                ? testKit === "full"
-                  ? "โหมดทดสอบ · นกบินต่ำ + พุ่งสุดแรง + ข้ามเหว"
-                  : "โหมดทดสอบ · นกบินต่ำ + พุ่งสุดแรง"
-                : "โหมดทดสอบระบบ · กดค้างที่จอได้"}
-            </div>
-          ) : sensors.ready ? (
+          {!allowTouch && sensors.ready ? (
             <div className="pointer-events-none absolute left-1/2 top-14 z-20 -translate-x-1/2 rounded-full bg-white/90 px-3 py-1 text-[11px] font-bold text-slate-600 shadow landscape:top-[5.5rem]">
               {sensors.jointLabel} · {sensors.sideLabel}
             </div>

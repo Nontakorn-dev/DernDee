@@ -65,7 +65,7 @@ export function GameHud({ hud }: { hud: HudSnapshot }) {
                 <div className="h-2.5 min-w-0 flex-1 overflow-hidden rounded-full bg-emerald-50/90">
                   <div
                     className="h-full rounded-full bg-emerald-500 transition-[width] duration-75"
-                    style={{ width: `${Math.max(6, ratio * 100)}%` }}
+                    style={{ width: `${Math.max(0, ratio * 100)}%` }}
                   />
                 </div>
                 <div className="text-[13px] font-bold text-slate-500">{hud.targetAngle}°</div>
@@ -250,7 +250,7 @@ function ChargeTube({
         <div className="h-4 overflow-hidden rounded-full bg-emerald-50">
           <div
             className="h-full rounded-full bg-emerald-500 transition-[width] duration-75"
-            style={{ width: `${Math.max(6, ratio * 100)}%` }}
+            style={{ width: `${Math.max(0, ratio * 100)}%` }}
           />
         </div>
         <div className="mt-1.5 flex justify-between text-[11px] font-bold text-gray-400">

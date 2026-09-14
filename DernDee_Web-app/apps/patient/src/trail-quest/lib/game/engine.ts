@@ -34,7 +34,7 @@ import {
   DUCK_SHUFFLE,
   FINISH_TILES,
   HOLD_BONUS_MAX,
-  IDLE_ANGLE,
+  HOLD_REST_ANGLE,
   JUMP_DURATION,
   JUMP_HEIGHT,
   POINTS_PER_JUMP,
@@ -129,7 +129,7 @@ export function createEngine(canvas: HTMLCanvasElement, config: EngineConfig) {
     encounters,
     playerX: Math.max(88, freeWalk || isEnergyRun(config.chapter) ? 88 : firstWait - 230),
     airY: 0,
-    angle: IDLE_ANGLE,
+    angle: HOLD_REST_ANGLE,
     phase: freeWalk ? "walking" : isEnergyRun(config.chapter) ? "running" : "walking",
     holding: false,
     angleInput: "hold",
@@ -285,7 +285,7 @@ export function createEngine(canvas: HTMLCanvasElement, config: EngineConfig) {
     state.airY = 0;
     state.phase = "running";
     state.runRemaining = config.runSeconds;
-    state.angle = state.angleInput === "live" ? 0 : Math.max(IDLE_ANGLE, config.targetAngle * 0.45);
+    state.angle = state.angleInput === "live" ? 0 : HOLD_REST_ANGLE;
   };
 
   const finishAction = () => {
@@ -293,7 +293,7 @@ export function createEngine(canvas: HTMLCanvasElement, config: EngineConfig) {
     state.phase = "running";
     state.runRemaining = config.runSeconds;
     state.holding = false;
-    state.angle = state.angleInput === "live" ? 0 : Math.max(IDLE_ANGLE, config.targetAngle * 0.45);
+    state.angle = state.angleInput === "live" ? 0 : HOLD_REST_ANGLE;
   };
 
   const stopAtUpcoming = (upcoming: Encounter) => {
@@ -371,8 +371,8 @@ export function createEngine(canvas: HTMLCanvasElement, config: EngineConfig) {
       applyCharge(dt, "tired");
 
       if (state.angleInput !== "live" && !state.holding) {
-        if (state.angle > IDLE_ANGLE) {
-          state.angle = Math.max(IDLE_ANGLE, state.angle - DECAY_RATE * dt);
+        if (state.angle > HOLD_REST_ANGLE) {
+          state.angle = Math.max(HOLD_REST_ANGLE, state.angle - DECAY_RATE * dt);
         }
       }
 
@@ -428,8 +428,8 @@ export function createEngine(canvas: HTMLCanvasElement, config: EngineConfig) {
         && state.phase !== "jumping"
         && state.phase !== "ducking"
       ) {
-        if (state.angle > IDLE_ANGLE) {
-          state.angle = Math.max(IDLE_ANGLE, state.angle - DECAY_RATE * dt);
+        if (state.angle > HOLD_REST_ANGLE) {
+          state.angle = Math.max(HOLD_REST_ANGLE, state.angle - DECAY_RATE * dt);
         }
       }
 
@@ -724,10 +724,13 @@ export function createEngine(canvas: HTMLCanvasElement, config: EngineConfig) {
         return;
       }
       state.holding = next;
-      if (next && (state.phase === "waiting" || state.phase === "tired")) {
+      if (!next) {
+        state.angle = HOLD_REST_ANGLE;
+      } else if (state.phase === "waiting" || state.phase === "tired") {
         state.phase = "charging";
         state.bonusThisHold = 0;
       }
+      emit(true);
     },
     setAngleInput(mode: "hold" | "live") {
       state.angleInput = mode;

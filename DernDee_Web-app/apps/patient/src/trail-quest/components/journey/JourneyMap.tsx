@@ -106,12 +106,6 @@ export function JourneyMap() {
           <p className="mt-2 max-w-xl text-[15px] leading-relaxed text-slate-500">
             ก้มหลบนก พุ่งสุดแรง กระโดดข้ามเหว แล้วปลดล็อกด่านต่อไป ความคืบหน้าวันนี้เก็บไว้จนเที่ยงคืน แล้วเริ่มใหม่ทั้งด่าน
           </p>
-          {allowTouch ? (
-            <p className="mt-2 text-sm font-semibold text-amber-600">
-              โหมดทดสอบระบบ · กดค้างที่จอได้ เข้าเล่นจาก Therapy จะต้องใช้เซนเซอร์จริง
-              เลือกชุดป่าจังหวะได้ในตั้งค่า
-            </p>
-          ) : null}
           <div className="mt-4 inline-flex items-center gap-2 rounded-full bg-white px-4 py-2 shadow-lg">
             <span className="text-lg" aria-hidden>
               ⭐
