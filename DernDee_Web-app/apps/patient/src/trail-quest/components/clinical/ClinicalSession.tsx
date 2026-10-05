@@ -1,5 +1,5 @@
 import { SensorGate } from "@trail/components/game/SensorGate";
-import { ClinicalFrame, formatClock, gaugeCeiling } from "@trail/components/clinical/ClinicalFrame";
+import { formatClock, gaugeCeiling } from "@trail/components/clinical/ClinicalFrame";
 import { useTrailQuestSensors } from "@trail/hooks/useTrailQuestSensors";
 import {
   POSE_COPY,
@@ -11,6 +11,8 @@ import {
 import { getStage, type MovementKind } from "@trail/lib/progression";
 import { loadSettings } from "@trail/lib/settings";
 import { trailGuidesForChapter } from "@shared/sensors/sensorPlacementGuides.js";
+import stepdeeLogo from "@shared/assets/images/stepdee-logo.png";
+import { ArrowLeft, Pause, Play, Square } from "lucide-react";
 import { useEffect, useRef, useState, type PointerEvent } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import type { HazardKind } from "@trail/lib/game/types";
@@ -116,6 +118,17 @@ export function ClinicalSession({
     (finishedReps + (session.phase === "hold" ? ratio : 0)) / session.poses.length,
   );
   const shownReps = done ? session.poses.length : Math.min(session.poses.length, finishedReps + (walking ? 0 : 1));
+  const gaugeState = ratio >= 1 ? "success" : ratio >= 0.5 ? "approaching" : "idle";
+  const fillClass = gaugeState === "success"
+    ? "bg-emerald-500"
+    : gaugeState === "approaching"
+      ? "bg-amber-400"
+      : "bg-blue-400";
+  const numberClass = gaugeState === "success"
+    ? "text-emerald-500"
+    : gaugeState === "approaching"
+      ? "text-amber-500"
+      : "text-blue-500";
   const status = done
     ? "ครบตามจำนวนแล้ว"
     : paused
@@ -162,16 +175,29 @@ export function ClinicalSession({
   };
 
   return (
-    <ClinicalFrame backHref={menuHref}>
-      <div className="flex flex-1 flex-col md:grid md:grid-cols-[minmax(240px,340px)_minmax(0,1fr)] md:items-center md:gap-x-8 lg:grid-cols-[minmax(280px,420px)_minmax(0,1fr)] lg:gap-x-14">
-        <div className="px-1 text-center md:col-start-2 md:row-start-1 md:px-0 md:text-left">
-          <p className="text-lg font-bold text-[#1e3344] md:text-3xl">{status}</p>
+    <div
+      className="flex min-h-dvh flex-col bg-gradient-to-b from-blue-50 via-blue-100 to-blue-200 text-gray-800"
+      style={{ fontFamily: "'Prompt', 'Noto Sans Thai', sans-serif" }}
+    >
+      <header className="flex items-center justify-between bg-white px-4 py-3 shadow-xl sm:px-6 sm:py-4 lg:px-12">
+        <div className="flex items-center gap-3">
+          <button
+            type="button"
+            onClick={() => navigate(menuHref)}
+            className="flex h-11 w-11 items-center justify-center rounded-full text-gray-600 hover:bg-gray-100"
+            aria-label="กลับ"
+          >
+            <ArrowLeft className="h-5 w-5" />
+          </button>
+          <img src={stepdeeLogo} alt="StepDee" className="h-10 object-contain sm:h-12" />
         </div>
+        <div className="w-11" />
+      </header>
 
+      <main className="mx-auto grid w-full max-w-7xl flex-1 grid-cols-1 items-center gap-6 p-4 lg:grid-cols-2 lg:gap-16 lg:p-12">
+        <h1 className="text-center text-2xl font-extrabold text-gray-800 sm:text-3xl md:hidden">{status}</h1>
         <div
-          className={`relative mx-auto mt-1 h-[300px] w-full max-w-[340px] shrink-0 touch-none select-none md:col-start-1 md:row-span-3 md:row-start-1 md:mx-0 md:h-[min(68vh,560px)] md:max-w-none ${
-            paused ? "opacity-70" : ""
-          }`}
+          className={`relative flex h-[55vh] min-h-[380px] items-end justify-center touch-none select-none lg:h-[70vh] lg:min-h-[500px] ${paused ? "opacity-70" : ""}`}
           role="button"
           aria-label={copy.action}
           tabIndex={0}
@@ -179,110 +205,109 @@ export function ClinicalSession({
           onPointerUp={release}
           onPointerCancel={release}
         >
-          <div className="absolute bottom-3 left-0 top-3 flex w-8 flex-col justify-between text-right text-[13px] font-semibold text-[#9aafbf] md:w-10 md:text-base">
-            {ticks.slice().reverse().map((tick) => (
-              <span key={tick}>{tick}</span>
-            ))}
-          </div>
-
-          <div className="absolute bottom-0 left-8 top-0 w-[112px] md:left-12 md:w-[148px]">
-            <div className="relative h-full rounded-full bg-white p-[7px] shadow-[0_16px_40px_rgba(90,150,190,0.28)] md:p-2">
-              <div className="relative h-full overflow-hidden rounded-full bg-[#f3f8fc]">
-                {ticks.map((tick) => (
-                  <span
-                    key={tick}
-                    className="absolute left-3 right-3 border-t border-[#d5e4ee]"
-                    style={{ bottom: `${(tick / ceiling) * 100}%` }}
-                  />
-                ))}
-                <div
-                  className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-[#6ec8ea] to-[#e7f7fd] transition-[height] duration-150 ease-out"
-                  style={{ height: `${fill}%` }}
-                />
-                <span
-                  className="absolute left-2 right-2 border-t-2 border-dashed border-[#e85d6a]"
-                  style={{ bottom: `${targetLine}%` }}
-                />
-              </div>
+          <div className="relative mx-auto flex h-full w-full max-w-sm justify-center">
+            <div className="absolute bottom-0 left-0 top-0 flex flex-col justify-between py-4 text-sm font-bold text-gray-400">
+              {ticks.slice().reverse().map((tick) => (
+                <span key={tick}>{tick}</span>
+              ))}
             </div>
-            <div className="absolute left-[62%] top-1/2 z-10 w-max -translate-y-1/2 rounded-[22px] bg-white px-4 py-3 text-left shadow-[0_14px_32px_rgba(70,120,160,0.18)] md:left-[68%] md:px-5 md:py-4">
-              <p className="text-[11px] font-bold tracking-[0.08em] text-[#93a6b4] md:text-xs">มุมขณะนี้</p>
-              <p className="mt-0.5 flex items-start leading-none">
-                <span className="text-[2.65rem] font-bold tabular-nums text-[#2f6fed] md:text-6xl">{Math.round(session.angle)}</span>
-                <span className="mt-1 text-[1.35rem] font-bold leading-none text-[#2f6fed] md:mt-2 md:text-3xl">°</span>
-              </p>
-              <p className="text-xs font-semibold text-[#8aa0b0] md:text-sm">เป้าหมาย {session.targetAngle}°</p>
+
+            <div className={`relative ml-12 h-full w-32 overflow-hidden rounded-full border-8 border-white bg-gray-100/50 shadow-2xl lg:w-40 ${
+              gaugeState === "success" ? "shadow-[0_0_30px_rgba(16,185,129,0.6)]" : ""
+            }`}
+            >
+              <div
+                className="absolute inset-0 opacity-10"
+                style={{ backgroundImage: "linear-gradient(#000 1px, transparent 1px)", backgroundSize: "100% 10%" }}
+              />
+              <div
+                className="absolute left-0 right-0 z-20 border-t-4 border-dashed border-red-500"
+                style={{ bottom: `${targetLine}%` }}
+              />
+              <div
+                className={`absolute bottom-0 left-0 right-0 transition-all duration-150 ease-out ${fillClass}`}
+                style={{ height: `${fill}%` }}
+              >
+                <div className="absolute left-0 right-0 top-0 h-2 bg-white/30" />
+              </div>
+              <div className="absolute left-2 top-0 z-30 h-[90%] w-4 rounded-full bg-gradient-to-r from-white/40 to-transparent" />
+            </div>
+
+            <div className="absolute right-0 top-1/2 z-40 -translate-y-1/2 lg:-right-12">
+              <div className={`flex flex-col items-center justify-center rounded-3xl border-2 bg-white p-4 shadow-xl ${
+                gaugeState === "success" ? "border-emerald-400" : "border-white"
+              }`}
+              >
+                <div className="mb-1 text-center text-sm font-bold uppercase tracking-wide text-gray-400">มุมขณะนี้</div>
+                <div className={`flex items-start justify-center text-5xl font-black tabular-nums leading-none ${numberClass}`}>
+                  {Math.round(session.angle)}
+                  <span className="mt-1 text-2xl font-black">°</span>
+                </div>
+                <div className="mt-1 text-sm font-bold text-gray-400">เป้าหมาย {session.targetAngle}°</div>
+              </div>
             </div>
           </div>
         </div>
 
-        <div className="md:col-start-2 md:row-start-2">
-          <section className="mt-3 rounded-[28px] bg-white px-5 py-4 shadow-[0_12px_30px_rgba(80,140,180,0.12)] md:mt-4 md:px-6">
-            <div className="flex items-end justify-between gap-4">
+        <div className="flex w-full flex-col gap-6">
+          <h1 className="hidden text-3xl font-extrabold text-gray-800 md:block">{status}</h1>
+          <section className="rounded-[2rem] bg-white p-6 shadow-xl lg:p-8">
+            <div className="mb-6 flex items-end justify-between">
               <div>
-                <p className="text-[11px] font-bold tracking-[0.14em] text-[#93a6b4]">เวลา</p>
-                <p className="text-[2rem] font-bold leading-none tabular-nums text-[#1e3344] md:text-4xl">{formatClock(elapsed)}</p>
+                <div className="text-sm font-bold uppercase tracking-widest text-gray-400">เวลา</div>
+                <div className="text-4xl font-black tabular-nums text-gray-800 lg:text-6xl">{formatClock(elapsed)}</div>
               </div>
               <div className="text-right">
-                <p className="text-[11px] font-bold tracking-[0.14em] text-[#93a6b4]">ความคืบหน้า</p>
-                <p className="text-[2rem] font-bold leading-none tabular-nums text-[#2f6fed] md:text-4xl">
-                  {shownReps}
-                  <span className="text-[#c5d0d8]">/{session.poses.length}</span>
-                </p>
+                <div className="text-sm font-bold uppercase tracking-widest text-gray-400">ความคืบหน้า</div>
+                <div className="text-3xl font-black text-blue-600 lg:text-4xl">
+                  {shownReps}<span className="text-2xl text-gray-300"> / {session.poses.length}</span>
+                </div>
               </div>
             </div>
-            <div className="mt-3 h-2.5 overflow-hidden rounded-full bg-[#e8eef3]">
+            <div className="h-4 overflow-hidden rounded-full bg-gray-100">
               <div
-                className="h-full rounded-full bg-gradient-to-r from-[#3b82f6] to-[#3dce9a] transition-[width] duration-150 ease-out"
-                style={{ width: `${Math.max(progress > 0 ? 4 : 0, progress * 100)}%` }}
+                className="h-full bg-gradient-to-r from-blue-500 to-emerald-400 transition-all duration-500 ease-out"
+                style={{ width: `${Math.round(progress * 100)}%` }}
               />
             </div>
             {!allowTouch && sensors.ready ? (
-              <p className="mt-1 text-center text-xs text-[#8aa0b0]">{sensors.jointLabel} · {sensors.sideLabel}</p>
+              <p className="mt-3 text-center text-sm font-bold text-gray-400">{sensors.jointLabel} · {sensors.sideLabel}</p>
             ) : null}
           </section>
 
-          <div className="mt-4 grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-2 gap-4">
             {done ? (
               <button
                 type="button"
                 onClick={restart}
-                className="flex h-14 items-center justify-center rounded-2xl bg-[#f6c445] text-base font-extrabold text-[#3c3420] shadow-[0_8px_16px_rgba(214,170,40,0.28)] md:h-16 md:text-lg"
+                className="col-span-2 flex items-center justify-center gap-3 rounded-2xl bg-blue-600 py-6 text-xl font-black text-white shadow-xl"
               >
+                <Play className="h-8 w-8" />
                 ทำอีกครั้ง
               </button>
             ) : (
               <button
                 type="button"
                 onClick={togglePause}
-                className="flex h-14 items-center justify-center gap-2 rounded-2xl bg-[#f6c445] text-base font-extrabold text-[#3c3420] shadow-[0_8px_16px_rgba(214,170,40,0.28)] md:h-16 md:text-lg"
+                className="flex items-center justify-center gap-2 rounded-2xl bg-amber-400 py-6 text-xl font-bold text-white shadow-lg"
               >
-                <span className="flex h-6 w-6 items-center justify-center rounded-md border-2 border-[#3c3420]">
-                  {paused ? (
-                    <span className="ml-0.5 border-y-[5px] border-l-[8px] border-y-transparent border-l-[#3c3420]" />
-                  ) : (
-                    <span className="flex gap-[3px]">
-                      <span className="h-3 w-[3px] rounded-sm bg-[#3c3420]" />
-                      <span className="h-3 w-[3px] rounded-sm bg-[#3c3420]" />
-                    </span>
-                  )}
-                </span>
+                {paused ? <Play className="h-6 w-6" /> : <Pause className="h-6 w-6" />}
                 {paused ? "เดินต่อ" : "พัก"}
               </button>
             )}
-            <button
-              type="button"
-              onClick={() => navigate(menuHref)}
-              className="flex h-14 items-center justify-center gap-2 rounded-2xl bg-[#ef6d64] text-base font-extrabold text-white shadow-[0_8px_16px_rgba(214,80,70,0.28)] md:h-16 md:text-lg"
-            >
-              <span className="flex h-6 w-6 items-center justify-center rounded-md border-2 border-white">
-                <span className="h-2.5 w-2.5 rounded-[2px] bg-white" />
-              </span>
-            หยุด
-          </button>
+            {!done ? (
+              <button
+                type="button"
+                onClick={() => navigate(menuHref)}
+                className="flex items-center justify-center gap-2 rounded-2xl bg-red-500 py-6 text-xl font-bold text-white shadow-lg"
+              >
+                <Square className="h-6 w-6" />
+                หยุด
+              </button>
+            ) : null}
           </div>
         </div>
-      </div>
+      </main>
 
       <SensorGate
         title={sensors.copy.title}
@@ -305,6 +330,6 @@ export function ClinicalSession({
           }
         }}
       />
-    </ClinicalFrame>
+    </div>
   );
 }

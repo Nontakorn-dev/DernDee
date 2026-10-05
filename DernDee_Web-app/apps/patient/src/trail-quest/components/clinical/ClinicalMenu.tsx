@@ -14,8 +14,8 @@ export function ClinicalMenu() {
   return (
     <ClinicalFrame backHref={animatedTrailPath(search)}>
       <div className="px-1 pt-2 md:pt-4">
-        <h1 className="text-[1.85rem] font-bold leading-tight text-[#1e3344] md:text-4xl">แบบฝึกเดิน</h1>
-        <p className="mt-1 max-w-2xl text-base leading-relaxed text-[#5d7384] md:text-lg">
+        <h1 className="text-3xl font-black leading-tight text-gray-800 md:text-4xl">แบบฝึกเดิน</h1>
+        <p className="mt-1 max-w-2xl text-base leading-relaxed text-gray-500 md:text-lg">
           เลือกท่า แล้วทำตามคำบนหน้าจอ
         </p>
       </div>
@@ -24,10 +24,10 @@ export function ClinicalMenu() {
         {CLINICAL_EXERCISES.map((exercise) => {
           const chapter = getChapter(exercise.id);
           return (
-            <li key={exercise.id} className="flex flex-col rounded-[28px] bg-white px-5 py-4 shadow-[0_10px_28px_rgba(80,140,180,0.12)] md:px-6 md:py-5">
-              <p className="text-xs font-bold tracking-[0.16em] text-[#8aa0b0]">ท่าที่ {exercise.order}</p>
-              <h2 className="mt-1 text-[1.55rem] font-bold leading-tight text-[#1e3344]">{exercise.title}</h2>
-              <p className="mt-1 text-[15px] leading-relaxed text-[#5d7384]">{exercise.summary}</p>
+            <li key={exercise.id} className="flex flex-col rounded-[2rem] bg-white px-5 py-5 shadow-xl md:px-6 md:py-6">
+              <p className="text-xs font-bold uppercase tracking-widest text-gray-400">ท่าที่ {exercise.order}</p>
+              <h2 className="mt-1 text-2xl font-black leading-tight text-gray-800">{exercise.title}</h2>
+              <p className="mt-1 text-base leading-relaxed text-gray-500">{exercise.summary}</p>
               <div className="mt-auto flex flex-wrap items-center gap-2 pt-4">
                 <Link
                   to={clinicalPlayPath(exercise.id, 1, search)}

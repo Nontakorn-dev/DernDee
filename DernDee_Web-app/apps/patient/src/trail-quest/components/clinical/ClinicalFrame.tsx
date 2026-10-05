@@ -11,22 +11,25 @@ export function ClinicalFrame({
 }) {
   return (
     <div
-      className="flex min-h-dvh flex-col bg-gradient-to-b from-[#f5fbff] via-[#e7f4fb] to-[#d5ebf8] text-[#243044]"
+      className="flex min-h-dvh flex-col bg-gradient-to-b from-blue-50 via-blue-100 to-blue-200 text-gray-800"
       style={{ fontFamily: "'Prompt', 'Noto Sans Thai', sans-serif" }}
     >
-      <header className="flex items-center justify-between bg-white/95 px-4 py-3 shadow-[0_1px_0_rgba(180,205,220,0.7)] md:px-8 lg:px-12">
-        <img src={stepdeeLogo} alt="StepDee" className="h-8 w-auto object-contain md:h-10" />
-        <Link
-          to={backHref}
-          aria-label="กลับ"
-          className="flex h-11 w-11 items-center justify-center rounded-full bg-[#eef6fb] text-[#5b7386] md:h-12 md:w-12"
-        >
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden>
-            <path d="M15 6 9 12l6 6" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" />
-          </svg>
-        </Link>
+      <header className="flex items-center justify-between bg-white px-4 py-3 shadow-xl sm:px-6 sm:py-4 lg:px-12">
+        <div className="flex items-center gap-3">
+          <Link
+            to={backHref}
+            aria-label="กลับ"
+            className="flex h-11 w-11 items-center justify-center rounded-full text-gray-600 hover:bg-gray-100"
+          >
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden>
+              <path d="M15 6 9 12l6 6" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+          </Link>
+          <img src={stepdeeLogo} alt="StepDee" className="h-10 object-contain sm:h-12" />
+        </div>
+        <div className="w-11" />
       </header>
-      <div className="mx-auto flex w-full max-w-md flex-1 flex-col px-4 pb-[max(1.25rem,env(safe-area-inset-bottom))] pt-3 md:max-w-3xl md:px-8 lg:max-w-5xl lg:px-10">
+      <div className="mx-auto w-full max-w-7xl flex-1 px-4 py-6 sm:px-6 lg:px-12 lg:py-10">
         {children}
       </div>
     </div>
