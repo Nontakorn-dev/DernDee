@@ -38,6 +38,12 @@ const JourneyMap = lazy(() =>
 const PlayClient = lazy(() =>
   import('@trail/components/game/PlayClient').then((module) => ({ default: module.PlayClient })),
 )
+const ClinicalMenu = lazy(() =>
+  import('@trail/components/clinical/ClinicalMenu').then((module) => ({ default: module.ClinicalMenu })),
+)
+const ClinicalPlay = lazy(() =>
+  import('@trail/components/clinical/ClinicalPlay').then((module) => ({ default: module.ClinicalPlay })),
+)
 
 function PageFallback() {
   return <div className="min-h-screen bg-[#D7E6F2]" />
@@ -141,12 +147,24 @@ const router = createBrowserRouter([
     element: <ProtectedRoute><JourneyMap /></ProtectedRoute>
   },
   {
+    path: "/game/trail/no-animation",
+    element: <ProtectedRoute><ClinicalMenu /></ProtectedRoute>
+  },
+  {
     path: "/map",
     element: <ProtectedRoute><JourneyMap /></ProtectedRoute>
   },
   {
+    path: "/map/no-animation",
+    element: <ProtectedRoute><ClinicalMenu /></ProtectedRoute>
+  },
+  {
     path: "/play",
     element: <ProtectedRoute><PlayClient /></ProtectedRoute>
+  },
+  {
+    path: "/play/no-animation",
+    element: <ProtectedRoute><ClinicalPlay /></ProtectedRoute>
   }
 ])
 
