@@ -4,9 +4,11 @@ import type { ReactNode } from "react";
 
 export function ClinicalFrame({
   backHref,
+  actions,
   children,
 }: {
   backHref: string;
+  actions?: ReactNode;
   children: ReactNode;
 }) {
   return (
@@ -27,7 +29,7 @@ export function ClinicalFrame({
           </Link>
           <img src={stepdeeLogo} alt="StepDee" className="h-10 object-contain sm:h-12" />
         </div>
-        <div className="w-11" />
+        <div className="flex items-center">{actions}</div>
       </header>
       <div className="mx-auto w-full max-w-7xl flex-1 px-4 py-6 sm:px-6 lg:px-12 lg:py-10">
         {children}

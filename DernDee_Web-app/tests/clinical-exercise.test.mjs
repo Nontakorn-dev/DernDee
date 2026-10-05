@@ -2,6 +2,8 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import {
   CLINICAL_EXERCISES,
+  clinicalMenuPath,
+  clinicalPlayPath,
   createClinicalSession,
   poseSequence,
   tickClinical,
@@ -43,6 +45,14 @@ test('a released hold rests at 0 and a finished hold starts the walk interval', 
   assert.equal(reached.phase, 'walk')
   assert.equal(reached.angle, 0)
   assert.equal(reached.walkLeft, 5)
+})
+
+test('formal practice stays on the normal game paths', () => {
+  assert.equal(
+    clinicalPlayPath('dorsiflexor', 1, 'input=touch'),
+    '/play?input=touch&chapter=dorsiflexor&stage=1',
+  )
+  assert.equal(clinicalMenuPath('input=touch'), '/game/trail?input=touch')
 })
 
 test('the last hold ends the exercise instead of asking for another walk', () => {

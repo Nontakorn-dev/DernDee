@@ -1,10 +1,12 @@
 import { ClinicalFrame } from "@trail/components/clinical/ClinicalFrame";
+import { TrailSettingsButton } from "@trail/components/game/SettingsModal";
 import {
   CLINICAL_EXERCISES,
   animatedTrailPath,
   clinicalPlayPath,
 } from "@trail/lib/clinicalExercise.js";
 import { getChapter } from "@trail/lib/progression";
+import { isTouchInputParam } from "@trail/lib/sensorInput";
 import { Link, useSearchParams } from "react-router-dom";
 
 export function ClinicalMenu() {
@@ -12,7 +14,10 @@ export function ClinicalMenu() {
   const search = params.toString();
 
   return (
-    <ClinicalFrame backHref={animatedTrailPath(search)}>
+    <ClinicalFrame
+      backHref={animatedTrailPath(search)}
+      actions={<TrailSettingsButton showTestKit={isTouchInputParam(params)} />}
+    >
       <div className="px-1 pt-2 md:pt-4">
         <h1 className="text-3xl font-black leading-tight text-gray-800 md:text-4xl">แบบฝึกเดิน</h1>
         <p className="mt-1 max-w-2xl text-base leading-relaxed text-gray-500 md:text-lg">

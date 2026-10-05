@@ -117,14 +117,14 @@ export function clinicalMenuPath(search = '') {
   params.delete('chapter');
   params.delete('stage');
   const query = params.toString();
-  return query ? `/game/trail/no-animation?${query}` : '/game/trail/no-animation';
+  return query ? `/game/trail?${query}` : '/game/trail';
 }
 
 export function clinicalPlayPath(chapter, stage, search = '') {
   const params = new URLSearchParams(search);
   params.set('chapter', chapter);
   params.set('stage', String(stage));
-  return `/play/no-animation?${params.toString()}`;
+  return `/play?${params.toString()}`;
 }
 
 export function animatedTrailPath(search = '') {

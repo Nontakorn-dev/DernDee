@@ -296,6 +296,8 @@ export function JourneyMap() {
           setTestKit(kit);
           writeSettings({ testKit: kit });
         }}
+        animation={loadSettings().animation}
+        onAnimationChange={(enabled) => writeSettings({ animation: enabled })}
       />
       <SensorPlacementSheet
         open={Boolean(guide)}

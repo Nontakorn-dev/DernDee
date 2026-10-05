@@ -1,5 +1,6 @@
 import { SensorGate } from "@trail/components/game/SensorGate";
 import { formatClock, gaugeCeiling } from "@trail/components/clinical/ClinicalFrame";
+import { TrailSettingsButton } from "@trail/components/game/SettingsModal";
 import { useTrailQuestSensors } from "@trail/hooks/useTrailQuestSensors";
 import {
   POSE_COPY,
@@ -191,7 +192,7 @@ export function ClinicalSession({
           </button>
           <img src={stepdeeLogo} alt="StepDee" className="h-10 object-contain sm:h-12" />
         </div>
-        <div className="w-11" />
+        <TrailSettingsButton showTestKit={allowTouch} />
       </header>
 
       <main className="mx-auto grid w-full max-w-7xl flex-1 grid-cols-1 items-center gap-6 p-4 lg:grid-cols-2 lg:gap-16 lg:p-12">

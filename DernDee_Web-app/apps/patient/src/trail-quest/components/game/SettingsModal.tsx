@@ -1,6 +1,8 @@
 import { HeaderIconButton } from "@trail/components/game/GameHeader";
 import { CHARACTERS, type CharacterId } from "@trail/lib/game/characters";
+import { loadSettings, SETTINGS_EVENT, writeSettings } from "@trail/lib/settings";
 import type { TrailKit } from "@trail/lib/trailKit";
+import { useEffect, useState } from "react";
 
 export function SettingsButton({ onClick }: { onClick: () => void }) {
   return (
@@ -32,6 +34,8 @@ export function SettingsModal({
   showTestKit = false,
   testKit = "full",
   onTestKitChange,
+  animation = true,
+  onAnimationChange,
 }: {
   open: boolean;
   muted: boolean;
@@ -42,6 +46,8 @@ export function SettingsModal({
   showTestKit?: boolean;
   testKit?: TrailKit;
   onTestKitChange?: (kit: TrailKit) => void;
+  animation?: boolean;
+  onAnimationChange?: (enabled: boolean) => void;
 }) {
   if (!open) return null;
 
@@ -95,6 +101,35 @@ export function SettingsModal({
               <span
                 className={`absolute top-0.5 h-6 w-6 rounded-full bg-white shadow transition-transform ${
                   muted ? "left-0.5" : "left-[1.35rem]"
+                }`}
+              />
+            </span>
+          </button>
+        </section>
+
+        <section className="mt-6">
+          <div className="text-xs font-bold uppercase tracking-wide text-slate-400">รูปแบบ</div>
+          <button
+            type="button"
+            role="switch"
+            aria-checked={!animation}
+            onClick={() => onAnimationChange?.(!animation)}
+            className="mt-2 flex w-full items-center justify-between rounded-2xl bg-slate-50 px-4 py-3"
+          >
+            <div className="text-left">
+              <div className="text-[15px] font-bold text-slate-800">ไม่ใช้แอนิเมชัน</div>
+              <div className="text-sm text-slate-500">
+                {animation ? "ปิดอยู่ เล่นเป็นเกมการ์ตูน" : "เปิดอยู่ แบบฝึกตัวเลข"}
+              </div>
+            </div>
+            <span
+              className={`relative h-7 w-12 rounded-full transition-colors ${
+                animation ? "bg-slate-300" : "bg-emerald-500"
+              }`}
+            >
+              <span
+                className={`absolute top-0.5 h-6 w-6 rounded-full bg-white shadow transition-transform ${
+                  animation ? "left-0.5" : "left-[1.35rem]"
                 }`}
               />
             </span>
@@ -173,5 +208,35 @@ export function SettingsModal({
         </button>
       </div>
     </div>
+  );
+}
+
+export function TrailSettingsButton({ showTestKit = false }: { showTestKit?: boolean }) {
+  const [open, setOpen] = useState(false);
+  const [settings, setSettings] = useState(() => loadSettings());
+
+  useEffect(() => {
+    const sync = () => setSettings(loadSettings());
+    window.addEventListener(SETTINGS_EVENT, sync);
+    return () => window.removeEventListener(SETTINGS_EVENT, sync);
+  }, []);
+
+  return (
+    <>
+      <SettingsButton onClick={() => setOpen(true)} />
+      <SettingsModal
+        open={open}
+        muted={settings.muted}
+        character={settings.character}
+        onClose={() => setOpen(false)}
+        onMutedChange={(muted) => setSettings(writeSettings({ muted }))}
+        onCharacterChange={(id) => setSettings(writeSettings({ character: id }))}
+        showTestKit={showTestKit}
+        testKit={settings.testKit}
+        onTestKitChange={(kit) => setSettings(writeSettings({ testKit: kit }))}
+        animation={settings.animation}
+        onAnimationChange={(enabled) => setSettings(writeSettings({ animation: enabled }))}
+      />
+    </>
   );
 }

@@ -443,6 +443,8 @@ export function GameScreen({
         showTestKit={allowTouch}
         testKit={testKit}
         onTestKitChange={setTestKitPref}
+        animation={loadSettings().animation}
+        onAnimationChange={(enabled) => writeSettings({ animation: enabled })}
       />
 
       {paused ? (
